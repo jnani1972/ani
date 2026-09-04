@@ -26,7 +26,7 @@ typedef struct {
     bool found;
 } ens_lang_check_t;
 
-static void check_objectscript_node(const cbm_gbuf_node_t *node, void *userdata) {
+static void check_objectscript_node(const ani_gbuf_node_t *node, void *userdata) {
     ens_lang_check_t *s = (ens_lang_check_t *)userdata;
     if (s->found || !node->file_path)
         return;
@@ -40,9 +40,9 @@ static void check_objectscript_node(const cbm_gbuf_node_t *node, void *userdata)
 
 /* Return true when the graph buffer contains at least one node from an
  * ObjectScript source file (.cls / .mac / .int). */
-static bool has_objectscript_nodes(cbm_gbuf_t *gbuf) {
+static bool has_objectscript_nodes(ani_gbuf_t *gbuf) {
     ens_lang_check_t state = {false};
-    cbm_gbuf_foreach_node(gbuf, check_objectscript_node, &state);
+    ani_gbuf_foreach_node(gbuf, check_objectscript_node, &state);
     return state.found;
 }
 
@@ -52,27 +52,27 @@ static const char *TOPOLOGY_SETTINGS[] = {"TargetConfigName", "TargetConfigNames
 static const char *ENTRY_POINTS[] = {"OnProcessInput", "OnMessage", "OnRequest", "OnTask", NULL};
 
 typedef struct {
-    char setting_name[CBM_SZ_256];
-    char value[CBM_SZ_256];
+    char setting_name[ANI_SZ_256];
+    char value[ANI_SZ_256];
 } ens_setting_t;
 
 typedef struct {
-    char item_name[CBM_SZ_256];
-    char class_name[CBM_SZ_256];
+    char item_name[ANI_SZ_256];
+    char class_name[ANI_SZ_256];
     bool enabled;
     ens_setting_t settings[MAX_SETTINGS];
     int n_settings;
 } ens_item_t;
 
 typedef struct {
-    char production_class[CBM_SZ_256];
-    char file_path[CBM_SZ_512];
+    char production_class[ANI_SZ_256];
+    char file_path[ANI_SZ_512];
     ens_item_t items[MAX_ITEMS];
     int n_items;
 } ens_prod_def_t;
 
 static void extract_xml_attr(const char *xml, int offset, const char *attr, char *out, int outsz) {
-    char needle[CBM_SZ_64];
+    char needle[ANI_SZ_64];
     snprintf(needle, sizeof(needle), "%s=\"", attr);
     out[0] = '\0';
     const char *tag = xml + offset;
@@ -106,7 +106,7 @@ static ens_prod_def_t *parse_production_xml(const char *xml, const char *class_q
     ens_prod_def_t *def = calloc(1, sizeof(ens_prod_def_t));
     if (!def)
         return NULL;
-    snprintf(def->production_class, CBM_SZ_256, "%s", class_qn);
+    snprintf(def->production_class, ANI_SZ_256, "%s", class_qn);
     snprintf(def->file_path, sizeof(def->file_path), "%s", file_path ? file_path : "");
 
     const char *p = xml;
@@ -120,8 +120,8 @@ static ens_prod_def_t *parse_production_xml(const char *xml, const char *class_q
         item->enabled = true;
 
         int off = (int)(item_start - xml);
-        extract_xml_attr(xml, off, "Name", item->item_name, CBM_SZ_256);
-        extract_xml_attr(xml, off, "ClassName", item->class_name, CBM_SZ_256);
+        extract_xml_attr(xml, off, "Name", item->item_name, ANI_SZ_256);
+        extract_xml_attr(xml, off, "ClassName", item->class_name, ANI_SZ_256);
         char en[16];
         extract_xml_attr(xml, off, "Enabled", en, sizeof(en));
         if (en[0] && strcasecmp(en, "false") == 0)
@@ -143,9 +143,9 @@ static ens_prod_def_t *parse_production_xml(const char *xml, const char *class_q
             if (!set || set >= item_end)
                 break;
             int soff = (int)(set - xml);
-            char tgt[64], sname[CBM_SZ_256];
+            char tgt[64], sname[ANI_SZ_256];
             extract_xml_attr(xml, soff, "Target", tgt, sizeof(tgt));
-            extract_xml_attr(xml, soff, "Name", sname, CBM_SZ_256);
+            extract_xml_attr(xml, soff, "Name", sname, ANI_SZ_256);
             if (strcmp(tgt, "Host") == 0 && is_topology_setting(sname)) {
                 const char *vs = strchr(set + 9, '>');
                 if (vs) {
@@ -153,9 +153,9 @@ static ens_prod_def_t *parse_production_xml(const char *xml, const char *class_q
                     const char *ve = strstr(vs, "</Setting>");
                     if (ve && ve < item_end) {
                         int vlen = (int)(ve - vs);
-                        if (vlen > 0 && vlen < CBM_SZ_256) {
+                        if (vlen > 0 && vlen < ANI_SZ_256) {
                             ens_setting_t *s = &item->settings[item->n_settings++];
-                            snprintf(s->setting_name, CBM_SZ_256, "%s", sname);
+                            snprintf(s->setting_name, ANI_SZ_256, "%s", sname);
                             memcpy(s->value, vs, (size_t)vlen);
                             s->value[vlen] = '\0';
                         }
@@ -167,7 +167,7 @@ static ens_prod_def_t *parse_production_xml(const char *xml, const char *class_q
         /* Warn when topology settings were truncated at the cap. */
         if (item->n_settings == MAX_SETTINGS && strstr(sp, "<Setting ") != NULL &&
             strstr(sp, "<Setting ") < item_end) {
-            cbm_log_warn("ensemble_routing.parse", "item", item->item_name, "warn",
+            ani_log_warn("ensemble_routing.parse", "item", item->item_name, "warn",
                          "settings truncated at MAX_SETTINGS cap");
         }
         def->n_items++;
@@ -179,14 +179,14 @@ static ens_prod_def_t *parse_production_xml(const char *xml, const char *class_q
     }
     /* Warn when items were truncated at the cap. */
     if (def->n_items == MAX_ITEMS && strstr(p, "<Item ") != NULL) {
-        cbm_log_warn("ensemble_routing.parse", "production", def->production_class, "warn",
+        ani_log_warn("ensemble_routing.parse", "production", def->production_class, "warn",
                      "items truncated at MAX_ITEMS cap");
     }
     return def;
 }
 
 static char *read_file(const char *full_path) {
-    FILE *f = cbm_fopen(full_path, "rb");
+    FILE *f = ani_fopen(full_path, "rb");
     if (!f)
         return NULL;
     fseek(f, 0, SEEK_END);
@@ -210,7 +210,7 @@ static char *read_file(const char *full_path) {
 static const char *jstr(const char *json, const char *key, char *buf, int sz) {
     if (!json || !key)
         return NULL;
-    char needle[CBM_SZ_64];
+    char needle[ANI_SZ_64];
     snprintf(needle, sizeof(needle), "\"%s\":\"", key);
     const char *s = strstr(json, needle);
     if (!s)
@@ -234,14 +234,14 @@ static const ens_item_t *find_item(const ens_prod_def_t *def, const char *name) 
     return NULL;
 }
 
-static int64_t find_entry_point(cbm_pipeline_ctx_t *ctx, const char *class_name) {
+static int64_t find_entry_point(ani_pipeline_ctx_t *ctx, const char *class_name) {
     for (int ei = 0; ENTRY_POINTS[ei]; ei++) {
-        char suffix[CBM_SZ_512];
+        char suffix[ANI_SZ_512];
         snprintf(suffix, sizeof(suffix), "%s.%s", class_name, ENTRY_POINTS[ei]);
 
-        const cbm_gbuf_node_t **nodes = NULL;
+        const ani_gbuf_node_t **nodes = NULL;
         int count = 0;
-        cbm_gbuf_find_by_name(ctx->gbuf, ENTRY_POINTS[ei], (const cbm_gbuf_node_t ***)&nodes,
+        ani_gbuf_find_by_name(ctx->gbuf, ENTRY_POINTS[ei], (const ani_gbuf_node_t ***)&nodes,
                               &count);
         for (int ni = 0; ni < count; ni++) {
             if (nodes[ni]->qualified_name && strcmp(nodes[ni]->qualified_name, suffix) == 0)
@@ -251,38 +251,38 @@ static int64_t find_entry_point(cbm_pipeline_ctx_t *ctx, const char *class_name)
     return 0;
 }
 
-static void emit_async_call(cbm_pipeline_ctx_t *ctx, int64_t src_id, const ens_item_t *item,
+static void emit_async_call(ani_pipeline_ctx_t *ctx, int64_t src_id, const ens_item_t *item,
                             const char *via, double confidence, const char *production_class) {
-    char item_qn[CBM_SZ_512];
+    char item_qn[ANI_SZ_512];
     snprintf(item_qn, sizeof(item_qn), "%s.%s", production_class, item->item_name);
-    char route_qn[CBM_SZ_512];
+    char route_qn[ANI_SZ_512];
     snprintf(route_qn, sizeof(route_qn), "__route__ensemble__%s", item_qn);
-    const cbm_gbuf_node_t *route = cbm_gbuf_find_by_qn(ctx->gbuf, route_qn);
+    const ani_gbuf_node_t *route = ani_gbuf_find_by_qn(ctx->gbuf, route_qn);
     if (!route)
         return;
     char conf_str[32];
     snprintf(conf_str, sizeof(conf_str), "%.2f", confidence);
-    char props[CBM_SZ_512];
+    char props[ANI_SZ_512];
     snprintf(props, sizeof(props),
              "{\"via\":\"%s\",\"production\":\"%s\",\"item_name\":\"%s\","
              "\"confidence\":%s,\"enabled\":%s}",
              via, production_class, item->item_name, conf_str, item->enabled ? "true" : "false");
-    cbm_gbuf_insert_edge(ctx->gbuf, src_id, route->id, "ASYNC_CALLS", props);
+    ani_gbuf_insert_edge(ctx->gbuf, src_id, route->id, "ASYNC_CALLS", props);
 }
 
-static void emit_handles(cbm_pipeline_ctx_t *ctx, const ens_item_t *item,
+static void emit_handles(ani_pipeline_ctx_t *ctx, const ens_item_t *item,
                          const char *production_class) {
     int64_t method_id = find_entry_point(ctx, item->class_name);
     if (!method_id)
         return;
-    char item_qn[CBM_SZ_512];
+    char item_qn[ANI_SZ_512];
     snprintf(item_qn, sizeof(item_qn), "%s.%s", production_class, item->item_name);
-    char route_qn[CBM_SZ_512];
+    char route_qn[ANI_SZ_512];
     snprintf(route_qn, sizeof(route_qn), "__route__ensemble__%s", item_qn);
-    const cbm_gbuf_node_t *route = cbm_gbuf_find_by_qn(ctx->gbuf, route_qn);
+    const ani_gbuf_node_t *route = ani_gbuf_find_by_qn(ctx->gbuf, route_qn);
     if (!route)
         return;
-    cbm_gbuf_insert_edge(ctx->gbuf, method_id, route->id, "HANDLES", NULL);
+    ani_gbuf_insert_edge(ctx->gbuf, method_id, route->id, "HANDLES", NULL);
 }
 
 /* Scan a .cls source file for SendRequestSync call targets and
@@ -297,7 +297,7 @@ static void scan_source_for_send_targets(const char *source, const char *method_
 
     /* Locate the method body */
     const char *body_start = NULL;
-    char needle[CBM_SZ_256];
+    char needle[ANI_SZ_256];
     snprintf(needle, sizeof(needle), "Method %s(", method_name);
     body_start = strstr(source, needle);
     if (!body_start) {
@@ -373,7 +373,7 @@ static void scan_initial_expression(const char *source, const char *prop_name, c
     out[0] = '\0';
     if (!source || !prop_name)
         return;
-    char needle[CBM_SZ_256];
+    char needle[ANI_SZ_256];
     snprintf(needle, sizeof(needle), "Property %s ", prop_name);
     const char *p = strstr(source, needle);
     if (!p) {
@@ -399,36 +399,36 @@ static void scan_initial_expression(const char *source, const char *prop_name, c
     out[len] = '\0';
 }
 
-static void collect_prod_defs(cbm_pipeline_ctx_t *ctx, ens_prod_def_t ***defs_out, int *count_out) {
-    const cbm_gbuf_node_t **xdata_nodes = NULL;
+static void collect_prod_defs(ani_pipeline_ctx_t *ctx, ens_prod_def_t ***defs_out, int *count_out) {
+    const ani_gbuf_node_t **xdata_nodes = NULL;
     int xdata_count = 0;
-    cbm_gbuf_find_by_label(ctx->gbuf, "XData", (const cbm_gbuf_node_t ***)&xdata_nodes,
+    ani_gbuf_find_by_label(ctx->gbuf, "XData", (const ani_gbuf_node_t ***)&xdata_nodes,
                            &xdata_count);
 
     ens_prod_def_t **defs = NULL;
     int n = 0;
 
     for (int xi = 0; xi < xdata_count; xi++) {
-        const cbm_gbuf_node_t *xd = xdata_nodes[xi];
+        const ani_gbuf_node_t *xd = xdata_nodes[xi];
         if (!xd->name || strcmp(xd->name, "ProductionDefinition") != 0)
             continue;
         if (!xd->file_path || !ctx->repo_path)
             continue;
 
-        char full_path[CBM_SZ_1K];
+        char full_path[ANI_SZ_1K];
         snprintf(full_path, sizeof(full_path), "%s/%s", ctx->repo_path, xd->file_path);
 
         char *source = read_file(full_path);
         if (!source)
             continue;
 
-        char class_qn[CBM_SZ_256];
+        char class_qn[ANI_SZ_256];
         class_qn[0] = '\0';
         if (xd->qualified_name) {
             const char *dot = strrchr(xd->qualified_name, '.');
             if (dot) {
                 int len = (int)(dot - xd->qualified_name);
-                if (len > 0 && len < CBM_SZ_256) {
+                if (len > 0 && len < ANI_SZ_256) {
                     memcpy(class_qn, xd->qualified_name, (size_t)len);
                     class_qn[len] = '\0';
                 }
@@ -454,20 +454,20 @@ static void collect_prod_defs(cbm_pipeline_ctx_t *ctx, ens_prod_def_t ***defs_ou
 
         char n_items_buf[32];
         snprintf(n_items_buf, sizeof(n_items_buf), "%d", def->n_items);
-        cbm_log_info("ensemble_routing.parse", "class", class_qn, "items", n_items_buf);
+        ani_log_info("ensemble_routing.parse", "class", class_qn, "items", n_items_buf);
 
         for (int i = 0; i < def->n_items; i++) {
             ens_item_t *item = &def->items[i];
-            char item_qn[CBM_SZ_512];
+            char item_qn[ANI_SZ_512];
             snprintf(item_qn, sizeof(item_qn), "%s.%s", class_qn, item->item_name);
-            char route_qn[CBM_SZ_512];
+            char route_qn[ANI_SZ_512];
             snprintf(route_qn, sizeof(route_qn), "__route__ensemble__%s", item_qn);
-            char iprops[CBM_SZ_512];
+            char iprops[ANI_SZ_512];
             snprintf(
                 iprops, sizeof(iprops),
                 "{\"broker\":\"ensemble\",\"class\":\"%s\",\"enabled\":%s,\"production\":\"%s\"}",
                 item->class_name, item->enabled ? "true" : "false", class_qn);
-            cbm_gbuf_upsert_node(ctx->gbuf, "Route", item->item_name, route_qn, xd->file_path,
+            ani_gbuf_upsert_node(ctx->gbuf, "Route", item->item_name, route_qn, xd->file_path,
                                  xd->start_line, 0, iprops);
         }
 
@@ -499,10 +499,10 @@ static bool class_name_matches(const char *haystack, const char *needle) {
     return false;
 }
 
-static bool method_belongs_to_production(const cbm_gbuf_node_t *method, const ens_prod_def_t *def) {
+static bool method_belongs_to_production(const ani_gbuf_node_t *method, const ens_prod_def_t *def) {
     if (!method->properties_json)
         return false;
-    char parent_class[CBM_SZ_512];
+    char parent_class[ANI_SZ_512];
     if (!jstr(method->properties_json, "parent_class", parent_class, sizeof(parent_class)))
         return false;
     for (int i = 0; i < def->n_items; i++) {
@@ -512,7 +512,7 @@ static bool method_belongs_to_production(const cbm_gbuf_node_t *method, const en
     return false;
 }
 
-static void resolve_method_routes(cbm_pipeline_ctx_t *ctx, const cbm_gbuf_node_t *method,
+static void resolve_method_routes(ani_pipeline_ctx_t *ctx, const ani_gbuf_node_t *method,
                                   const char *source, const ens_prod_def_t *def) {
     if (!method->properties_json)
         return;
@@ -521,7 +521,7 @@ static void resolve_method_routes(cbm_pipeline_ctx_t *ctx, const cbm_gbuf_node_t
     if (!strstr(source, "SendRequestSync"))
         return;
 
-    char literal[CBM_SZ_256], prop_name[CBM_SZ_256];
+    char literal[ANI_SZ_256], prop_name[ANI_SZ_256];
     scan_source_for_send_targets(source, method->name, literal, sizeof(literal), prop_name,
                                  sizeof(prop_name));
 
@@ -530,7 +530,7 @@ static void resolve_method_routes(cbm_pipeline_ctx_t *ctx, const cbm_gbuf_node_t
         if (item)
             emit_async_call(ctx, method->id, item, "literal", CONF_LITERAL, def->production_class);
     } else if (prop_name[0]) {
-        char init_expr[CBM_SZ_256];
+        char init_expr[ANI_SZ_256];
         scan_initial_expression(source, prop_name, init_expr, sizeof(init_expr));
         if (init_expr[0]) {
             const ens_item_t *item = find_item(def, init_expr);
@@ -540,7 +540,7 @@ static void resolve_method_routes(cbm_pipeline_ctx_t *ctx, const cbm_gbuf_node_t
     }
 }
 
-void cbm_pipeline_pass_ensemble_routing(cbm_pipeline_ctx_t *ctx) {
+void ani_pipeline_pass_ensemble_routing(ani_pipeline_ctx_t *ctx) {
     if (!ctx || !ctx->gbuf || !ctx->repo_path)
         return;
 
@@ -555,12 +555,12 @@ void cbm_pipeline_pass_ensemble_routing(cbm_pipeline_ctx_t *ctx) {
     if (n_defs == 0)
         return;
 
-    const cbm_gbuf_node_t **method_nodes = NULL;
+    const ani_gbuf_node_t **method_nodes = NULL;
     int method_count = 0;
-    cbm_gbuf_find_by_label(ctx->gbuf, "Method", (const cbm_gbuf_node_t ***)&method_nodes,
+    ani_gbuf_find_by_label(ctx->gbuf, "Method", (const ani_gbuf_node_t ***)&method_nodes,
                            &method_count);
 
-    int before = cbm_gbuf_edge_count_by_type(ctx->gbuf, "ASYNC_CALLS");
+    int before = ani_gbuf_edge_count_by_type(ctx->gbuf, "ASYNC_CALLS");
 
     /* Emit HANDLES edges: each item's entry-point method → its Route node */
     for (int di = 0; di < n_defs; di++) {
@@ -573,13 +573,13 @@ void cbm_pipeline_pass_ensemble_routing(cbm_pipeline_ctx_t *ctx) {
         ens_prod_def_t *def = defs[di];
 
         for (int mi = 0; mi < method_count; mi++) {
-            const cbm_gbuf_node_t *m = method_nodes[mi];
+            const ani_gbuf_node_t *m = method_nodes[mi];
             if (!m->properties_json || !m->file_path)
                 continue;
             if (!method_belongs_to_production(m, def))
                 continue;
 
-            char meth_full_path[CBM_SZ_1K];
+            char meth_full_path[ANI_SZ_1K];
             snprintf(meth_full_path, sizeof(meth_full_path), "%s/%s", ctx->repo_path, m->file_path);
             char *meth_source = read_file(meth_full_path);
             if (!meth_source)
@@ -594,18 +594,18 @@ void cbm_pipeline_pass_ensemble_routing(cbm_pipeline_ctx_t *ctx) {
                 const ens_setting_t *setting = &item->settings[si];
                 if (!setting->value[0])
                     continue;
-                char item_qn[CBM_SZ_512];
+                char item_qn[ANI_SZ_512];
                 snprintf(item_qn, sizeof(item_qn), "%s.%s", def->production_class, item->item_name);
                 /* Route nodes are keyed by the prefixed qn (see emit_async_call);
-                 * cbm_gbuf_find_by_qn is an exact hashtable lookup, so the bare
+                 * ani_gbuf_find_by_qn is an exact hashtable lookup, so the bare
                  * item qn never matches and every settings edge was dropped. */
-                char item_route_qn[CBM_SZ_512];
+                char item_route_qn[ANI_SZ_512];
                 snprintf(item_route_qn, sizeof(item_route_qn), "__route__ensemble__%s", item_qn);
-                const cbm_gbuf_node_t *item_node = cbm_gbuf_find_by_qn(ctx->gbuf, item_route_qn);
+                const ani_gbuf_node_t *item_node = ani_gbuf_find_by_qn(ctx->gbuf, item_route_qn);
                 if (!item_node)
                     continue;
                 if (strcmp(setting->setting_name, "TargetConfigNames") == 0) {
-                    char names_copy[CBM_SZ_256];
+                    char names_copy[ANI_SZ_256];
                     snprintf(names_copy, sizeof(names_copy), "%s", setting->value);
                     char *tok = strtok(names_copy, ",");
                     while (tok) {
@@ -633,9 +633,9 @@ void cbm_pipeline_pass_ensemble_routing(cbm_pipeline_ctx_t *ctx) {
     }
     free(defs);
 
-    int routes = cbm_gbuf_edge_count_by_type(ctx->gbuf, "ASYNC_CALLS") - before;
+    int routes = ani_gbuf_edge_count_by_type(ctx->gbuf, "ASYNC_CALLS") - before;
     char n_defs_buf[32], n_routes_buf[32];
     snprintf(n_defs_buf, sizeof(n_defs_buf), "%d", n_defs);
     snprintf(n_routes_buf, sizeof(n_routes_buf), "%d", routes);
-    cbm_log_info("ensemble_routing.done", "productions", n_defs_buf, "routes", n_routes_buf);
+    ani_log_info("ensemble_routing.done", "productions", n_defs_buf, "routes", n_routes_buf);
 }

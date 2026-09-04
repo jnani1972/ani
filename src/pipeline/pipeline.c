@@ -12,7 +12,7 @@
  */
 #include "foundation/constants.h"
 
-enum { CBM_DIR_PERMS = 0755, PL_RING = 4, PL_RING_MASK = 3, PL_SEQ_PASSES = 6 };
+enum { ANI_DIR_PERMS = 0755, PL_RING = 4, PL_RING_MASK = 3, PL_SEQ_PASSES = 6 };
 #define PL_NSEC_PER_SEC 1000000000LL
 #include "pipeline/pipeline.h"
 #include "pipeline/artifact.h"
@@ -48,10 +48,10 @@ enum { CBM_DIR_PERMS = 0755, PL_RING = 4, PL_RING_MASK = 3, PL_SEQ_PASSES = 6 };
 #include <time.h>
 #ifdef _WIN32
 #include <process.h>
-#define cbm_pipeline_getpid _getpid
+#define ani_pipeline_getpid _getpid
 #else
 #include <unistd.h>
-#define cbm_pipeline_getpid getpid
+#define ani_pipeline_getpid getpid
 #endif
 
 static inline void *intptr_to_ptr(intptr_t v) {
@@ -65,38 +65,38 @@ static inline void *intptr_to_ptr(intptr_t v) {
  * Atomic spinlock: 0 = free, 1 = locked. */
 static atomic_int g_pipeline_busy = 0;
 
-#if defined(CBM_INCREMENTAL_TEST_API) && CBM_INCREMENTAL_TEST_API
+#if defined(ANI_INCREMENTAL_TEST_API) && ANI_INCREMENTAL_TEST_API
 static atomic_bool g_persist_test_fail_after_stage_dump = false;
 static atomic_bool g_persist_test_cancel_after_predump = false;
 static atomic_bool g_persist_test_cancel_after_destination_prepare = false;
 static atomic_bool g_persist_test_fail_adr_capture = false;
-static cbm_pipeline_test_hook_fn g_persist_test_before_final_manifest = NULL;
+static ani_pipeline_test_hook_fn g_persist_test_before_final_manifest = NULL;
 static void *g_persist_test_before_final_manifest_userdata = NULL;
 
-void cbm_pipeline_incremental_test_fail_after_stage_dump_once(void) {
+void ani_pipeline_incremental_test_fail_after_stage_dump_once(void) {
     atomic_store(&g_persist_test_fail_after_stage_dump, true);
 }
 
-void cbm_pipeline_incremental_test_cancel_after_predump_once(void) {
+void ani_pipeline_incremental_test_cancel_after_predump_once(void) {
     atomic_store(&g_persist_test_cancel_after_predump, true);
 }
 
-void cbm_pipeline_incremental_test_cancel_after_destination_prepare_once(void) {
+void ani_pipeline_incremental_test_cancel_after_destination_prepare_once(void) {
     atomic_store(&g_persist_test_cancel_after_destination_prepare, true);
 }
 
-void cbm_pipeline_incremental_test_fail_adr_capture_once(void) {
+void ani_pipeline_incremental_test_fail_adr_capture_once(void) {
     atomic_store(&g_persist_test_fail_adr_capture, true);
 }
 
-void cbm_pipeline_incremental_test_before_final_manifest_once(cbm_pipeline_test_hook_fn hook,
+void ani_pipeline_incremental_test_before_final_manifest_once(ani_pipeline_test_hook_fn hook,
                                                               void *userdata) {
     g_persist_test_before_final_manifest = hook;
     g_persist_test_before_final_manifest_userdata = userdata;
 }
 
-void cbm_pipeline_persist_test_run_before_final_manifest(void) {
-    cbm_pipeline_test_hook_fn hook = g_persist_test_before_final_manifest;
+void ani_pipeline_persist_test_run_before_final_manifest(void) {
+    ani_pipeline_test_hook_fn hook = g_persist_test_before_final_manifest;
     void *userdata = g_persist_test_before_final_manifest_userdata;
     g_persist_test_before_final_manifest = NULL;
     g_persist_test_before_final_manifest_userdata = NULL;
@@ -105,19 +105,19 @@ void cbm_pipeline_persist_test_run_before_final_manifest(void) {
     }
 }
 
-bool cbm_pipeline_persist_test_take_failure_after_stage_dump(void) {
+bool ani_pipeline_persist_test_take_failure_after_stage_dump(void) {
     return atomic_exchange(&g_persist_test_fail_after_stage_dump, false);
 }
 
-bool cbm_pipeline_persist_test_take_cancel_after_predump(void) {
+bool ani_pipeline_persist_test_take_cancel_after_predump(void) {
     return atomic_exchange(&g_persist_test_cancel_after_predump, false);
 }
 
-bool cbm_pipeline_persist_test_take_cancel_after_destination_prepare(void) {
+bool ani_pipeline_persist_test_take_cancel_after_destination_prepare(void) {
     return atomic_exchange(&g_persist_test_cancel_after_destination_prepare, false);
 }
 
-void cbm_pipeline_persist_test_reset_faults(void) {
+void ani_pipeline_persist_test_reset_faults(void) {
     atomic_store(&g_persist_test_fail_after_stage_dump, false);
     atomic_store(&g_persist_test_cancel_after_predump, false);
     atomic_store(&g_persist_test_cancel_after_destination_prepare, false);
@@ -127,44 +127,44 @@ void cbm_pipeline_persist_test_reset_faults(void) {
 }
 #endif
 
-bool cbm_pipeline_try_lock(void) {
+bool ani_pipeline_try_lock(void) {
     return atomic_exchange(&g_pipeline_busy, 1) == 0;
 }
 
 #define LOCK_SPIN_NS 100000000 /* 100ms between lock retries */
 
-void cbm_pipeline_lock(void) {
+void ani_pipeline_lock(void) {
     while (atomic_exchange(&g_pipeline_busy, 1) != 0) {
         struct timespec ts = {0, LOCK_SPIN_NS};
-        cbm_nanosleep(&ts, NULL);
+        ani_nanosleep(&ts, NULL);
     }
 }
 
-void cbm_pipeline_unlock(void) {
+void ani_pipeline_unlock(void) {
     atomic_store(&g_pipeline_busy, 0);
 }
 
 /* ── Internal state ──────────────────────────────────────────────── */
 
-struct cbm_pipeline {
+struct ani_pipeline {
     char *repo_path;
     char *db_path;
     char *project_name;
-    cbm_git_context_t git_ctx;
+    ani_git_context_t git_ctx;
     char *branch_qn;
-    cbm_index_mode_t requested_mode;
-    cbm_index_mode_t mode;
+    ani_index_mode_t requested_mode;
+    ani_index_mode_t mode;
     atomic_int cancelled_storage;
     atomic_int *cancelled;
-    bool persistence; /* write .codebase-memory/graph.db.zst after indexing */
+    bool persistence; /* write .ani/graph.db.zst after indexing */
 
     /* Indexing state (set during run) */
-    cbm_gbuf_t *gbuf;
-    cbm_registry_t *registry;
+    ani_gbuf_t *gbuf;
+    ani_registry_t *registry;
 
     /* Directory subtrees skipped during discovery (rel paths). Captured from
-     * cbm_discover_ex so the MCP layer can report excluded subtrees (#411).
-     * Owned by the pipeline; freed in cbm_pipeline_free. */
+     * ani_discover_ex so the MCP layer can report excluded subtrees (#411).
+     * Owned by the pipeline; freed in ani_pipeline_free. */
     char **excluded_dirs;
     int excluded_count;
 
@@ -172,20 +172,20 @@ struct cbm_pipeline {
      * "purposely not indexed" — by design, not failures). Stored entries are
      * capped in discovery; ignored_total keeps the uncapped count so
      * truncation stays explicit. Owned by the pipeline. */
-    cbm_ignored_file_t *ignored_files;
+    ani_ignored_file_t *ignored_files;
     int ignored_count;
     int ignored_total;
 
     /* Per-file indexing failures (skipped files) surfaced via MCP/CLI/logfile
      * (Stage 2 / Track B). A skip is the expected handled outcome of a bad or
      * oversized file — the run still succeeds ("indexed"). Owned by the
-     * pipeline; freed in cbm_pipeline_free. */
-    cbm_file_error_t *file_errors;
+     * pipeline; freed in ani_pipeline_free. */
+    ani_file_error_t *file_errors;
     int file_errors_count;
     int file_errors_cap;
 
     /* User-defined extension overrides (loaded once per run) */
-    cbm_userconfig_t *userconfig;
+    ani_userconfig_t *userconfig;
 
     /* Committed graph size at dump time (-1 = dump did not run). #334 gate axis. */
     int committed_nodes;
@@ -203,15 +203,15 @@ struct cbm_pipeline {
      * moment the result cache is alive), persisted by dump_and_persist_hashes
      * so the closure-repair incremental route can early-cutoff on surface
      * hashes and rehydrate cross registries without re-parsing. Heap rows,
-     * released with cbm_store_free_lsp_surfaces in cbm_pipeline_free. NULL
+     * released with ani_store_free_lsp_surfaces in ani_pipeline_free. NULL
      * when cross-LSP was disabled for the run — the incremental route then
      * finds no rows and correctly falls back to a full rebuild. */
-    cbm_lsp_surface_row_t *surface_rows;
+    ani_lsp_surface_row_t *surface_rows;
     int surface_row_count;
 
     /* Deterministic test-only seam at the final publication boundary. Kept
      * per pipeline so concurrent test/process activity cannot cross-trigger. */
-    void (*before_publish_hook)(cbm_pipeline_t *, const char *, void *);
+    void (*before_publish_hook)(ani_pipeline_t *, const char *, void *);
     void *before_publish_hook_ctx;
     int (*rename_hook)(const char *, const char *, void *);
     void *rename_hook_ctx;
@@ -219,17 +219,17 @@ struct cbm_pipeline {
 
 /* ── Global pkgmap (one active pipeline at a time) ─────────────── */
 
-static CBMHashTable *g_pkgmap = NULL;
+static ANIHashTable *g_pkgmap = NULL;
 
-CBMHashTable *cbm_pipeline_get_pkgmap(void) {
+ANIHashTable *ani_pipeline_get_pkgmap(void) {
     return g_pkgmap;
 }
 
-void cbm_pipeline_set_pkgmap(CBMHashTable *map) {
+void ani_pipeline_set_pkgmap(ANIHashTable *map) {
     g_pkgmap = map;
 }
 
-bool cbm_pipeline_had_format_migration(const cbm_pipeline_t *p) {
+bool ani_pipeline_had_format_migration(const ani_pipeline_t *p) {
     return p && p->format_migration;
 }
 
@@ -237,15 +237,15 @@ bool cbm_pipeline_had_format_migration(const cbm_pipeline_t *p) {
 
 static double elapsed_ms(struct timespec start) {
     struct timespec now;
-    cbm_clock_gettime(CLOCK_MONOTONIC, &now);
-    return ((double)(now.tv_sec - start.tv_sec) * CBM_MS_PER_SEC) +
-           ((double)(now.tv_nsec - start.tv_nsec) / CBM_US_PER_SEC_F);
+    ani_clock_gettime(CLOCK_MONOTONIC, &now);
+    return ((double)(now.tv_sec - start.tv_sec) * ANI_MS_PER_SEC) +
+           ((double)(now.tv_nsec - start.tv_nsec) / ANI_US_PER_SEC_F);
 }
 
 /* Format int to string for logging. Thread-safe via TLS rotating buffers. */
 static const char *itoa_buf(int val) {
-    static CBM_TLS char bufs[PL_RING][CBM_SZ_32];
-    static CBM_TLS int idx = 0;
+    static ANI_TLS char bufs[PL_RING][ANI_SZ_32];
+    static ANI_TLS int idx = 0;
     int i = idx;
     idx = (idx + SKIP_ONE) & PL_RING_MASK;
     snprintf(bufs[i], sizeof(bufs[i]), "%d", val);
@@ -255,29 +255,29 @@ static const char *itoa_buf(int val) {
 /* Log current + peak RSS at a pipeline phase boundary (memory profiling). */
 static void log_phase_mem(const char *phase) {
     enum { PL_BYTES_PER_MB = 1024 * 1024 };
-    cbm_log_info("mem.phase", "phase", phase, "rss_mb",
-                 itoa_buf((int)(cbm_mem_rss() / PL_BYTES_PER_MB)), "peak_mb",
-                 itoa_buf((int)(cbm_mem_peak_rss() / PL_BYTES_PER_MB)));
+    ani_log_info("mem.phase", "phase", phase, "rss_mb",
+                 itoa_buf((int)(ani_mem_rss() / PL_BYTES_PER_MB)), "peak_mb",
+                 itoa_buf((int)(ani_mem_peak_rss() / PL_BYTES_PER_MB)));
 }
 
 /* ── Lifecycle ──────────────────────────────────────────────────── */
 
-cbm_pipeline_t *cbm_pipeline_new(const char *repo_path, const char *db_path,
-                                 cbm_index_mode_t mode) {
+ani_pipeline_t *ani_pipeline_new(const char *repo_path, const char *db_path,
+                                 ani_index_mode_t mode) {
     if (!repo_path) {
         return NULL;
     }
 
-    cbm_pipeline_t *p = calloc(CBM_ALLOC_ONE, sizeof(cbm_pipeline_t));
+    ani_pipeline_t *p = calloc(ANI_ALLOC_ONE, sizeof(ani_pipeline_t));
     if (!p) {
         return NULL;
     }
 
     p->repo_path = strdup(repo_path);
     p->db_path = db_path ? strdup(db_path) : NULL;
-    p->project_name = cbm_project_name_from_path(repo_path);
-    (void)cbm_git_context_resolve(repo_path, &p->git_ctx);
-    p->branch_qn = cbm_git_context_branch_qn(p->project_name, &p->git_ctx);
+    p->project_name = ani_project_name_from_path(repo_path);
+    (void)ani_git_context_resolve(repo_path, &p->git_ctx);
+    p->branch_qn = ani_git_context_branch_qn(p->project_name, &p->git_ctx);
     p->requested_mode = mode;
     p->mode = mode;
     p->persistence = false;
@@ -289,40 +289,40 @@ cbm_pipeline_t *cbm_pipeline_new(const char *repo_path, const char *db_path,
     return p;
 }
 
-static int pipeline_refresh_git_context(cbm_pipeline_t *p) {
-    cbm_git_context_t fresh = {0};
-    if (!p || cbm_git_context_resolve(p->repo_path, &fresh) != 0) {
-        cbm_git_context_free(&fresh);
-        return CBM_NOT_FOUND;
+static int pipeline_refresh_git_context(ani_pipeline_t *p) {
+    ani_git_context_t fresh = {0};
+    if (!p || ani_git_context_resolve(p->repo_path, &fresh) != 0) {
+        ani_git_context_free(&fresh);
+        return ANI_NOT_FOUND;
     }
-    char *fresh_branch_qn = cbm_git_context_branch_qn(p->project_name, &fresh);
+    char *fresh_branch_qn = ani_git_context_branch_qn(p->project_name, &fresh);
     if (!fresh_branch_qn) {
-        cbm_git_context_free(&fresh);
-        return CBM_NOT_FOUND;
+        ani_git_context_free(&fresh);
+        return ANI_NOT_FOUND;
     }
-    cbm_git_context_free(&p->git_ctx);
+    ani_git_context_free(&p->git_ctx);
     free(p->branch_qn);
     p->git_ctx = fresh;
     p->branch_qn = fresh_branch_qn;
     return 0;
 }
 
-void cbm_pipeline_set_persistence(cbm_pipeline_t *p, bool enabled) {
+void ani_pipeline_set_persistence(ani_pipeline_t *p, bool enabled) {
     if (p) {
         p->persistence = enabled;
     }
 }
 
-bool cbm_pipeline_set_project_name(cbm_pipeline_t *p, const char *name) {
+bool ani_pipeline_set_project_name(ani_pipeline_t *p, const char *name) {
     if (!p || !name || !name[0]) {
         return false;
     }
 
-    char *normalized = cbm_project_name_from_path(name);
+    char *normalized = ani_project_name_from_path(name);
     if (!normalized) {
         return false;
     }
-    if (!cbm_validate_project_name(normalized)) {
+    if (!ani_validate_project_name(normalized)) {
         free(normalized);
         return false;
     }
@@ -330,31 +330,31 @@ bool cbm_pipeline_set_project_name(cbm_pipeline_t *p, const char *name) {
     free(p->project_name);
     p->project_name = normalized;
     free(p->branch_qn);
-    p->branch_qn = cbm_git_context_branch_qn(p->project_name, &p->git_ctx);
+    p->branch_qn = ani_git_context_branch_qn(p->project_name, &p->git_ctx);
     return true;
 }
 
-void cbm_pipeline_set_lsp_surfaces(cbm_pipeline_t *p, cbm_lsp_surface_row_t *rows, int count) {
+void ani_pipeline_set_lsp_surfaces(ani_pipeline_t *p, ani_lsp_surface_row_t *rows, int count) {
     if (!p) {
-        cbm_store_free_lsp_surfaces(rows, count);
+        ani_store_free_lsp_surfaces(rows, count);
         return;
     }
-    cbm_store_free_lsp_surfaces(p->surface_rows, p->surface_row_count);
+    ani_store_free_lsp_surfaces(p->surface_rows, p->surface_row_count);
     p->surface_rows = rows;
     p->surface_row_count = count;
 }
 
-void cbm_pipeline_free(cbm_pipeline_t *p) {
+void ani_pipeline_free(ani_pipeline_t *p) {
     if (!p) {
         return;
     }
     free(p->repo_path);
     free(p->db_path);
     free(p->project_name);
-    cbm_discover_free_excluded(p->excluded_dirs, p->excluded_count);
+    ani_discover_free_excluded(p->excluded_dirs, p->excluded_count);
     p->excluded_dirs = NULL;
     p->excluded_count = 0;
-    cbm_discover_free_ignored(p->ignored_files, p->ignored_count);
+    ani_discover_free_ignored(p->ignored_files, p->ignored_count);
     p->ignored_files = NULL;
     p->ignored_count = 0;
     p->ignored_total = 0;
@@ -371,41 +371,41 @@ void cbm_pipeline_free(cbm_pipeline_t *p) {
     free(p->saved_adr); /* freed here too: error paths can exit before the
                          * restore in dump_and_persist_hashes runs. Issue #516. */
     p->saved_adr = NULL;
-    cbm_store_free_lsp_surfaces(p->surface_rows, p->surface_row_count);
+    ani_store_free_lsp_surfaces(p->surface_rows, p->surface_row_count);
     p->surface_rows = NULL;
     p->surface_row_count = 0;
-    cbm_git_context_free(&p->git_ctx);
+    ani_git_context_free(&p->git_ctx);
     /* gbuf, store, registry freed during/after run */
     /* Defensively free userconfig in case run() was never called or panicked */
     if (p->userconfig) {
-        cbm_set_user_lang_config(NULL);
-        cbm_userconfig_free(p->userconfig);
+        ani_set_user_lang_config(NULL);
+        ani_userconfig_free(p->userconfig);
         p->userconfig = NULL;
     }
     free(p);
 }
 
-void cbm_pipeline_cancel(cbm_pipeline_t *p) {
+void ani_pipeline_cancel(ani_pipeline_t *p) {
     if (p && p->cancelled) {
         atomic_store(p->cancelled, 1);
     }
 }
 
-void cbm_pipeline_bind_cancel_flag(cbm_pipeline_t *p, atomic_int *cancelled) {
+void ani_pipeline_bind_cancel_flag(ani_pipeline_t *p, atomic_int *cancelled) {
     if (p && cancelled) {
         p->cancelled = cancelled;
     }
 }
 
-void cbm_pipeline_set_before_publish_hook_for_tests(
-    cbm_pipeline_t *p, void (*hook)(cbm_pipeline_t *, const char *, void *), void *ctx) {
+void ani_pipeline_set_before_publish_hook_for_tests(
+    ani_pipeline_t *p, void (*hook)(ani_pipeline_t *, const char *, void *), void *ctx) {
     if (p) {
         p->before_publish_hook = hook;
         p->before_publish_hook_ctx = ctx;
     }
 }
 
-void cbm_pipeline_set_rename_hook_for_tests(cbm_pipeline_t *p,
+void ani_pipeline_set_rename_hook_for_tests(ani_pipeline_t *p,
                                             int (*hook)(const char *, const char *, void *),
                                             void *ctx) {
     if (p) {
@@ -414,23 +414,23 @@ void cbm_pipeline_set_rename_hook_for_tests(cbm_pipeline_t *p,
     }
 }
 
-const char *cbm_pipeline_project_name(const cbm_pipeline_t *p) {
+const char *ani_pipeline_project_name(const ani_pipeline_t *p) {
     return p ? p->project_name : NULL;
 }
 
-const char *cbm_pipeline_repo_path(const cbm_pipeline_t *p) {
+const char *ani_pipeline_repo_path(const ani_pipeline_t *p) {
     return p ? p->repo_path : NULL;
 }
 
-atomic_int *cbm_pipeline_cancelled_ptr(cbm_pipeline_t *p) {
+atomic_int *ani_pipeline_cancelled_ptr(ani_pipeline_t *p) {
     return p ? p->cancelled : NULL;
 }
 
-int cbm_pipeline_get_mode(const cbm_pipeline_t *p) {
+int ani_pipeline_get_mode(const ani_pipeline_t *p) {
     return p ? (int)p->mode : 0;
 }
 
-void cbm_pipeline_get_excluded(const cbm_pipeline_t *p, char ***out, int *count) {
+void ani_pipeline_get_excluded(const ani_pipeline_t *p, char ***out, int *count) {
     if (out) {
         *out = p ? p->excluded_dirs : NULL;
     }
@@ -452,15 +452,15 @@ static char *fe_strdup(const char *s) {
     return d;
 }
 
-void cbm_pipeline_add_file_error(cbm_pipeline_t *p, const char *path, const char *reason,
+void ani_pipeline_add_file_error(ani_pipeline_t *p, const char *path, const char *reason,
                                  const char *phase) {
     if (!p) {
         return;
     }
     if (p->file_errors_count >= p->file_errors_cap) {
         int ncap = p->file_errors_cap ? p->file_errors_cap * 2 : 16;
-        cbm_file_error_t *grown =
-            (cbm_file_error_t *)realloc(p->file_errors, (size_t)ncap * sizeof(*grown));
+        ani_file_error_t *grown =
+            (ani_file_error_t *)realloc(p->file_errors, (size_t)ncap * sizeof(*grown));
         if (!grown) {
             /* Never abort indexing just to record a skip — drop this record. */
             return;
@@ -468,14 +468,14 @@ void cbm_pipeline_add_file_error(cbm_pipeline_t *p, const char *path, const char
         p->file_errors = grown;
         p->file_errors_cap = ncap;
     }
-    cbm_file_error_t *e = &p->file_errors[p->file_errors_count];
+    ani_file_error_t *e = &p->file_errors[p->file_errors_count];
     e->path = fe_strdup(path);
     e->reason = fe_strdup(reason);
     e->phase = fe_strdup(phase);
     p->file_errors_count++;
 }
 
-void cbm_pipeline_get_file_errors(const cbm_pipeline_t *p, cbm_file_error_t **out, int *count) {
+void ani_pipeline_get_file_errors(const ani_pipeline_t *p, ani_file_error_t **out, int *count) {
     if (out) {
         *out = p ? p->file_errors : NULL;
     }
@@ -484,7 +484,7 @@ void cbm_pipeline_get_file_errors(const cbm_pipeline_t *p, cbm_file_error_t **ou
     }
 }
 
-void cbm_pipeline_get_ignored(const cbm_pipeline_t *p, cbm_ignored_file_t **out, int *count,
+void ani_pipeline_get_ignored(const ani_pipeline_t *p, ani_ignored_file_t **out, int *count,
                               int *total) {
     if (out) {
         *out = p ? p->ignored_files : NULL;
@@ -497,7 +497,7 @@ void cbm_pipeline_get_ignored(const cbm_pipeline_t *p, cbm_ignored_file_t **out,
     }
 }
 
-void cbm_pipeline_get_committed_counts(const cbm_pipeline_t *p, int *nodes, int *edges) {
+void ani_pipeline_get_committed_counts(const ani_pipeline_t *p, int *nodes, int *edges) {
     if (nodes) {
         *nodes = p ? p->committed_nodes : -1;
     }
@@ -506,7 +506,7 @@ void cbm_pipeline_get_committed_counts(const cbm_pipeline_t *p, int *nodes, int 
     }
 }
 
-void cbm_pipeline_set_committed_counts(cbm_pipeline_t *p, int nodes, int edges) {
+void ani_pipeline_set_committed_counts(ani_pipeline_t *p, int nodes, int edges) {
     if (p) {
         p->committed_nodes = nodes;
         p->committed_edges = edges;
@@ -514,20 +514,20 @@ void cbm_pipeline_set_committed_counts(cbm_pipeline_t *p, int nodes, int edges) 
 }
 
 /* Effective worker count. The crash supervisor re-runs its worker single-
- * threaded (CBM_INDEX_SINGLE_THREAD=1) so a per-file marker can pin the EXACT
+ * threaded (ANI_INDEX_SINGLE_THREAD=1) so a per-file marker can pin the EXACT
  * crasher; a parallel re-run would race the marker. Honour that override
  * everywhere the worker count drives the parallel/sequential decision, so the
  * whole extraction phase collapses to the deterministic sequential path. */
 static int effective_worker_count(bool initial) {
-    const char *st = getenv("CBM_INDEX_SINGLE_THREAD");
+    const char *st = getenv("ANI_INDEX_SINGLE_THREAD");
     if (st && st[0] == '1') {
         return 1;
     }
-    return cbm_default_worker_count(initial);
+    return ani_default_worker_count(initial);
 }
 
 /* Resolve the DB path for this pipeline. Caller must free(). */
-static char *resolve_db_path(const cbm_pipeline_t *p) {
+static char *resolve_db_path(const ani_pipeline_t *p) {
     if (!p) {
         return NULL;
     }
@@ -535,8 +535,8 @@ static char *resolve_db_path(const cbm_pipeline_t *p) {
         return strdup(p->db_path);
     }
 
-    const char *cache_dir = cbm_resolve_cache_dir();
-    cache_dir = cache_dir ? cache_dir : cbm_tmpdir();
+    const char *cache_dir = ani_resolve_cache_dir();
+    cache_dir = cache_dir ? cache_dir : ani_tmpdir();
     if (!cache_dir || !p->project_name) {
         return NULL;
     }
@@ -562,8 +562,8 @@ static char *resolve_db_path(const cbm_pipeline_t *p) {
     return path;
 }
 
-static int check_cancel(const cbm_pipeline_t *p) {
-    return atomic_load(p->cancelled) ? CBM_NOT_FOUND : 0;
+static int check_cancel(const ani_pipeline_t *p) {
+    return atomic_load(p->cancelled) ? ANI_NOT_FOUND : 0;
 }
 
 /* ── Hash table cleanup callback ─────────────────────────────────── */
@@ -578,14 +578,14 @@ static void free_seen_dir_key(const char *key, void *val, void *ud) {
 
 /* Create Project, Folder/Package, and File nodes in the graph buffer. */
 /* Walk directory chain upward, creating Folder nodes and CONTAINS_FOLDER edges. */
-static void create_folder_chain(cbm_pipeline_t *p, const char *dir, CBMHashTable *seen_dirs) {
+static void create_folder_chain(ani_pipeline_t *p, const char *dir, ANIHashTable *seen_dirs) {
     char *walk = strdup(dir);
-    while (walk[0] != '\0' && !cbm_ht_get(seen_dirs, walk)) {
-        cbm_ht_set(seen_dirs, strdup(walk), intptr_to_ptr(SKIP_ONE));
-        char *folder_qn = cbm_pipeline_fqn_folder(p->project_name, walk);
+    while (walk[0] != '\0' && !ani_ht_get(seen_dirs, walk)) {
+        ani_ht_set(seen_dirs, strdup(walk), intptr_to_ptr(SKIP_ONE));
+        char *folder_qn = ani_pipeline_fqn_folder(p->project_name, walk);
         const char *dir_base = strrchr(walk, '/');
         dir_base = dir_base ? dir_base + SKIP_ONE : walk;
-        cbm_gbuf_upsert_node(p->gbuf, "Folder", dir_base, folder_qn, walk, 0, 0, "{}");
+        ani_gbuf_upsert_node(p->gbuf, "Folder", dir_base, folder_qn, walk, 0, 0, "{}");
 
         char *pdir = strdup(walk);
         char *ps = strrchr(pdir, '/');
@@ -600,13 +600,13 @@ static void create_folder_chain(cbm_pipeline_t *p, const char *dir, CBMHashTable
         if (pdir[0] == '\0') {
             pqn = p->branch_qn ? p->branch_qn : p->project_name;
         } else {
-            pqn_heap = cbm_pipeline_fqn_folder(p->project_name, pdir);
+            pqn_heap = ani_pipeline_fqn_folder(p->project_name, pdir);
             pqn = pqn_heap;
         }
-        const cbm_gbuf_node_t *fn = cbm_gbuf_find_by_qn(p->gbuf, folder_qn);
-        const cbm_gbuf_node_t *pn = cbm_gbuf_find_by_qn(p->gbuf, pqn);
+        const ani_gbuf_node_t *fn = ani_gbuf_find_by_qn(p->gbuf, folder_qn);
+        const ani_gbuf_node_t *pn = ani_gbuf_find_by_qn(p->gbuf, pqn);
         if (fn && pn) {
-            cbm_gbuf_insert_edge(p->gbuf, pn->id, fn->id, "CONTAINS_FOLDER", "{}");
+            ani_gbuf_insert_edge(p->gbuf, pn->id, fn->id, "CONTAINS_FOLDER", "{}");
         }
         free(folder_qn);
         free(pqn_heap);
@@ -621,30 +621,30 @@ static void create_folder_chain(cbm_pipeline_t *p, const char *dir, CBMHashTable
     free(walk);
 }
 
-static int pass_structure(cbm_pipeline_t *p, const cbm_file_info_t *files, int file_count) {
-    cbm_log_info("pass.start", "pass", "structure", "files", itoa_buf(file_count));
+static int pass_structure(ani_pipeline_t *p, const ani_file_info_t *files, int file_count) {
+    ani_log_info("pass.start", "pass", "structure", "files", itoa_buf(file_count));
 
     /* Project node */
-    cbm_gbuf_upsert_node(p->gbuf, "Project", p->project_name, p->project_name, NULL, 0, 0, "{}");
+    ani_gbuf_upsert_node(p->gbuf, "Project", p->project_name, p->project_name, NULL, 0, 0, "{}");
     const char *branch_qn = p->branch_qn ? p->branch_qn : p->project_name;
     const char *branch_name = p->git_ctx.branch ? p->git_ctx.branch : "working-tree";
-    char branch_props[CBM_SZ_2K];
+    char branch_props[ANI_SZ_2K];
     const char *branch_props_json = "{}";
-    if (cbm_git_context_props_json(&p->git_ctx, branch_props, sizeof(branch_props)) > 0) {
+    if (ani_git_context_props_json(&p->git_ctx, branch_props, sizeof(branch_props)) > 0) {
         branch_props_json = branch_props;
     }
     if (p->branch_qn) {
-        int64_t branch_id = cbm_gbuf_upsert_node(p->gbuf, "Branch", branch_name, branch_qn, NULL, 0,
+        int64_t branch_id = ani_gbuf_upsert_node(p->gbuf, "Branch", branch_name, branch_qn, NULL, 0,
                                                  0, branch_props_json);
-        const cbm_gbuf_node_t *project_node = cbm_gbuf_find_by_qn(p->gbuf, p->project_name);
+        const ani_gbuf_node_t *project_node = ani_gbuf_find_by_qn(p->gbuf, p->project_name);
         if (project_node && branch_id > 0) {
-            cbm_gbuf_insert_edge(p->gbuf, project_node->id, branch_id, "HAS_BRANCH",
+            ani_gbuf_insert_edge(p->gbuf, project_node->id, branch_id, "HAS_BRANCH",
                                  branch_props_json);
         }
     }
 
     /* Collect unique directories and create Folder/Package nodes */
-    CBMHashTable *seen_dirs = cbm_ht_create(CBM_SZ_256);
+    ANIHashTable *seen_dirs = ani_ht_create(ANI_SZ_256);
 
     for (int i = 0; i < file_count; i++) {
         const char *rel = files[i].rel_path;
@@ -653,18 +653,18 @@ static int pass_structure(cbm_pipeline_t *p, const cbm_file_info_t *files, int f
         }
 
         /* Create File node */
-        char *file_qn = cbm_pipeline_fqn_compute(p->project_name, rel, "__file__");
+        char *file_qn = ani_pipeline_fqn_compute(p->project_name, rel, "__file__");
         /* Extract basename */
         const char *slash = strrchr(rel, '/');
         const char *basename = slash ? slash + SKIP_ONE : rel;
 
-        char props[CBM_SZ_256];
+        char props[ANI_SZ_256];
         const char *ext = strrchr(basename, '.');
         snprintf(props, sizeof(props), "{\"extension\":\"%s\"}", ext ? ext : "");
 
         const char *qualified_name = file_qn;
         const char *file_path = rel;
-        cbm_gbuf_upsert_node(p->gbuf, "File", basename, qualified_name, file_path, 0, 0, props);
+        ani_gbuf_upsert_node(p->gbuf, "File", basename, qualified_name, file_path, 0, 0, props);
 
         /* CONTAINS_FILE edge: parent dir -> file */
         char *dir = strdup(rel);
@@ -683,7 +683,7 @@ static int pass_structure(cbm_pipeline_t *p, const cbm_file_info_t *files, int f
         if (dir[0] == '\0') {
             parent_qn = branch_qn;
         } else {
-            parent_qn_heap = cbm_pipeline_fqn_folder(p->project_name, dir);
+            parent_qn_heap = ani_pipeline_fqn_folder(p->project_name, dir);
             parent_qn = parent_qn_heap;
         }
 
@@ -691,10 +691,10 @@ static int pass_structure(cbm_pipeline_t *p, const cbm_file_info_t *files, int f
         create_folder_chain(p, dir, seen_dirs);
 
         /* Now create the CONTAINS_FILE edge */
-        const cbm_gbuf_node_t *fnode = cbm_gbuf_find_by_qn(p->gbuf, file_qn);
-        const cbm_gbuf_node_t *pnode = cbm_gbuf_find_by_qn(p->gbuf, parent_qn);
+        const ani_gbuf_node_t *fnode = ani_gbuf_find_by_qn(p->gbuf, file_qn);
+        const ani_gbuf_node_t *pnode = ani_gbuf_find_by_qn(p->gbuf, parent_qn);
         if (fnode && pnode) {
-            cbm_gbuf_insert_edge(p->gbuf, pnode->id, fnode->id, "CONTAINS_FILE", "{}");
+            ani_gbuf_insert_edge(p->gbuf, pnode->id, fnode->id, "CONTAINS_FILE", "{}");
         }
 
         free(file_qn);
@@ -703,28 +703,28 @@ static int pass_structure(cbm_pipeline_t *p, const cbm_file_info_t *files, int f
     }
 
     /* Free seen_dirs keys */
-    cbm_ht_foreach(seen_dirs, free_seen_dir_key, NULL);
-    cbm_ht_free(seen_dirs);
+    ani_ht_foreach(seen_dirs, free_seen_dir_key, NULL);
+    ani_ht_free(seen_dirs);
 
-    cbm_log_info("pass.done", "pass", "structure", "nodes", itoa_buf(cbm_gbuf_node_count(p->gbuf)),
-                 "edges", itoa_buf(cbm_gbuf_edge_count(p->gbuf)));
+    ani_log_info("pass.done", "pass", "structure", "nodes", itoa_buf(ani_gbuf_node_count(p->gbuf)),
+                 "edges", itoa_buf(ani_gbuf_edge_count(p->gbuf)));
     return 0;
 }
 
 /* ── Pass 2: Definitions ─────────────────────────────────────────── */
 
-/* Implemented in pass_definitions.c via cbm_pipeline_pass_definitions() */
+/* Implemented in pass_definitions.c via ani_pipeline_pass_definitions() */
 
 /* ── Githistory compute thread (for fused post-pass parallelism) ─── */
 
 typedef struct {
     const char *repo_path;
-    cbm_githistory_result_t *result;
+    ani_githistory_result_t *result;
 } gh_compute_arg_t;
 
 static void *gh_compute_thread_fn(void *arg) {
     gh_compute_arg_t *a = arg;
-    cbm_pipeline_githistory_compute(a->repo_path, a->result);
+    ani_pipeline_githistory_compute(a->repo_path, a->result);
     return NULL;
 }
 
@@ -734,16 +734,16 @@ static void *gh_compute_thread_fn(void *arg) {
  * Creates Route nodes for endpoints and HANDLES edges linking
  * topic Routes to endpoint Routes (bridging the gap). */
 /* Process one infra binding: create Route node + INFRA_MAPS edge. */
-static int process_one_infra_binding(cbm_gbuf_t *gbuf, const CBMInfraBinding *ib,
+static int process_one_infra_binding(ani_gbuf_t *gbuf, const ANIInfraBinding *ib,
                                      const char *rel_path) {
-    char url_route_qn[CBM_ROUTE_QN_SIZE];
+    char url_route_qn[ANI_ROUTE_QN_SIZE];
     snprintf(url_route_qn, sizeof(url_route_qn), "__route__infra__%s", ib->target_url);
-    int64_t url_route_id = cbm_gbuf_upsert_node(gbuf, "Route", ib->target_url, url_route_qn,
+    int64_t url_route_id = ani_gbuf_upsert_node(gbuf, "Route", ib->target_url, url_route_qn,
                                                 rel_path, 0, 0, "{\"source\":\"infra\"}");
-    char topic_route_qn[CBM_ROUTE_QN_SIZE];
+    char topic_route_qn[ANI_ROUTE_QN_SIZE];
     snprintf(topic_route_qn, sizeof(topic_route_qn), "__route__%s__%s",
              ib->broker ? ib->broker : "async", ib->source_name);
-    const cbm_gbuf_node_t *topic_route = cbm_gbuf_find_by_qn(gbuf, topic_route_qn);
+    const ani_gbuf_node_t *topic_route = ani_gbuf_find_by_qn(gbuf, topic_route_qn);
     int64_t topic_route_id;
     if (topic_route) {
         topic_route_id = topic_route->id;
@@ -752,37 +752,37 @@ static int process_one_infra_binding(cbm_gbuf_t *gbuf, const CBMInfraBinding *ib
          * upsert its Route node so the binding maps even when no code-side dispatch
          * call created the node first (e.g. a standalone scheduler/subscription
          * manifest). */
-        topic_route_id = cbm_gbuf_upsert_node(gbuf, "Route", ib->source_name, topic_route_qn,
+        topic_route_id = ani_gbuf_upsert_node(gbuf, "Route", ib->source_name, topic_route_qn,
                                               rel_path, 0, 0, ib->broker ? ib->broker : "async");
         if (topic_route_id <= 0) {
             return 0;
         }
     }
-    char props[CBM_SZ_512];
+    char props[ANI_SZ_512];
     snprintf(props, sizeof(props), "{\"broker\":\"%s\",\"topic\":\"%s\",\"endpoint\":\"%s\"}",
              ib->broker ? ib->broker : "async", ib->source_name, ib->target_url);
-    cbm_gbuf_insert_edge(gbuf, topic_route_id, url_route_id, "INFRA_MAPS", props);
+    ani_gbuf_insert_edge(gbuf, topic_route_id, url_route_id, "INFRA_MAPS", props);
     return SKIP_ONE;
 }
 
-static void cbm_pipeline_process_infra_bindings(cbm_gbuf_t *gbuf, const cbm_file_info_t *files,
-                                                CBMFileResult **result_cache, int file_count) {
+static void ani_pipeline_process_infra_bindings(ani_gbuf_t *gbuf, const ani_file_info_t *files,
+                                                ANIFileResult **result_cache, int file_count) {
     int bindings = 0;
     for (int i = 0; i < file_count; i++) {
         if (!result_cache[i]) {
             continue;
         }
         for (int bi = 0; bi < result_cache[i]->infra_bindings.count; bi++) {
-            const CBMInfraBinding *ib = &result_cache[i]->infra_bindings.items[bi];
+            const ANIInfraBinding *ib = &result_cache[i]->infra_bindings.items[bi];
             if (ib->source_name && ib->target_url) {
                 bindings += process_one_infra_binding(gbuf, ib, files[i].rel_path);
             }
         }
     }
     if (bindings > 0) {
-        char buf[CBM_SZ_16];
+        char buf[ANI_SZ_16];
         snprintf(buf, sizeof(buf), "%d", bindings);
-        cbm_log_info("pass.infra_bindings", "linked", buf);
+        ani_log_info("pass.infra_bindings", "linked", buf);
     }
 }
 
@@ -855,24 +855,24 @@ static bool is_upstream_config_key(const char *key_path) {
 }
 
 /* Try to create an infra Route node from one string_ref. */
-static void try_upsert_infra_route(cbm_gbuf_t *gbuf, const CBMStringRef *sr, const char *fp) {
-    if (sr->kind != CBM_STRREF_URL || !sr->value || !strstr(sr->value, "://")) {
+static void try_upsert_infra_route(ani_gbuf_t *gbuf, const ANIStringRef *sr, const char *fp) {
+    if (sr->kind != ANI_STRREF_URL || !sr->value || !strstr(sr->value, "://")) {
         return;
     }
     /* Skip upstream/config/healthcheck URLs — they are not exposed routes (#521). */
     if (is_upstream_config_key(sr->key_path)) {
         return;
     }
-    char route_qn[CBM_ROUTE_QN_SIZE];
+    char route_qn[ANI_ROUTE_QN_SIZE];
     snprintf(route_qn, sizeof(route_qn), "__route__infra__%s", sr->value);
-    char route_props[CBM_SZ_512];
+    char route_props[ANI_SZ_512];
     if (sr->key_path) {
         snprintf(route_props, sizeof(route_props), "{\"source\":\"infra\",\"key_path\":\"%s\"}",
                  sr->key_path);
     } else {
         snprintf(route_props, sizeof(route_props), "{\"source\":\"infra\"}");
     }
-    cbm_gbuf_upsert_node(gbuf, "Route", sr->value, route_qn, fp, 0, 0, route_props);
+    ani_gbuf_upsert_node(gbuf, "Route", sr->value, route_qn, fp, 0, 0, route_props);
 }
 
 /* A URL string_ref that does NOT denote a route the service serves: a value
@@ -880,7 +880,7 @@ static void try_upsert_infra_route(cbm_gbuf_t *gbuf, const CBMStringRef *sr, con
  * Docker healthcheck `curl --fail http://... || exit 1`); a NULL key_path is a
  * context-less/duplicate ref; an upstream/config/healthcheck key is an external
  * dependency, not an exposed route. (#521) */
-static bool route_sr_denied(const CBMStringRef *sr) {
+static bool route_sr_denied(const ANIStringRef *sr) {
     if (!sr->value || strchr(sr->value, ' ')) {
         return true;
     }
@@ -890,15 +890,15 @@ static bool route_sr_denied(const CBMStringRef *sr) {
     return is_upstream_config_key(sr->key_path);
 }
 
-static void cbm_pipeline_extract_infra_routes(cbm_gbuf_t *gbuf, const cbm_file_info_t *files,
-                                              CBMFileResult **result_cache, int file_count) {
+static void ani_pipeline_extract_infra_routes(ani_gbuf_t *gbuf, const ani_file_info_t *files,
+                                              ANIFileResult **result_cache, int file_count) {
     /* DENY-WINS-BY-VALUE: the same URL is often extracted as several string_refs
      * at different key_path granularities (full path, leaf key, flat). The Route
      * node is keyed by VALUE, so it would be minted if ANY granularity passed the
      * per-ref guard — e.g. a denied full path `registries.terraform-registry.url`
      * is defeated by a sibling leaf `url`. So pass 1 collects every URL value
      * denied under ANY of its refs; pass 2 mints only values never denied. (#521) */
-    CBMHashTable *denied = cbm_ht_create(16);
+    ANIHashTable *denied = ani_ht_create(16);
     for (int pass = 0; pass < 2; pass++) {
         for (int i = 0; i < file_count; i++) {
             if (!result_cache[i] || !is_infra_file(files[i].rel_path) ||
@@ -906,51 +906,51 @@ static void cbm_pipeline_extract_infra_routes(cbm_gbuf_t *gbuf, const cbm_file_i
                 continue;
             }
             for (int si = 0; si < result_cache[i]->string_refs.count; si++) {
-                const CBMStringRef *sr = &result_cache[i]->string_refs.items[si];
-                if (sr->kind != CBM_STRREF_URL || !sr->value || !strstr(sr->value, "://")) {
+                const ANIStringRef *sr = &result_cache[i]->string_refs.items[si];
+                if (sr->kind != ANI_STRREF_URL || !sr->value || !strstr(sr->value, "://")) {
                     continue;
                 }
                 if (pass == 0) {
                     if (denied && route_sr_denied(sr)) {
-                        cbm_ht_set(denied, sr->value, (void *)1);
+                        ani_ht_set(denied, sr->value, (void *)1);
                     }
-                } else if (!denied || !cbm_ht_has(denied, sr->value)) {
+                } else if (!denied || !ani_ht_has(denied, sr->value)) {
                     try_upsert_infra_route(gbuf, sr, files[i].rel_path);
                 }
             }
         }
     }
-    cbm_ht_free(denied);
+    ani_ht_free(denied);
 }
 
 /* Run decorator_tags, configlink, and route matching passes. */
-typedef void (*predump_pass_fn)(cbm_pipeline_ctx_t *);
-static void predump_deco(cbm_pipeline_ctx_t *ctx) {
-    cbm_pipeline_pass_decorator_tags(ctx->gbuf, ctx->project_name);
+typedef void (*predump_pass_fn)(ani_pipeline_ctx_t *);
+static void predump_deco(ani_pipeline_ctx_t *ctx) {
+    ani_pipeline_pass_decorator_tags(ctx->gbuf, ctx->project_name);
 }
-static void predump_route(cbm_pipeline_ctx_t *ctx) {
-    cbm_pipeline_create_route_nodes(ctx->gbuf);
+static void predump_route(ani_pipeline_ctx_t *ctx) {
+    ani_pipeline_create_route_nodes(ctx->gbuf);
 }
-static void predump_sim(cbm_pipeline_ctx_t *ctx) {
-    cbm_pipeline_pass_similarity(ctx);
+static void predump_sim(ani_pipeline_ctx_t *ctx) {
+    ani_pipeline_pass_similarity(ctx);
 }
-static void predump_sem(cbm_pipeline_ctx_t *ctx) {
-    cbm_pipeline_pass_semantic_edges(ctx);
+static void predump_sem(ani_pipeline_ctx_t *ctx) {
+    ani_pipeline_pass_semantic_edges(ctx);
 }
-static void predump_cfg(cbm_pipeline_ctx_t *ctx) {
-    cbm_pipeline_pass_configlink(ctx);
+static void predump_cfg(ani_pipeline_ctx_t *ctx) {
+    ani_pipeline_pass_configlink(ctx);
 }
-static void predump_complexity(cbm_pipeline_ctx_t *ctx) {
-    cbm_pipeline_pass_complexity(ctx);
+static void predump_complexity(ani_pipeline_ctx_t *ctx) {
+    ani_pipeline_pass_complexity(ctx);
 }
-static void predump_ensemble(cbm_pipeline_ctx_t *ctx) {
-    cbm_pipeline_pass_ensemble_routing(ctx);
+static void predump_ensemble(ani_pipeline_ctx_t *ctx) {
+    ani_pipeline_pass_ensemble_routing(ctx);
 }
-static void predump_importance(cbm_pipeline_ctx_t *ctx) {
-    cbm_pipeline_pass_importance(ctx);
+static void predump_importance(ani_pipeline_ctx_t *ctx) {
+    ani_pipeline_pass_importance(ctx);
 }
 
-static void run_predump_passes(cbm_pipeline_t *p, cbm_pipeline_ctx_t *ctx) {
+static void run_predump_passes(ani_pipeline_t *p, ani_pipeline_ctx_t *ctx) {
     static const struct {
         predump_pass_fn fn;
         const char *name;
@@ -979,41 +979,41 @@ static void run_predump_passes(cbm_pipeline_t *p, cbm_pipeline_ctx_t *ctx) {
          * MODERATE and ADVANCED — they are skipped only in FAST. Compare
          * explicitly against FAST rather than `> MODERATE` so ADVANCED
          * (numerically 3) is not mistaken for a lighter mode than FULL. */
-        if (passes[i].moderate_only && p->mode == CBM_MODE_FAST) {
+        if (passes[i].moderate_only && p->mode == ANI_MODE_FAST) {
             continue;
         }
-        cbm_clock_gettime(CLOCK_MONOTONIC, &t);
+        ani_clock_gettime(CLOCK_MONOTONIC, &t);
         passes[i].fn(ctx);
-        cbm_log_info("pass.timing", "pass", passes[i].name, "elapsed_ms",
+        ani_log_info("pass.timing", "pass", passes[i].name, "elapsed_ms",
                      itoa_buf((int)elapsed_ms(t)));
     }
 }
 
-/* Adapter that lets cbm_pipeline_pass_lsp_cross slot into the seq_passes
- * dispatch table. The cross-file LSP needs the per-file CBMFileResult cache
+/* Adapter that lets ani_pipeline_pass_lsp_cross slot into the seq_passes
+ * dispatch table. The cross-file LSP needs the per-file ANIFileResult cache
  * to read defs/imports without re-extracting; in the sequential path that
  * cache is ctx->result_cache (set up by run_sequential_pipeline before
  * launching the dispatch loop). When the cache is unavailable (e.g. if the
  * pipeline opted out of caching), the pass becomes a no-op since there are
  * no extracted results to feed cross-file resolution. */
-static int seq_pass_lsp_cross_dispatch(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t *files,
+static int seq_pass_lsp_cross_dispatch(ani_pipeline_ctx_t *ctx, const ani_file_info_t *files,
                                        int file_count) {
     if (!ctx || !ctx->result_cache)
         return 0;
     /* Cross-file LSP runs in every mode. */
-    return cbm_pipeline_pass_lsp_cross(ctx, files, file_count, ctx->result_cache);
+    return ani_pipeline_pass_lsp_cross(ctx, files, file_count, ctx->result_cache);
 }
 
 /* Run the sequential pipeline path: definitions, k8s, lsp_cross, calls, usages, semantic. */
 /* Build the ObjectScript $$$macro table from .inc include files in the repo.
  * Returns NULL (and does no work) when no ObjectScript include files exist.
- * Caller owns the returned heap table (free via cbm_macro_table_free). */
-CBMMacroTable *cbm_build_macro_table_from_files(const cbm_file_info_t *files, int count,
+ * Caller owns the returned heap table (free via ani_macro_table_free). */
+ANIMacroTable *ani_build_macro_table_from_files(const ani_file_info_t *files, int count,
                                                 const char *repo_path) {
     (void)repo_path;
     bool has_inc = false;
     for (int i = 0; i < count; i++) {
-        if (files[i].language == CBM_LANG_OBJECTSCRIPT_ROUTINE && files[i].path &&
+        if (files[i].language == ANI_LANG_OBJECTSCRIPT_ROUTINE && files[i].path &&
             (strrchr(files[i].path, '.') != NULL &&
              strcmp(strrchr(files[i].path, '.'), ".inc") == 0)) {
             has_inc = true;
@@ -1024,23 +1024,23 @@ CBMMacroTable *cbm_build_macro_table_from_files(const cbm_file_info_t *files, in
         return NULL;
     }
 
-    CBMMacroTable *mt = (CBMMacroTable *)calloc(1, sizeof(CBMMacroTable));
+    ANIMacroTable *mt = (ANIMacroTable *)calloc(1, sizeof(ANIMacroTable));
     if (!mt) {
         return NULL;
     }
 
-    cbm_arena_init(&mt->arena);
-    cbm_macro_table_init_system(mt);
+    ani_arena_init(&mt->arena);
+    ani_macro_table_init_system(mt);
 
     for (int i = 0; i < count; i++) {
-        if (files[i].language != CBM_LANG_OBJECTSCRIPT_ROUTINE) {
+        if (files[i].language != ANI_LANG_OBJECTSCRIPT_ROUTINE) {
             continue;
         }
         if (!files[i].path || !(strrchr(files[i].path, '.') != NULL &&
                                 strcmp(strrchr(files[i].path, '.'), ".inc") == 0)) {
             continue;
         }
-        FILE *f = cbm_fopen(files[i].path, "rb");
+        FILE *f = ani_fopen(files[i].path, "rb");
         if (!f) {
             continue;
         }
@@ -1052,7 +1052,7 @@ CBMMacroTable *cbm_build_macro_table_from_files(const cbm_file_info_t *files, in
             if (src) {
                 size_t nread = fread(src, 1, (size_t)fsize, f);
                 src[nread] = '\0';
-                cbm_parse_inc_file(mt, &mt->arena, src);
+                ani_parse_inc_file(mt, &mt->arena, src);
                 free(src);
             }
         }
@@ -1061,54 +1061,54 @@ CBMMacroTable *cbm_build_macro_table_from_files(const cbm_file_info_t *files, in
     return mt;
 }
 
-static int run_sequential_pipeline(cbm_pipeline_t *p, cbm_pipeline_ctx_t *ctx,
-                                   const cbm_file_info_t *files, int file_count,
+static int run_sequential_pipeline(ani_pipeline_t *p, ani_pipeline_ctx_t *ctx,
+                                   const ani_file_info_t *files, int file_count,
                                    struct timespec *t) {
-    cbm_log_info("pipeline.mode", "mode", "sequential", "files", itoa_buf(file_count));
+    ani_log_info("pipeline.mode", "mode", "sequential", "files", itoa_buf(file_count));
 
     /* Build package map from manifest files (sequential: read manifests directly).
      * Use the repo-walking variant so manifests filtered out by the main
      * discoverer (package.json, composer.json) still feed pkgmap and let
      * workspace imports like `@my/pkg` resolve to their target Module. */
-    cbm_pipeline_set_pkgmap(cbm_pkgmap_build_from_repo(ctx->repo_path, files, file_count,
+    ani_pipeline_set_pkgmap(ani_pkgmap_build_from_repo(ctx->repo_path, files, file_count,
                                                        ctx->project_name, ctx->excluded_dirs,
                                                        ctx->excluded_count));
 
-    CBMFileResult **seq_cache = (CBMFileResult **)calloc(file_count, sizeof(CBMFileResult *));
+    ANIFileResult **seq_cache = (ANIFileResult **)calloc(file_count, sizeof(ANIFileResult *));
     if (seq_cache) {
         ctx->result_cache = seq_cache;
     }
 
     /* ObjectScript: build the $$$macro table from .inc include files so that
      * pass_calls can resolve macro-mediated dispatch. NULL when not present. */
-    CBMMacroTable *mt = cbm_build_macro_table_from_files(files, file_count, ctx->repo_path);
+    ANIMacroTable *mt = ani_build_macro_table_from_files(files, file_count, ctx->repo_path);
     if (mt) {
         ctx->macro_table = mt;
     }
-    typedef int (*seq_pass_fn)(cbm_pipeline_ctx_t *, const cbm_file_info_t *, int);
+    typedef int (*seq_pass_fn)(ani_pipeline_ctx_t *, const ani_file_info_t *, int);
     static const struct {
         seq_pass_fn fn;
         const char *name;
         bool ignore_err;
     } seq_passes[] = {
-        {cbm_pipeline_pass_definitions, "definitions", false},
-        {cbm_pipeline_pass_k8s, "k8s", true},
+        {ani_pipeline_pass_definitions, "definitions", false},
+        {ani_pipeline_pass_k8s, "k8s", true},
         {seq_pass_lsp_cross_dispatch, "lsp_cross", true},
-        {cbm_pipeline_pass_calls, "calls", false},
-        {cbm_pipeline_pass_usages, "usages", false},
-        {cbm_pipeline_pass_semantic, "semantic", false},
+        {ani_pipeline_pass_calls, "calls", false},
+        {ani_pipeline_pass_usages, "usages", false},
+        {ani_pipeline_pass_semantic, "semantic", false},
     };
     int rc = 0;
     for (int si = 0; si < PL_SEQ_PASSES && rc == 0; si++) {
-        cbm_clock_gettime(CLOCK_MONOTONIC, t);
+        ani_clock_gettime(CLOCK_MONOTONIC, t);
         int pr = seq_passes[si].fn(ctx, files, file_count);
         if (pr != 0 && !seq_passes[si].ignore_err) {
             rc = pr;
         }
-        cbm_log_info("pass.timing", "pass", seq_passes[si].name, "elapsed_ms",
+        ani_log_info("pass.timing", "pass", seq_passes[si].name, "elapsed_ms",
                      itoa_buf((int)elapsed_ms(*t)));
         if (check_cancel(p)) {
-            rc = CBM_NOT_FOUND;
+            rc = ANI_NOT_FOUND;
         }
     }
     /* Consume infra bindings (YAML/HCL topic/queue/scheduler → endpoint) so
@@ -1116,13 +1116,13 @@ static int run_sequential_pipeline(cbm_pipeline_t *p, cbm_pipeline_ctx_t *ctx,
      * one. process_one_infra_binding self-creates the topic Route node when no
      * code-side dispatch created it (e.g. a standalone scheduler manifest). */
     if (seq_cache && rc == 0) {
-        cbm_pipeline_extract_infra_routes(p->gbuf, files, seq_cache, file_count);
-        cbm_pipeline_process_infra_bindings(p->gbuf, files, seq_cache, file_count);
+        ani_pipeline_extract_infra_routes(p->gbuf, files, seq_cache, file_count);
+        ani_pipeline_process_infra_bindings(p->gbuf, files, seq_cache, file_count);
     }
     if (seq_cache) {
         for (int i = 0; i < file_count; i++) {
             if (seq_cache[i]) {
-                cbm_free_result(seq_cache[i]);
+                ani_free_result(seq_cache[i]);
             }
         }
         free(seq_cache);
@@ -1133,7 +1133,7 @@ static int run_sequential_pipeline(cbm_pipeline_t *p, cbm_pipeline_ctx_t *ctx,
      * module-QN strings the registries borrow (parked on the ctx by the pass
      * for exactly this lifetime) go with them. */
     if (ctx->seq_cross_arena_live) {
-        cbm_arena_destroy(&ctx->seq_cross_arena);
+        ani_arena_destroy(&ctx->seq_cross_arena);
         ctx->seq_cross_arena_live = false;
     }
     if (ctx->seq_cross_def_modules) {
@@ -1148,13 +1148,13 @@ static int run_sequential_pipeline(cbm_pipeline_t *p, cbm_pipeline_ctx_t *ctx,
      * CALLING thread (usually main), and a parser left alive here was
      * allocated in the current tree-sitter allocator epoch. A later
      * parallel run switches the global ts allocator to the slab
-     * (cbm_slab_install); destroying the stale parser then frees
+     * (ani_slab_install); destroying the stale parser then frees
      * mimalloc-epoch memory through slab_free -> plain free() and libmalloc
      * aborts — the #773 second-index SIGABRT. */
-    cbm_destroy_thread_parser();
+    ani_destroy_thread_parser();
     /* ObjectScript: free the macro / return-type tables built for this run. */
     if (ctx->macro_table) {
-        cbm_macro_table_free((CBMMacroTable *)ctx->macro_table);
+        ani_macro_table_free((ANIMacroTable *)ctx->macro_table);
         ctx->macro_table = NULL;
     }
     if (ctx->return_type_table) {
@@ -1168,92 +1168,92 @@ static int run_sequential_pipeline(cbm_pipeline_t *p, cbm_pipeline_ctx_t *ctx,
 }
 
 /* Run the parallel pipeline path: extract, registry, resolve, infra, k8s. */
-static int run_parallel_pipeline(cbm_pipeline_t *p, cbm_pipeline_ctx_t *ctx,
-                                 const cbm_file_info_t *files, int file_count, int worker_count,
+static int run_parallel_pipeline(ani_pipeline_t *p, ani_pipeline_ctx_t *ctx,
+                                 const ani_file_info_t *files, int file_count, int worker_count,
                                  struct timespec *t) {
-    cbm_log_info("pipeline.mode", "mode", "parallel", "workers", itoa_buf(worker_count), "files",
+    ani_log_info("pipeline.mode", "mode", "parallel", "workers", itoa_buf(worker_count), "files",
                  itoa_buf(file_count));
     _Atomic int64_t shared_ids;
-    atomic_init(&shared_ids, cbm_gbuf_next_id(p->gbuf));
-    CBMFileResult **cache = (CBMFileResult **)calloc(file_count, sizeof(CBMFileResult *));
+    atomic_init(&shared_ids, ani_gbuf_next_id(p->gbuf));
+    ANIFileResult **cache = (ANIFileResult **)calloc(file_count, sizeof(ANIFileResult *));
     if (!cache) {
-        cbm_log_error("pipeline.err", "phase", "cache_alloc");
-        return CBM_NOT_FOUND;
+        ani_log_error("pipeline.err", "phase", "cache_alloc");
+        return ANI_NOT_FOUND;
     }
-    cbm_clock_gettime(CLOCK_MONOTONIC, t);
-    int rc = cbm_parallel_extract(ctx, files, file_count, cache, &shared_ids, worker_count);
-    cbm_log_info("pass.timing", "pass", "parallel_extract", "elapsed_ms",
+    ani_clock_gettime(CLOCK_MONOTONIC, t);
+    int rc = ani_parallel_extract(ctx, files, file_count, cache, &shared_ids, worker_count);
+    ani_log_info("pass.timing", "pass", "parallel_extract", "elapsed_ms",
                  itoa_buf((int)elapsed_ms(*t)));
     if (rc != 0 || check_cancel(p)) {
         for (int i = 0; i < file_count; i++) {
-            cbm_free_result(cache[i]);
+            ani_free_result(cache[i]);
         }
         free(cache);
-        return rc != 0 ? rc : CBM_NOT_FOUND;
+        return rc != 0 ? rc : ANI_NOT_FOUND;
     }
-    cbm_gbuf_set_next_id(p->gbuf, atomic_load(&shared_ids));
+    ani_gbuf_set_next_id(p->gbuf, atomic_load(&shared_ids));
     /* extract -> registry handoff: return the extract phase's freed-but-retained
      * allocator pages to the OS before registry_build allocates. On a 2x Linux
      * index the extract peak holds ~13 GB of reclaimable pages (peak_mb 20.7 vs
      * live rss_mb 7); not returning them pushed the process over the system
      * memory-pressure threshold and got it SIGKILLed at registry entry. */
-    cbm_mem_collect();
-    cbm_log_info("mem.collect", "phase", "post_extract", "rss_mb",
-                 itoa_buf((int)(cbm_mem_rss() / (1024 * 1024))));
-    cbm_clock_gettime(CLOCK_MONOTONIC, t);
-    rc = cbm_build_registry_from_cache(ctx, files, file_count, cache);
-    cbm_log_info("pass.timing", "pass", "registry_build", "elapsed_ms",
+    ani_mem_collect();
+    ani_log_info("mem.collect", "phase", "post_extract", "rss_mb",
+                 itoa_buf((int)(ani_mem_rss() / (1024 * 1024))));
+    ani_clock_gettime(CLOCK_MONOTONIC, t);
+    rc = ani_build_registry_from_cache(ctx, files, file_count, cache);
+    ani_log_info("pass.timing", "pass", "registry_build", "elapsed_ms",
                  itoa_buf((int)elapsed_ms(*t)));
     log_phase_mem("registry_build");
     if (rc != 0 || check_cancel(p)) {
         for (int i = 0; i < file_count; i++) {
             if (cache[i]) {
-                cbm_free_result(cache[i]);
+                ani_free_result(cache[i]);
             }
         }
         free(cache);
-        return rc != 0 ? rc : CBM_NOT_FOUND;
+        return rc != 0 ? rc : ANI_NOT_FOUND;
     }
     /* Registry consumers may materialize serial nodes (Channel, EnvVar, and
      * future carrier-derived resources) after parallel extraction established
      * the shared allocator watermark. Advance the atomic allocator before
      * resolve workers resume; otherwise their IDs and the later next-id reset
      * can collide with those nodes and orphan freshly inserted edges. */
-    int64_t registry_next_id = cbm_gbuf_next_id(p->gbuf);
+    int64_t registry_next_id = ani_gbuf_next_id(p->gbuf);
     if (registry_next_id > atomic_load(&shared_ids)) {
         atomic_store(&shared_ids, registry_next_id);
     }
-    /* Cross-file LSP precondition: build a project-wide CBMLSPDef[]
-     * once. The fused resolve_worker invokes cbm_pxc_run_one(_ts) per
+    /* Cross-file LSP precondition: build a project-wide ANILSPDef[]
+     * once. The fused resolve_worker invokes ani_pxc_run_one(_ts) per
      * file using these defs + the file's IMPORTS map, so cross-file
      * type-resolved CALLS land in result->resolved_calls before the
      * CALLS-edge emission. This replaces the old sequential
-     * cbm_pipeline_pass_lsp_cross pass which re-read every source from
+     * ani_pipeline_pass_lsp_cross pass which re-read every source from
      * disk and re-parsed every tree on a single thread (~520s on
      * kubernetes). Soft-failure: NULL all_defs / NULL def_modules just
      * mean cross-file LSP no-ops; per-file LSP already ran during
      * extract. */
-    cbm_clock_gettime(CLOCK_MONOTONIC, t);
+    ani_clock_gettime(CLOCK_MONOTONIC, t);
     /* Cross-file LSP (type-aware call/usage resolution across files) — the
-     * most expensive phase. CBM_DISABLE_LSP_CROSS=1 opts out (it can SIGSEGV
+     * most expensive phase. ANI_DISABLE_LSP_CROSS=1 opts out (it can SIGSEGV
      * on large TS projects — see #340/#344); with cross-LSP off, all_defs
      * stays NULL and the fused resolver simply no-ops cross-file resolution
      * (per-file LSP already ran during extract). */
-    char cbm_lsp_cross_env[CBM_SZ_16];
-    const bool run_cross_lsp = cbm_safe_getenv("CBM_DISABLE_LSP_CROSS", cbm_lsp_cross_env,
-                                               sizeof(cbm_lsp_cross_env), NULL) == NULL;
+    char ani_lsp_cross_env[ANI_SZ_16];
+    const bool run_cross_lsp = ani_safe_getenv("ANI_DISABLE_LSP_CROSS", ani_lsp_cross_env,
+                                               sizeof(ani_lsp_cross_env), NULL) == NULL;
     if (!run_cross_lsp) {
-        cbm_log_info("lsp_cross.skipped", "reason", "CBM_DISABLE_LSP_CROSS env set");
+        ani_log_info("lsp_cross.skipped", "reason", "ANI_DISABLE_LSP_CROSS env set");
     }
     char **def_modules = NULL;
     int def_count = 0;
-    CBMLSPDef *all_defs = NULL;
+    ANILSPDef *all_defs = NULL;
     int *def_starts = NULL;
     if (run_cross_lsp) {
         def_modules = (char **)calloc((size_t)file_count, sizeof(char *));
         def_starts = (int *)calloc((size_t)file_count + 1, sizeof(int));
         all_defs = def_modules
-                       ? cbm_pxc_collect_all_defs(ctx, cache, files, file_count, ctx->project_name,
+                       ? ani_pxc_collect_all_defs(ctx, cache, files, file_count, ctx->project_name,
                                                   def_modules, &def_count, def_starts)
                        : NULL;
     }
@@ -1262,13 +1262,13 @@ static int run_parallel_pipeline(cbm_pipeline_t *p, cbm_pipeline_ctx_t *ctx,
      * edits and rehydrate cross registries without re-parsing the world.
      * Failure only degrades: no rows → the incremental route full-rebuilds. */
     if (ctx->pipeline && all_defs && def_starts) {
-        cbm_lsp_surface_row_t *surface_rows = NULL;
+        ani_lsp_surface_row_t *surface_rows = NULL;
         int surface_count = 0;
-        if (cbm_lsp_surface_build_rows(ctx->project_name, cache, files, file_count, all_defs,
+        if (ani_lsp_surface_build_rows(ctx->project_name, cache, files, file_count, all_defs,
                                        def_starts, &surface_rows, &surface_count) == 0) {
-            cbm_pipeline_set_lsp_surfaces(ctx->pipeline, surface_rows, surface_count);
+            ani_pipeline_set_lsp_surfaces(ctx->pipeline, surface_rows, surface_count);
         } else {
-            cbm_log_warn("lsp_surface.serialize_failed", "files", itoa_buf(file_count));
+            ani_log_warn("lsp_surface.serialize_failed", "files", itoa_buf(file_count));
         }
     }
     free(def_starts);
@@ -1278,65 +1278,65 @@ static int run_parallel_pipeline(cbm_pipeline_t *p, cbm_pipeline_ctx_t *ctx,
      * gopls "package summary" pattern. Drops per-file registry build
      * cost from O(all_defs) to O(relevant_defs), typically 50-100×
      * smaller per file. */
-    CBMModuleDefIndex *module_def_index =
-        all_defs ? cbm_pxc_build_module_def_index(all_defs, def_count) : NULL;
+    ANIModuleDefIndex *module_def_index =
+        all_defs ? ani_pxc_build_module_def_index(all_defs, def_count) : NULL;
     /* Tier 2 full: pre-build per-language cross-LSP registries.
      * Built ONCE here; shared READ-ONLY across all files of that language
      * during resolve. Per-file work is then: parse + AST walk + O(1) lookups
      * — no registry build, no Phase 1b mutations. Languages added so far:
      * Go, Python, C/C++, C#, TS/JS, Java. Others (Kotlin, PHP) fall back to per-file. */
-    CBMArena cross_lsp_arena;
-    cbm_arena_init(&cross_lsp_arena);
-    CBMCrossLspRegistries cross_registries = {0};
+    ANIArena cross_lsp_arena;
+    ani_arena_init(&cross_lsp_arena);
+    ANICrossLspRegistries cross_registries = {0};
     if (all_defs) {
         /* Per-builder split of lsp_cross_prepare — attributes a slow prepare to
          * ONE language instead of re-diagnosing the whole pass (the cs builder
          * hid ~140 s behind the pass total, #1669 follow-up). */
         struct timespec t_b;
         long b_ms[6];
-        cbm_clock_gettime(CLOCK_MONOTONIC, &t_b);
-        cross_registries.go = cbm_go_build_cross_registry(&cross_lsp_arena, all_defs, def_count);
+        ani_clock_gettime(CLOCK_MONOTONIC, &t_b);
+        cross_registries.go = ani_go_build_cross_registry(&cross_lsp_arena, all_defs, def_count);
         b_ms[0] = (long)elapsed_ms(t_b);
-        cbm_clock_gettime(CLOCK_MONOTONIC, &t_b);
+        ani_clock_gettime(CLOCK_MONOTONIC, &t_b);
         cross_registries.python =
-            cbm_py_build_cross_registry(&cross_lsp_arena, all_defs, def_count);
+            ani_py_build_cross_registry(&cross_lsp_arena, all_defs, def_count);
         b_ms[1] = (long)elapsed_ms(t_b);
-        cbm_clock_gettime(CLOCK_MONOTONIC, &t_b);
-        cross_registries.c = cbm_c_build_cross_registry(&cross_lsp_arena, all_defs, def_count);
+        ani_clock_gettime(CLOCK_MONOTONIC, &t_b);
+        cross_registries.c = ani_c_build_cross_registry(&cross_lsp_arena, all_defs, def_count);
         b_ms[2] = (long)elapsed_ms(t_b);
-        cbm_clock_gettime(CLOCK_MONOTONIC, &t_b);
-        cross_registries.cs = cbm_cs_build_cross_registry(&cross_lsp_arena, all_defs, def_count);
+        ani_clock_gettime(CLOCK_MONOTONIC, &t_b);
+        cross_registries.cs = ani_cs_build_cross_registry(&cross_lsp_arena, all_defs, def_count);
         b_ms[3] = (long)elapsed_ms(t_b);
-        cbm_clock_gettime(CLOCK_MONOTONIC, &t_b);
-        cross_registries.ts = cbm_ts_build_cross_registry(&cross_lsp_arena, all_defs, def_count);
+        ani_clock_gettime(CLOCK_MONOTONIC, &t_b);
+        cross_registries.ts = ani_ts_build_cross_registry(&cross_lsp_arena, all_defs, def_count);
         b_ms[4] = (long)elapsed_ms(t_b);
-        cbm_clock_gettime(CLOCK_MONOTONIC, &t_b);
+        ani_clock_gettime(CLOCK_MONOTONIC, &t_b);
         cross_registries.java =
-            cbm_java_build_cross_registry(&cross_lsp_arena, all_defs, def_count);
+            ani_java_build_cross_registry(&cross_lsp_arena, all_defs, def_count);
         b_ms[5] = (long)elapsed_ms(t_b);
-        char b_buf[6][CBM_SZ_16];
+        char b_buf[6][ANI_SZ_16];
         const char *b_name[6] = {"go", "python", "c", "cs", "ts", "java"};
         for (int bi = 0; bi < 6; bi++) {
             snprintf(b_buf[bi], sizeof(b_buf[bi]), "%ld", b_ms[bi]);
         }
-        cbm_log_info("lsp_cross_prepare.builders", b_name[0], b_buf[0], b_name[1], b_buf[1],
+        ani_log_info("lsp_cross_prepare.builders", b_name[0], b_buf[0], b_name[1], b_buf[1],
                      b_name[2], b_buf[2], b_name[3], b_buf[3], b_name[4], b_buf[4], b_name[5],
                      b_buf[5]);
         /* Rust: NOT built here. The shared all_defs registry is built LAZILY on the
-         * first NULL-filter rust file (the amplifier files) inside cbm_parallel_resolve
+         * first NULL-filter rust file (the amplifier files) inside ani_parallel_resolve
          * — repos whose rust files all filter to subsets never pay the build/RSS. */
     }
-    cbm_log_info("pass.timing", "pass", "lsp_cross_prepare", "elapsed_ms",
+    ani_log_info("pass.timing", "pass", "lsp_cross_prepare", "elapsed_ms",
                  itoa_buf((int)elapsed_ms(*t)));
     log_phase_mem("lsp_cross_prepare");
-    cbm_clock_gettime(CLOCK_MONOTONIC, t);
-    rc = cbm_parallel_resolve(ctx, files, file_count, cache, &shared_ids, worker_count, all_defs,
+    ani_clock_gettime(CLOCK_MONOTONIC, t);
+    rc = ani_parallel_resolve(ctx, files, file_count, cache, &shared_ids, worker_count, all_defs,
                               def_count, def_modules, module_def_index, &cross_registries);
-    cbm_log_info("pass.timing", "pass", "parallel_resolve", "elapsed_ms",
+    ani_log_info("pass.timing", "pass", "parallel_resolve", "elapsed_ms",
                  itoa_buf((int)elapsed_ms(*t)));
     log_phase_mem("parallel_resolve");
-    cbm_pxc_free_module_def_index(module_def_index);
-    cbm_arena_destroy(&cross_lsp_arena); /* releases all per-lang registries */
+    ani_pxc_free_module_def_index(module_def_index);
+    ani_arena_destroy(&cross_lsp_arena); /* releases all per-lang registries */
     free(all_defs);
     if (def_modules) {
         for (int i = 0; i < file_count; i++) {
@@ -1344,52 +1344,52 @@ static int run_parallel_pipeline(cbm_pipeline_t *p, cbm_pipeline_ctx_t *ctx,
         }
         free(def_modules);
     }
-    cbm_gbuf_set_next_id(p->gbuf, atomic_load(&shared_ids));
-    cbm_pipeline_extract_infra_routes(p->gbuf, files, cache, file_count);
-    cbm_pipeline_process_infra_bindings(p->gbuf, files, cache, file_count);
+    ani_gbuf_set_next_id(p->gbuf, atomic_load(&shared_ids));
+    ani_pipeline_extract_infra_routes(p->gbuf, files, cache, file_count);
+    ani_pipeline_process_infra_bindings(p->gbuf, files, cache, file_count);
     for (int i = 0; i < file_count; i++) {
         if (cache[i]) {
-            cbm_free_result(cache[i]);
+            ani_free_result(cache[i]);
         }
     }
     free(cache);
     if (rc != 0) {
         return rc;
     }
-    cbm_clock_gettime(CLOCK_MONOTONIC, t);
-    cbm_pipeline_pass_k8s(ctx, files, file_count);
-    cbm_log_info("pass.timing", "pass", "k8s", "elapsed_ms", itoa_buf((int)elapsed_ms(*t)));
-    return check_cancel(p) ? CBM_NOT_FOUND : 0;
+    ani_clock_gettime(CLOCK_MONOTONIC, t);
+    ani_pipeline_pass_k8s(ctx, files, file_count);
+    ani_log_info("pass.timing", "pass", "k8s", "elapsed_ms", itoa_buf((int)elapsed_ms(*t)));
+    return check_cancel(p) ? ANI_NOT_FOUND : 0;
 }
 
-static int capture_existing_adr(cbm_pipeline_t *p, const char *db_path) {
-#if defined(CBM_INCREMENTAL_TEST_API) && CBM_INCREMENTAL_TEST_API
+static int capture_existing_adr(ani_pipeline_t *p, const char *db_path) {
+#if defined(ANI_INCREMENTAL_TEST_API) && ANI_INCREMENTAL_TEST_API
     if (atomic_exchange(&g_persist_test_fail_adr_capture, false)) {
-        return CBM_PIPELINE_ABORT_PRESERVE_DB;
+        return ANI_PIPELINE_ABORT_PRESERVE_DB;
     }
 #endif
-    cbm_store_t *adr_store = cbm_store_open_path_query(db_path);
+    ani_store_t *adr_store = ani_store_open_path_query(db_path);
     if (!adr_store) {
-        return CBM_PIPELINE_ABORT_PRESERVE_DB;
+        return ANI_PIPELINE_ABORT_PRESERVE_DB;
     }
-    cbm_adr_t existing = {0};
-    int adr_rc = cbm_store_adr_get(adr_store, p->project_name, &existing);
-    if (adr_rc == CBM_STORE_NOT_FOUND) {
-        cbm_store_close(adr_store);
+    ani_adr_t existing = {0};
+    int adr_rc = ani_store_adr_get(adr_store, p->project_name, &existing);
+    if (adr_rc == ANI_STORE_NOT_FOUND) {
+        ani_store_close(adr_store);
         free(p->saved_adr);
         p->saved_adr = NULL;
         return 0;
     }
-    if (adr_rc != CBM_STORE_OK || !existing.content) {
-        cbm_store_adr_free(&existing);
-        cbm_store_close(adr_store);
-        return CBM_PIPELINE_ABORT_PRESERVE_DB;
+    if (adr_rc != ANI_STORE_OK || !existing.content) {
+        ani_store_adr_free(&existing);
+        ani_store_close(adr_store);
+        return ANI_PIPELINE_ABORT_PRESERVE_DB;
     }
     char *saved = strdup(existing.content);
-    cbm_store_adr_free(&existing);
-    cbm_store_close(adr_store);
+    ani_store_adr_free(&existing);
+    ani_store_close(adr_store);
     if (!saved) {
-        return CBM_PIPELINE_ABORT_PRESERVE_DB;
+        return ANI_PIPELINE_ABORT_PRESERVE_DB;
     }
     free(p->saved_adr);
     p->saved_adr = saved;
@@ -1399,48 +1399,48 @@ static int capture_existing_adr(cbm_pipeline_t *p, const char *db_path) {
 /* Route an existing generation. Full rebuilds never delete the live DB here:
  * publication owns the eventual atomic replacement after every pass and
  * metadata write has succeeded. */
-static int try_incremental_or_delete_db(cbm_pipeline_t *p, cbm_file_info_t *files, int file_count,
-                                        const cbm_file_hash_t *baseline_manifest,
+static int try_incremental_or_delete_db(ani_pipeline_t *p, ani_file_info_t *files, int file_count,
+                                        const ani_file_hash_t *baseline_manifest,
                                         int baseline_count, bool force_full_on_mismatch) {
     char *db_path = resolve_db_path(p);
     if (!db_path) {
-        return CBM_PIPELINE_FORCE_FULL_REINDEX;
+        return ANI_PIPELINE_FORCE_FULL_REINDEX;
     }
     struct stat db_st;
     if (stat(db_path, &db_st) != 0) {
         free(db_path);
-        return CBM_PIPELINE_FORCE_FULL_REINDEX;
+        return ANI_PIPELINE_FORCE_FULL_REINDEX;
     }
-    cbm_store_t *check_store = cbm_store_open_path_query(db_path);
-    bool valid = check_store && cbm_store_check_integrity(check_store);
+    ani_store_t *check_store = ani_store_open_path_query(db_path);
+    bool valid = check_store && ani_store_check_integrity(check_store);
     if (check_store) {
-        cbm_store_close(check_store);
+        ani_store_close(check_store);
     }
     if (!valid) {
-        cbm_log_warn("pipeline.route", "path", "full", "reason", "invalid_existing_db");
+        ani_log_warn("pipeline.route", "path", "full", "reason", "invalid_existing_db");
         free(db_path);
-        return CBM_PIPELINE_FORCE_FULL_REINDEX;
+        return ANI_PIPELINE_FORCE_FULL_REINDEX;
     }
 
-    cbm_store_t *fmt_store = cbm_store_open_path_query(db_path);
+    ani_store_t *fmt_store = ani_store_open_path_query(db_path);
     int fmt = 0;
     if (fmt_store) {
-        cbm_store_get_format_version(fmt_store, &fmt);
-        cbm_store_close(fmt_store);
+        ani_store_get_format_version(fmt_store, &fmt);
+        ani_store_close(fmt_store);
     }
-    if (fmt != CBM_INDEX_FORMAT_VERSION) {
-        cbm_log_info("pipeline.route", "path", "format_change_reindex", "stored_format",
+    if (fmt != ANI_INDEX_FORMAT_VERSION) {
+        ani_log_info("pipeline.route", "path", "format_change_reindex", "stored_format",
                      itoa_buf(fmt));
         p->format_migration = true;
         int adr_rc = capture_existing_adr(p, db_path);
-        (void)cbm_unlink(db_path);
-        (void)cbm_remove_db_sidecars(db_path);
+        (void)ani_unlink(db_path);
+        (void)ani_remove_db_sidecars(db_path);
         free(db_path);
-        return adr_rc != 0 ? adr_rc : CBM_PIPELINE_FORCE_FULL_REINDEX;
+        return adr_rc != 0 ? adr_rc : ANI_PIPELINE_FORCE_FULL_REINDEX;
     }
 
-    cbm_log_info("pipeline.route", "path", "incremental_manifest");
-    int rc = cbm_pipeline_run_incremental(p, db_path, files, file_count, baseline_manifest,
+    ani_log_info("pipeline.route", "path", "incremental_manifest");
+    int rc = ani_pipeline_run_incremental(p, db_path, files, file_count, baseline_manifest,
                                           baseline_count, force_full_on_mismatch);
     /* Delete the existing generation ONLY when we are about to rebuild it.
      * On main this was guarded by an early `return rc` for the incremental
@@ -1448,38 +1448,38 @@ static int try_incremental_or_delete_db(cbm_pipeline_t *p, cbm_file_info_t *file
      * conditional. Unconditionally removing it destroys the database on the
      * no-op and successful-incremental routes -- the pipeline reports success
      * while every later reader finds no store. */
-    if (rc == CBM_PIPELINE_FORCE_FULL_REINDEX) {
+    if (rc == ANI_PIPELINE_FORCE_FULL_REINDEX) {
         int adr_rc = capture_existing_adr(p, db_path);
         if (adr_rc != 0) {
             rc = adr_rc;
         }
-        (void)cbm_unlink(db_path);
-        (void)cbm_remove_db_sidecars(db_path);
+        (void)ani_unlink(db_path);
+        (void)ani_remove_db_sidecars(db_path);
     }
     free(db_path);
     return rc;
 }
 
-static const char *pipeline_mode_name(cbm_index_mode_t mode) {
+static const char *pipeline_mode_name(ani_index_mode_t mode) {
     switch (mode) {
-    case CBM_MODE_FULL:
+    case ANI_MODE_FULL:
         return "full";
-    case CBM_MODE_MODERATE:
+    case ANI_MODE_MODERATE:
         return "moderate";
-    case CBM_MODE_FAST:
+    case ANI_MODE_FAST:
         return "fast";
     default:
         return "unknown";
     }
 }
 
-static int pipeline_mode_coverage_rank(cbm_index_mode_t mode) {
+static int pipeline_mode_coverage_rank(ani_index_mode_t mode) {
     switch (mode) {
-    case CBM_MODE_FULL:
+    case ANI_MODE_FULL:
         return 3;
-    case CBM_MODE_MODERATE:
+    case ANI_MODE_MODERATE:
         return 2;
-    case CBM_MODE_FAST:
+    case ANI_MODE_FAST:
         return 1;
     default:
         return 0;
@@ -1490,7 +1490,7 @@ static int pipeline_mode_coverage_rank(cbm_index_mode_t mode) {
  * must never erase files that the cheaper discovery intentionally skips. The
  * exact-manifest pipeline therefore keeps the most comprehensive successfully
  * published mode and performs any changed rebuild at that coverage level. */
-static bool promote_mode_to_existing_coverage(cbm_pipeline_t *p) {
+static bool promote_mode_to_existing_coverage(ani_pipeline_t *p) {
     if (!p || !p->project_name) {
         return false;
     }
@@ -1498,32 +1498,32 @@ static bool promote_mode_to_existing_coverage(cbm_pipeline_t *p) {
     if (!db_path) {
         return false;
     }
-    cbm_store_t *store = cbm_store_open_path_query(db_path);
+    ani_store_t *store = ani_store_open_path_query(db_path);
     free(db_path);
     if (!store) {
         return false;
     }
     bool promoted = false;
-    cbm_coverage_meta_t meta = {0};
-    if (cbm_store_coverage_meta_get(store, p->project_name, &meta) == CBM_STORE_OK &&
+    ani_coverage_meta_t meta = {0};
+    if (ani_store_coverage_meta_get(store, p->project_name, &meta) == ANI_STORE_OK &&
         meta.index_mode) {
-        cbm_index_mode_t stored_mode = p->mode;
+        ani_index_mode_t stored_mode = p->mode;
         if (strcmp(meta.index_mode, "full") == 0) {
-            stored_mode = CBM_MODE_FULL;
+            stored_mode = ANI_MODE_FULL;
         } else if (strcmp(meta.index_mode, "moderate") == 0) {
-            stored_mode = CBM_MODE_MODERATE;
+            stored_mode = ANI_MODE_MODERATE;
         } else if (strcmp(meta.index_mode, "fast") == 0) {
-            stored_mode = CBM_MODE_FAST;
+            stored_mode = ANI_MODE_FAST;
         }
         if (pipeline_mode_coverage_rank(stored_mode) > pipeline_mode_coverage_rank(p->mode)) {
-            cbm_log_info("pipeline.mode", "requested", pipeline_mode_name(p->mode), "effective",
+            ani_log_info("pipeline.mode", "requested", pipeline_mode_name(p->mode), "effective",
                          pipeline_mode_name(stored_mode), "reason", "preserve_existing_coverage");
             p->mode = stored_mode;
             promoted = true;
         }
     }
-    cbm_store_coverage_meta_clear(&meta);
-    cbm_store_close(store);
+    ani_store_coverage_meta_clear(&meta);
+    ani_store_close(store);
     return promoted;
 }
 
@@ -1534,45 +1534,45 @@ static void discard_generation_stage(const char *stage_path) {
     if (!stage_path) {
         return;
     }
-    cbm_unlink(stage_path);
-    cbm_remove_db_sidecars(stage_path);
+    ani_unlink(stage_path);
+    ani_remove_db_sidecars(stage_path);
 }
 
 typedef struct {
     bool quarantined;
-    char backup_path[CBM_SZ_4K];
-} cbm_replacement_prepare_t;
+    char backup_path[ANI_SZ_4K];
+} ani_replacement_prepare_t;
 
 static int replacement_sidecar_path(char *out, size_t out_size, const char *base,
                                     const char *suffix) {
     int n = snprintf(out, out_size, "%s%s", base, suffix);
-    return n > 0 && (size_t)n < out_size ? 0 : CBM_PIPELINE_PERSIST_FAILED;
+    return n > 0 && (size_t)n < out_size ? 0 : ANI_PIPELINE_PERSIST_FAILED;
 }
 
 static bool replacement_path_exists(const char *path) {
-    cbm_path_info_t info;
-    return cbm_path_info_utf8(path, &info) == 0;
+    ani_path_info_t info;
+    return ani_path_info_utf8(path, &info) == 0;
 }
 
 static int rollback_quarantined_generation(const char *db_path,
-                                           cbm_replacement_prepare_t *prepared) {
+                                           ani_replacement_prepare_t *prepared) {
     if (!prepared || !prepared->quarantined) {
         return 0;
     }
     static const char *const suffixes[] = {"-wal", "-shm"};
-    if (cbm_rename_noreplace(prepared->backup_path, db_path) != 0) {
-        return CBM_PIPELINE_PERSIST_FAILED;
+    if (ani_rename_noreplace(prepared->backup_path, db_path) != 0) {
+        return ANI_PIPELINE_PERSIST_FAILED;
     }
     for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++) {
-        char source[CBM_SZ_4K];
-        char destination[CBM_SZ_4K];
+        char source[ANI_SZ_4K];
+        char destination[ANI_SZ_4K];
         if (replacement_sidecar_path(source, sizeof(source), prepared->backup_path, suffixes[i]) !=
                 0 ||
             replacement_sidecar_path(destination, sizeof(destination), db_path, suffixes[i]) != 0) {
-            return CBM_PIPELINE_PERSIST_FAILED;
+            return ANI_PIPELINE_PERSIST_FAILED;
         }
-        if (replacement_path_exists(source) && cbm_rename_noreplace(source, destination) != 0) {
-            return CBM_PIPELINE_PERSIST_FAILED;
+        if (replacement_path_exists(source) && ani_rename_noreplace(source, destination) != 0) {
+            return ANI_PIPELINE_PERSIST_FAILED;
         }
     }
     prepared->quarantined = false;
@@ -1581,57 +1581,57 @@ static int rollback_quarantined_generation(const char *db_path,
 }
 
 static int quarantine_existing_generation(const char *db_path,
-                                          cbm_replacement_prepare_t *prepared) {
+                                          ani_replacement_prepare_t *prepared) {
     if (!db_path || !prepared) {
-        return CBM_PIPELINE_PERSIST_FAILED;
+        return ANI_PIPELINE_PERSIST_FAILED;
     }
     static const char *const suffixes[] = {"-wal", "-shm"};
-    char candidate[CBM_SZ_4K];
+    char candidate[ANI_SZ_4K];
     for (int attempt = 0; attempt < 10000; attempt++) {
         int n = attempt == 0
                     ? snprintf(candidate, sizeof(candidate), "%s.corrupt", db_path)
                     : snprintf(candidate, sizeof(candidate), "%s.corrupt.%d", db_path, attempt);
         if (n <= 0 || (size_t)n >= sizeof(candidate)) {
-            return CBM_PIPELINE_PERSIST_FAILED;
+            return ANI_PIPELINE_PERSIST_FAILED;
         }
         bool available = !replacement_path_exists(candidate);
         for (size_t i = 0; available && i < sizeof(suffixes) / sizeof(suffixes[0]); i++) {
-            char candidate_sidecar[CBM_SZ_4K];
+            char candidate_sidecar[ANI_SZ_4K];
             if (replacement_sidecar_path(candidate_sidecar, sizeof(candidate_sidecar), candidate,
                                          suffixes[i]) != 0) {
-                return CBM_PIPELINE_PERSIST_FAILED;
+                return ANI_PIPELINE_PERSIST_FAILED;
             }
             available = !replacement_path_exists(candidate_sidecar);
         }
         if (!available) {
             continue;
         }
-        if (cbm_rename_noreplace(db_path, candidate) != 0) {
+        if (ani_rename_noreplace(db_path, candidate) != 0) {
             if (replacement_path_exists(candidate)) {
                 continue;
             }
-            return CBM_PIPELINE_PERSIST_FAILED;
+            return ANI_PIPELINE_PERSIST_FAILED;
         }
 
         snprintf(prepared->backup_path, sizeof(prepared->backup_path), "%s", candidate);
         prepared->quarantined = true;
         for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++) {
-            char source[CBM_SZ_4K];
-            char destination[CBM_SZ_4K];
+            char source[ANI_SZ_4K];
+            char destination[ANI_SZ_4K];
             if (replacement_sidecar_path(source, sizeof(source), db_path, suffixes[i]) != 0 ||
                 replacement_sidecar_path(destination, sizeof(destination), candidate,
                                          suffixes[i]) != 0) {
                 (void)rollback_quarantined_generation(db_path, prepared);
-                return CBM_PIPELINE_PERSIST_FAILED;
+                return ANI_PIPELINE_PERSIST_FAILED;
             }
-            if (replacement_path_exists(source) && cbm_rename_noreplace(source, destination) != 0) {
+            if (replacement_path_exists(source) && ani_rename_noreplace(source, destination) != 0) {
                 (void)rollback_quarantined_generation(db_path, prepared);
-                return CBM_PIPELINE_PERSIST_FAILED;
+                return ANI_PIPELINE_PERSIST_FAILED;
             }
         }
         return 0;
     }
-    return CBM_PIPELINE_PERSIST_FAILED;
+    return ANI_PIPELINE_PERSIST_FAILED;
 }
 
 /* `quarantine_invalid` separates the two callers, which own very different
@@ -1643,63 +1643,63 @@ static int quarantine_existing_generation(const char *db_path,
  * parking that under a .corrupt name leaves a file in the database directory
  * that nothing ever collects and that no one can interpret. */
 static int prepare_existing_generation_for_replace(const char *db_path,
-                                                   cbm_replacement_prepare_t *prepared,
+                                                   ani_replacement_prepare_t *prepared,
                                                    bool quarantine_invalid) {
     if (!prepared) {
-        return CBM_PIPELINE_PERSIST_FAILED;
+        return ANI_PIPELINE_PERSIST_FAILED;
     }
     memset(prepared, 0, sizeof(*prepared));
     /* Every failure edge below logs before returning: a silent PERSIST_FAILED
      * surfaces to the user as "Pipeline failed. Check repo_path ..." -- blaming
      * a repo that indexed perfectly for a destination-side replacement fault. */
-    cbm_path_info_t info;
-    if (cbm_path_info_utf8(db_path, &info) == 0) {
+    ani_path_info_t info;
+    if (ani_path_info_utf8(db_path, &info) == 0) {
         if (!info.is_regular || info.is_symlink) {
-            cbm_log_error("finalize.prepare_failed", "reason", "destination_not_regular", "path",
+            ani_log_error("finalize.prepare_failed", "reason", "destination_not_regular", "path",
                           db_path);
-            return CBM_PIPELINE_PERSIST_FAILED;
+            return ANI_PIPELINE_PERSIST_FAILED;
         }
-        int seal_rc = cbm_store_seal_existing_path_for_replace(db_path);
-        if (seal_rc == CBM_STORE_NOT_FOUND) {
+        int seal_rc = ani_store_seal_existing_path_for_replace(db_path);
+        if (seal_rc == ANI_STORE_NOT_FOUND) {
             if (!quarantine_invalid) {
-                (void)cbm_unlink(db_path);
-                if (cbm_remove_db_sidecars(db_path) != 0) {
-                    cbm_log_error("finalize.prepare_failed", "reason",
+                (void)ani_unlink(db_path);
+                if (ani_remove_db_sidecars(db_path) != 0) {
+                    ani_log_error("finalize.prepare_failed", "reason",
                                   "invalid_destination_sidecar_cleanup", "path", db_path);
-                    return CBM_PIPELINE_PERSIST_FAILED;
+                    return ANI_PIPELINE_PERSIST_FAILED;
                 }
                 return 0;
             }
             return quarantine_existing_generation(db_path, prepared);
         }
-        if (seal_rc != CBM_STORE_OK) {
+        if (seal_rc != ANI_STORE_OK) {
             char seal_text[16];
             (void)snprintf(seal_text, sizeof(seal_text), "%d", seal_rc);
-            cbm_log_error("finalize.prepare_failed", "reason", "seal_existing", "rc", seal_text,
+            ani_log_error("finalize.prepare_failed", "reason", "seal_existing", "rc", seal_text,
                           "path", db_path);
-            return CBM_PIPELINE_PERSIST_FAILED;
+            return ANI_PIPELINE_PERSIST_FAILED;
         }
     }
-    if (cbm_remove_db_sidecars(db_path) != 0) {
+    if (ani_remove_db_sidecars(db_path) != 0) {
         char errno_text[16];
         (void)snprintf(errno_text, sizeof(errno_text), "%d", errno);
-        cbm_log_error("finalize.prepare_failed", "reason", "sidecar_cleanup", "errno", errno_text,
+        ani_log_error("finalize.prepare_failed", "reason", "sidecar_cleanup", "errno", errno_text,
                       "path", db_path);
-        return CBM_PIPELINE_PERSIST_FAILED;
+        return ANI_PIPELINE_PERSIST_FAILED;
     }
     return 0;
 }
 
-int cbm_pipeline_publish_generation(const cbm_pipeline_generation_t *generation) {
+int ani_pipeline_publish_generation(const ani_pipeline_generation_t *generation) {
     if (!generation || !generation->gbuf || !generation->final_db_path || !generation->project ||
         generation->manifest_count < 0 ||
         (generation->manifest_count > 0 && !generation->manifest) ||
         generation->coverage_count < 0 ||
         (generation->coverage_count > 0 && !generation->coverage)) {
-        return CBM_PIPELINE_PERSIST_FAILED;
+        return ANI_PIPELINE_PERSIST_FAILED;
     }
     if (generation->cancelled && atomic_load(generation->cancelled)) {
-        return CBM_PIPELINE_ABORT_PRESERVE_DB;
+        return ANI_PIPELINE_ABORT_PRESERVE_DB;
     }
 
     /* The staging name must be unpredictable and created exclusively. It used
@@ -1715,29 +1715,29 @@ int cbm_pipeline_publish_generation(const cbm_pipeline_generation_t *generation)
      * and its sidecars cannot pre-exist either. */
     char *stage_path = create_staging_path(generation->final_db_path);
     if (!stage_path) {
-        return CBM_PIPELINE_PERSIST_FAILED;
+        return ANI_PIPELINE_PERSIST_FAILED;
     }
 
-    int dump_rc = cbm_gbuf_dump_to_sqlite(generation->gbuf, stage_path);
+    int dump_rc = ani_gbuf_dump_to_sqlite(generation->gbuf, stage_path);
     if (dump_rc != 0) {
         discard_generation_stage(stage_path);
         free(stage_path);
-        return CBM_PIPELINE_PERSIST_FAILED;
+        return ANI_PIPELINE_PERSIST_FAILED;
     }
-#if defined(CBM_INCREMENTAL_TEST_API) && CBM_INCREMENTAL_TEST_API
-    if (cbm_pipeline_persist_test_take_failure_after_stage_dump()) {
+#if defined(ANI_INCREMENTAL_TEST_API) && ANI_INCREMENTAL_TEST_API
+    if (ani_pipeline_persist_test_take_failure_after_stage_dump()) {
         discard_generation_stage(stage_path);
         free(stage_path);
-        return CBM_PIPELINE_PERSIST_FAILED;
+        return ANI_PIPELINE_PERSIST_FAILED;
     }
 #endif
     if (generation->cancelled && atomic_load(generation->cancelled)) {
         discard_generation_stage(stage_path);
         free(stage_path);
-        return CBM_PIPELINE_ABORT_PRESERVE_DB;
+        return ANI_PIPELINE_ABORT_PRESERVE_DB;
     }
 
-    return cbm_pipeline_publish_staged(stage_path, generation, true, false);
+    return ani_pipeline_publish_staged(stage_path, generation, true, false);
 }
 
 /* Complete and publish an already-materialized staging database: metadata
@@ -1746,20 +1746,20 @@ int cbm_pipeline_publish_generation(const cbm_pipeline_generation_t *generation)
  * the dump path's delete-all-and-rebuild; the delta path passes false
  * because its patch step already wrote row-level FTS inserts for exactly
  * the nodes it created. */
-int cbm_pipeline_publish_staged(char *stage_path, const cbm_pipeline_generation_t *generation,
+int ani_pipeline_publish_staged(char *stage_path, const ani_pipeline_generation_t *generation,
                                 bool fts_wholesale, bool destination_known_healthy) {
     struct timespec t_pub;
-    cbm_clock_gettime(CLOCK_MONOTONIC, &t_pub);
-    cbm_store_t *store = cbm_store_open_path(stage_path);
+    ani_clock_gettime(CLOCK_MONOTONIC, &t_pub);
+    ani_store_t *store = ani_store_open_path(stage_path);
     if (!store) {
         discard_generation_stage(stage_path);
         free(stage_path);
-        return CBM_PIPELINE_PERSIST_FAILED;
+        return ANI_PIPELINE_PERSIST_FAILED;
     }
-    bool ok = cbm_store_exec(store, "PRAGMA synchronous=FULL;") == CBM_STORE_OK;
-    ok = ok && cbm_store_delete_file_hashes(store, generation->project) == CBM_STORE_OK &&
-         cbm_store_upsert_file_hash_batch(store, generation->manifest,
-                                          generation->manifest_count) == CBM_STORE_OK;
+    bool ok = ani_store_exec(store, "PRAGMA synchronous=FULL;") == ANI_STORE_OK;
+    ok = ok && ani_store_delete_file_hashes(store, generation->project) == ANI_STORE_OK &&
+         ani_store_upsert_file_hash_batch(store, generation->manifest,
+                                          generation->manifest_count) == ANI_STORE_OK;
     /* LSP surfaces belong to the generation: written inside the same staging
      * store, before the atomic rename, so graph and surface data can never
      * publish separately. The delete guards the incremental path, whose
@@ -1769,79 +1769,79 @@ int cbm_pipeline_publish_staged(char *stage_path, const cbm_pipeline_generation_
      * transaction; rewriting every row here would be the single largest
      * block of a delta publish at scale. */
     if (ok && !generation->surfaces_in_place) {
-        ok = cbm_store_delete_lsp_surfaces(store, generation->project) == CBM_STORE_OK &&
-             cbm_store_upsert_lsp_surface_batch(store, generation->surface_rows,
-                                                generation->surface_row_count) == CBM_STORE_OK;
+        ok = ani_store_delete_lsp_surfaces(store, generation->project) == ANI_STORE_OK &&
+             ani_store_upsert_lsp_surface_batch(store, generation->surface_rows,
+                                                generation->surface_row_count) == ANI_STORE_OK;
     }
     if (ok && generation->adr_content) {
-        ok = cbm_store_adr_store(store, generation->project, generation->adr_content) ==
-             CBM_STORE_OK;
+        ok = ani_store_adr_store(store, generation->project, generation->adr_content) ==
+             ANI_STORE_OK;
     }
 
     if (ok) {
-        ok = cbm_store_set_format_version(store, CBM_INDEX_FORMAT_VERSION) == CBM_STORE_OK;
+        ok = ani_store_set_format_version(store, ANI_INDEX_FORMAT_VERSION) == ANI_STORE_OK;
     }
 
-    cbm_log_info("publish.timing", "block", "writes", "elapsed_ms",
+    ani_log_info("publish.timing", "block", "writes", "elapsed_ms",
                  itoa_buf((int)elapsed_ms(t_pub)));
-    cbm_clock_gettime(CLOCK_MONOTONIC, &t_pub);
+    ani_clock_gettime(CLOCK_MONOTONIC, &t_pub);
 
-    cbm_project_t project_info = {0};
+    ani_project_t project_info = {0};
     bool have_project_info =
-        cbm_store_get_project(store, generation->project, &project_info) == CBM_STORE_OK;
-    cbm_log_info("publish.timing", "block", "get_project", "elapsed_ms",
+        ani_store_get_project(store, generation->project, &project_info) == ANI_STORE_OK;
+    ani_log_info("publish.timing", "block", "get_project", "elapsed_ms",
                  itoa_buf((int)elapsed_ms(t_pub)));
-    cbm_clock_gettime(CLOCK_MONOTONIC, &t_pub);
-    cbm_coverage_meta_t meta = generation->coverage_meta;
+    ani_clock_gettime(CLOCK_MONOTONIC, &t_pub);
+    ani_coverage_meta_t meta = generation->coverage_meta;
     meta.generation = have_project_info ? project_info.indexed_at : NULL;
-    meta.coverage_version = CBM_SEMANTIC_INDEX_VERSION;
+    meta.coverage_version = ANI_SEMANTIC_INDEX_VERSION;
     meta.hash_records_complete = true;
     if (!have_project_info ||
-        cbm_store_coverage_replace_ex(store, generation->project, generation->coverage,
-                                      generation->coverage_count, &meta) != CBM_STORE_OK) {
+        ani_store_coverage_replace_ex(store, generation->project, generation->coverage,
+                                      generation->coverage_count, &meta) != ANI_STORE_OK) {
         ok = false;
     }
     if (have_project_info) {
-        cbm_project_free_fields(&project_info);
+        ani_project_free_fields(&project_info);
     }
-    cbm_log_info("publish.timing", "block", "coverage_replace", "elapsed_ms",
+    ani_log_info("publish.timing", "block", "coverage_replace", "elapsed_ms",
                  itoa_buf((int)elapsed_ms(t_pub)));
-    cbm_clock_gettime(CLOCK_MONOTONIC, &t_pub);
-    /* The column list lives in cbm_store_fts_rebuild() alone — see the delta
+    ani_clock_gettime(CLOCK_MONOTONIC, &t_pub);
+    /* The column list lives in ani_store_fts_rebuild() alone — see the delta
      * merge, which must index the SAME columns or prose goes missing on the
      * warm path while a full reindex looks perfect. */
-    if (fts_wholesale && cbm_store_fts_rebuild(store, NULL, 0) != CBM_STORE_OK) {
+    if (fts_wholesale && ani_store_fts_rebuild(store, NULL, 0) != ANI_STORE_OK) {
         ok = false;
     }
-    cbm_log_info("publish.timing", "block", "fts", "elapsed_ms", itoa_buf((int)elapsed_ms(t_pub)));
-    cbm_clock_gettime(CLOCK_MONOTONIC, &t_pub);
-    if (ok && !cbm_store_check_integrity(store)) {
+    ani_log_info("publish.timing", "block", "fts", "elapsed_ms", itoa_buf((int)elapsed_ms(t_pub)));
+    ani_clock_gettime(CLOCK_MONOTONIC, &t_pub);
+    if (ok && !ani_store_check_integrity(store)) {
         ok = false;
     }
-    cbm_log_info("publish.timing", "block", "integrity", "elapsed_ms",
+    ani_log_info("publish.timing", "block", "integrity", "elapsed_ms",
                  itoa_buf((int)elapsed_ms(t_pub)));
-    cbm_clock_gettime(CLOCK_MONOTONIC, &t_pub);
-    if (ok && cbm_store_seal_for_atomic_publish(store) != CBM_STORE_OK) {
+    ani_clock_gettime(CLOCK_MONOTONIC, &t_pub);
+    if (ok && ani_store_seal_for_atomic_publish(store) != ANI_STORE_OK) {
         ok = false;
     }
-    cbm_log_info("publish.timing", "block", "seal", "elapsed_ms", itoa_buf((int)elapsed_ms(t_pub)));
-    cbm_store_close(store);
+    ani_log_info("publish.timing", "block", "seal", "elapsed_ms", itoa_buf((int)elapsed_ms(t_pub)));
+    ani_store_close(store);
     if (!ok) {
         discard_generation_stage(stage_path);
         free(stage_path);
-        return CBM_PIPELINE_PERSIST_FAILED;
+        return ANI_PIPELINE_PERSIST_FAILED;
     }
-    int fin_rc = cbm_pipeline_finalize_staged_generation(
+    int fin_rc = ani_pipeline_finalize_staged_generation(
         stage_path, generation->final_db_path, generation->cancelled, destination_known_healthy);
     free(stage_path);
     return fin_rc;
 }
 
-char *cbm_pipeline_create_staging_path(const char *final_path) {
+char *ani_pipeline_create_staging_path(const char *final_path) {
     return create_staging_path(final_path);
 }
 
-void cbm_pipeline_discard_stage(const char *stage_path) {
+void ani_pipeline_discard_stage(const char *stage_path) {
     discard_generation_stage(stage_path);
 }
 
@@ -1850,11 +1850,11 @@ void cbm_pipeline_discard_stage(const char *stage_path) {
  * previous generation, and atomically rename. Owns discarding the stage on
  * every failure path. The store handle must already be CLOSED — sidecar
  * removal and rename act on the bare file. */
-int cbm_pipeline_finalize_staged_generation(char *stage_path, const char *final_db_path,
+int ani_pipeline_finalize_staged_generation(char *stage_path, const char *final_db_path,
                                             atomic_int *cancelled, bool destination_known_healthy) {
     struct timespec t_fin;
-    cbm_clock_gettime(CLOCK_MONOTONIC, &t_fin);
-    if (cbm_remove_db_sidecars(stage_path) != 0) {
+    ani_clock_gettime(CLOCK_MONOTONIC, &t_fin);
+    if (ani_remove_db_sidecars(stage_path) != 0) {
         /* This returned PERSIST_FAILED with no log at all, which is how #1620
          * presented: every pass succeeded, the worker exited 0, no error-level
          * line was emitted anywhere, and the user was told "Pipeline failed.
@@ -1863,18 +1863,18 @@ int cbm_pipeline_finalize_staged_generation(char *stage_path, const char *final_
          * must say so. */
         char errno_text[16];
         (void)snprintf(errno_text, sizeof(errno_text), "%d", errno);
-        cbm_log_error("finalize.sidecar_removal_failed", "errno", errno_text, "stage", stage_path);
+        ani_log_error("finalize.sidecar_removal_failed", "errno", errno_text, "stage", stage_path);
         discard_generation_stage(stage_path);
-        return CBM_PIPELINE_PERSIST_FAILED;
+        return ANI_PIPELINE_PERSIST_FAILED;
     }
     if (cancelled && atomic_load(cancelled)) {
         discard_generation_stage(stage_path);
-        return CBM_PIPELINE_ABORT_PRESERVE_DB;
+        return ANI_PIPELINE_ABORT_PRESERVE_DB;
     }
-    cbm_log_info("finalize.timing", "block", "stage_sidecars", "elapsed_ms",
+    ani_log_info("finalize.timing", "block", "stage_sidecars", "elapsed_ms",
                  itoa_buf((int)elapsed_ms(t_fin)));
-    cbm_clock_gettime(CLOCK_MONOTONIC, &t_fin);
-    cbm_replacement_prepare_t prepared = {0};
+    ani_clock_gettime(CLOCK_MONOTONIC, &t_fin);
+    ani_replacement_prepare_t prepared = {0};
     /* destination_known_healthy: the delta route CLONED this same file and
      * ran complete transactions against the clone minutes ago -- reaching
      * this point is structural-health evidence, and the quick_check the
@@ -1885,57 +1885,57 @@ int cbm_pipeline_finalize_staged_generation(char *stage_path, const char *final_
      * still removed either way: a replaced DB must never inherit the old
      * generation's WAL. */
     if (destination_known_healthy) {
-        if (cbm_remove_db_sidecars(final_db_path) != 0) {
+        if (ani_remove_db_sidecars(final_db_path) != 0) {
             char errno_text[16];
             (void)snprintf(errno_text, sizeof(errno_text), "%d", errno);
-            cbm_log_error("finalize.prepare_failed", "reason", "healthy_sidecar_cleanup", "errno",
+            ani_log_error("finalize.prepare_failed", "reason", "healthy_sidecar_cleanup", "errno",
                           errno_text, "path", final_db_path);
-            cbm_pipeline_discard_stage(stage_path);
-            return CBM_PIPELINE_PERSIST_FAILED;
+            ani_pipeline_discard_stage(stage_path);
+            return ANI_PIPELINE_PERSIST_FAILED;
         }
     } else if (prepare_existing_generation_for_replace(final_db_path, &prepared, false) != 0) {
         discard_generation_stage(stage_path);
-        return CBM_PIPELINE_PERSIST_FAILED;
+        return ANI_PIPELINE_PERSIST_FAILED;
     }
-#if defined(CBM_INCREMENTAL_TEST_API) && CBM_INCREMENTAL_TEST_API
-    if (cbm_pipeline_persist_test_take_cancel_after_destination_prepare() && cancelled) {
+#if defined(ANI_INCREMENTAL_TEST_API) && ANI_INCREMENTAL_TEST_API
+    if (ani_pipeline_persist_test_take_cancel_after_destination_prepare() && cancelled) {
         atomic_store(cancelled, true);
     }
 #endif
     if (cancelled && atomic_load(cancelled)) {
         int rollback_rc = rollback_quarantined_generation(final_db_path, &prepared);
         discard_generation_stage(stage_path);
-        return rollback_rc == 0 ? CBM_PIPELINE_ABORT_PRESERVE_DB : CBM_PIPELINE_PERSIST_FAILED;
+        return rollback_rc == 0 ? ANI_PIPELINE_ABORT_PRESERVE_DB : ANI_PIPELINE_PERSIST_FAILED;
     }
-    cbm_log_info("finalize.timing", "block", "prepare_live", "elapsed_ms",
+    ani_log_info("finalize.timing", "block", "prepare_live", "elapsed_ms",
                  itoa_buf((int)elapsed_ms(t_fin)));
-    cbm_clock_gettime(CLOCK_MONOTONIC, &t_fin);
-    if (cbm_rename_replace(stage_path, final_db_path) != 0) {
+    ani_clock_gettime(CLOCK_MONOTONIC, &t_fin);
+    if (ani_rename_replace(stage_path, final_db_path) != 0) {
         char errno_text[16];
         (void)snprintf(errno_text, sizeof(errno_text), "%d", errno);
-        cbm_log_error("finalize.rename_failed", "errno", errno_text, "stage", stage_path, "dest",
+        ani_log_error("finalize.rename_failed", "errno", errno_text, "stage", stage_path, "dest",
                       final_db_path);
         (void)rollback_quarantined_generation(final_db_path, &prepared);
         discard_generation_stage(stage_path);
-        return CBM_PIPELINE_PERSIST_FAILED;
+        return ANI_PIPELINE_PERSIST_FAILED;
     }
-    cbm_log_info("finalize.timing", "block", "rename", "elapsed_ms",
+    ani_log_info("finalize.timing", "block", "rename", "elapsed_ms",
                  itoa_buf((int)elapsed_ms(t_fin)));
     return 0;
 }
 
 /* Dump graph to SQLite and persist file hashes for incremental indexing. */
-static int dump_and_persist_hashes(cbm_pipeline_t *p, const cbm_file_hash_t *baseline_manifest,
+static int dump_and_persist_hashes(ani_pipeline_t *p, const ani_file_hash_t *baseline_manifest,
                                    int baseline_count, struct timespec *t) {
-    cbm_clock_gettime(CLOCK_MONOTONIC, t);
+    ani_clock_gettime(CLOCK_MONOTONIC, t);
     char *db_path = resolve_db_path(p);
     if (!db_path) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     char *db_dir = strdup(db_path);
     if (!db_dir) {
         free(db_path);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     char *last_slash = strrchr(db_dir, '/');
 #ifdef _WIN32
@@ -1946,35 +1946,35 @@ static int dump_and_persist_hashes(cbm_pipeline_t *p, const cbm_file_hash_t *bas
 #endif
     if (last_slash) {
         *last_slash = '\0';
-        cbm_mkdir_p(db_dir, CBM_DIR_PERMS);
+        ani_mkdir_p(db_dir, ANI_DIR_PERMS);
     }
 
-    cbm_file_hash_t *manifest = NULL;
+    ani_file_hash_t *manifest = NULL;
     int manifest_count = 0;
-#if defined(CBM_INCREMENTAL_TEST_API) && CBM_INCREMENTAL_TEST_API
-    cbm_pipeline_persist_test_run_before_final_manifest();
+#if defined(ANI_INCREMENTAL_TEST_API) && ANI_INCREMENTAL_TEST_API
+    ani_pipeline_persist_test_run_before_final_manifest();
 #endif
-    if (cbm_pipeline_build_fresh_semantic_manifest(p->project_name, p->repo_path, p->mode,
+    if (ani_pipeline_build_fresh_semantic_manifest(p->project_name, p->repo_path, p->mode,
                                                    &manifest, &manifest_count) != 0) {
-        cbm_log_error("pipeline.err", "phase", "semantic_manifest");
+        ani_log_error("pipeline.err", "phase", "semantic_manifest");
         /* db_path and db_dir are this function's strdups; the success tail and
          * the publish-failure return release them, and these two aborts must
          * too -- LSan caught exactly these paths leaking both strings. */
         free(db_dir);
         free(db_path);
-        return CBM_PIPELINE_ABORT_PRESERVE_DB;
+        return ANI_PIPELINE_ABORT_PRESERVE_DB;
     }
-    if (!cbm_pipeline_semantic_manifests_equal(baseline_manifest, baseline_count, manifest,
+    if (!ani_pipeline_semantic_manifests_equal(baseline_manifest, baseline_count, manifest,
                                                manifest_count)) {
-        cbm_log_warn("pipeline.abort", "reason", "semantic_inputs_changed");
-        cbm_pipeline_free_semantic_manifest(manifest, manifest_count);
+        ani_log_warn("pipeline.abort", "reason", "semantic_inputs_changed");
+        ani_pipeline_free_semantic_manifest(manifest, manifest_count);
         free(db_dir);
         free(db_path);
-        return CBM_PIPELINE_ABORT_PRESERVE_DB;
+        return ANI_PIPELINE_ABORT_PRESERVE_DB;
     }
 
     int cov_total = p->file_errors_count + p->excluded_count + p->ignored_count;
-    cbm_coverage_row_t *cov = NULL;
+    ani_coverage_row_t *cov = NULL;
     int cov_count = 0;
     bool coverage_rows_available = cov_total == 0;
     if (cov_total > 0) {
@@ -1982,23 +1982,23 @@ static int dump_and_persist_hashes(cbm_pipeline_t *p, const cbm_file_hash_t *bas
         if (cov) {
             coverage_rows_available = true;
             for (int i = 0; i < p->file_errors_count; i++) {
-                cov[cov_count++] = (cbm_coverage_row_t){.rel_path = p->file_errors[i].path,
+                cov[cov_count++] = (ani_coverage_row_t){.rel_path = p->file_errors[i].path,
                                                         .kind = p->file_errors[i].phase,
                                                         .detail = p->file_errors[i].reason};
             }
             for (int i = 0; i < p->excluded_count; i++) {
-                cov[cov_count++] = (cbm_coverage_row_t){.rel_path = p->excluded_dirs[i],
+                cov[cov_count++] = (ani_coverage_row_t){.rel_path = p->excluded_dirs[i],
                                                         .kind = "not_indexed_dir",
                                                         .detail = "excluded subtree"};
             }
             for (int i = 0; i < p->ignored_count; i++) {
-                cov[cov_count++] = (cbm_coverage_row_t){.rel_path = p->ignored_files[i].rel_path,
+                cov[cov_count++] = (ani_coverage_row_t){.rel_path = p->ignored_files[i].rel_path,
                                                         .kind = "not_indexed_file",
                                                         .detail = p->ignored_files[i].reason};
             }
         }
     }
-    cbm_pipeline_generation_t generation = {
+    ani_pipeline_generation_t generation = {
         .gbuf = p->gbuf,
         .final_db_path = db_path,
         .project = p->project_name,
@@ -2017,7 +2017,7 @@ static int dump_and_persist_hashes(cbm_pipeline_t *p, const cbm_file_hash_t *bas
                         : (p->ignored_total > p->ignored_count ? "truncated" : "complete"),
                 .ignored_files_stored = p->ignored_count,
                 .ignored_files_total = p->ignored_total,
-                .coverage_version = CBM_SEMANTIC_INDEX_VERSION,
+                .coverage_version = ANI_SEMANTIC_INDEX_VERSION,
                 .hash_records_complete = true,
             },
         .surface_rows = p->surface_rows,
@@ -2025,15 +2025,15 @@ static int dump_and_persist_hashes(cbm_pipeline_t *p, const cbm_file_hash_t *bas
     };
 
     free(db_dir);
-    /* Capture committed counts BEFORE the dump. cbm_gbuf_dump_to_sqlite calls
+    /* Capture committed counts BEFORE the dump. ani_gbuf_dump_to_sqlite calls
      * release_gbuf_indexes(), which frees node_by_qn (graph_buffer.c), after
-     * which cbm_gbuf_node_count() returns 0. Reading these post-dump left
+     * which ani_gbuf_node_count() returns 0. Reading these post-dump left
      * committed_nodes at 0, so the #334 plausibility gate never fired. */
-    p->committed_nodes = cbm_gbuf_node_count(p->gbuf);
-    p->committed_edges = cbm_gbuf_edge_count(p->gbuf);
-    int rc = cbm_pipeline_publish_generation(&generation);
+    p->committed_nodes = ani_gbuf_node_count(p->gbuf);
+    p->committed_edges = ani_gbuf_edge_count(p->gbuf);
+    int rc = ani_pipeline_publish_generation(&generation);
     free(cov);
-    cbm_pipeline_free_semantic_manifest(manifest, manifest_count);
+    ani_pipeline_free_semantic_manifest(manifest, manifest_count);
     if (rc != 0) {
         /* db_path is this function's strdup (resolve_db_path); every return
          * must release it. LSan on the Linux leg caught exactly this pair of
@@ -2041,10 +2041,10 @@ static int dump_and_persist_hashes(cbm_pipeline_t *p, const cbm_file_hash_t *bas
         free(db_path);
         return rc;
     }
-    cbm_log_info("pass.timing", "pass", "dump_and_persist", "elapsed_ms",
+    ani_log_info("pass.timing", "pass", "dump_and_persist", "elapsed_ms",
                  itoa_buf((int)elapsed_ms(*t)), "files", itoa_buf(manifest_count));
     if (p->ignored_total > p->ignored_count) {
-        cbm_log_warn("index.ignored_capped", "stored", itoa_buf(p->ignored_count), "total",
+        ani_log_warn("index.ignored_capped", "stored", itoa_buf(p->ignored_count), "total",
                      itoa_buf(p->ignored_total));
     }
     free(p->saved_adr);
@@ -2055,41 +2055,41 @@ static int dump_and_persist_hashes(cbm_pipeline_t *p, const cbm_file_hash_t *bas
 }
 
 /* Run githistory pass. */
-static int run_githistory(cbm_pipeline_t *p, cbm_pipeline_ctx_t *ctx) {
+static int run_githistory(ani_pipeline_t *p, ani_pipeline_ctx_t *ctx) {
     struct timespec t_gh;
-    cbm_clock_gettime(CLOCK_MONOTONIC, &t_gh);
+    ani_clock_gettime(CLOCK_MONOTONIC, &t_gh);
 
-    cbm_githistory_result_t gh_result = {0};
-    cbm_thread_t gh_thread;
+    ani_githistory_result_t gh_result = {0};
+    ani_thread_t gh_thread;
     bool gh_threaded = false;
     gh_compute_arg_t gh_arg = {.repo_path = ctx->repo_path, .result = &gh_result};
 
-    if (p->mode != CBM_MODE_FAST) {
+    if (p->mode != ANI_MODE_FAST) {
         if (effective_worker_count(true) > SKIP_ONE) {
-            if (cbm_thread_create(&gh_thread, 0, gh_compute_thread_fn, &gh_arg) == 0) {
+            if (ani_thread_create(&gh_thread, 0, gh_compute_thread_fn, &gh_arg) == 0) {
                 gh_threaded = true;
             }
         }
         if (!gh_threaded) {
-            cbm_pipeline_githistory_compute(ctx->repo_path, &gh_result);
-            cbm_log_info("pass.timing", "pass", "githistory_compute", "elapsed_ms",
+            ani_pipeline_githistory_compute(ctx->repo_path, &gh_result);
+            ani_log_info("pass.timing", "pass", "githistory_compute", "elapsed_ms",
                          itoa_buf((int)elapsed_ms(t_gh)));
         }
     } else {
-        cbm_log_info("pass.skip", "pass", "githistory", "reason", "fast_mode");
+        ani_log_info("pass.skip", "pass", "githistory", "reason", "fast_mode");
     }
 
     if (gh_threaded) {
-        cbm_thread_join(&gh_thread);
-        cbm_log_info("pass.timing", "pass", "githistory_compute", "elapsed_ms",
+        ani_thread_join(&gh_thread);
+        ani_log_info("pass.timing", "pass", "githistory_compute", "elapsed_ms",
                      itoa_buf((int)elapsed_ms(t_gh)));
     }
 
     int gh_edges = 0;
     if (gh_result.count > 0 || gh_result.file_temporal_count > 0) {
-        gh_edges = cbm_pipeline_githistory_apply(ctx, &gh_result);
+        gh_edges = ani_pipeline_githistory_apply(ctx, &gh_result);
     }
-    cbm_log_info("pass.done", "pass", "githistory", "commits", itoa_buf(gh_result.commit_count),
+    ani_log_info("pass.done", "pass", "githistory", "commits", itoa_buf(gh_result.commit_count),
                  "edges", itoa_buf(gh_edges));
     free(gh_result.couplings);
     free(gh_result.file_temporal);
@@ -2099,96 +2099,96 @@ static int run_githistory(cbm_pipeline_t *p, cbm_pipeline_ctx_t *ctx) {
 /* ── Pipeline run ────────────────────────────────────────────────── */
 
 /* Run tests + git history. Returns 0 on success. */
-static int run_tests_and_history(cbm_pipeline_t *p, cbm_pipeline_ctx_t *ctx,
-                                 const cbm_file_info_t *files, int file_count) {
+static int run_tests_and_history(ani_pipeline_t *p, ani_pipeline_ctx_t *ctx,
+                                 const ani_file_info_t *files, int file_count) {
     struct timespec t;
-    cbm_clock_gettime(CLOCK_MONOTONIC, &t);
-    CBM_PROF_START(t_tests);
-    int rc = cbm_pipeline_pass_tests(ctx, files, file_count);
-    CBM_PROF_END_N("pipeline", "pass_tests", t_tests, file_count);
-    cbm_log_info("pass.timing", "pass", "tests", "elapsed_ms", itoa_buf((int)elapsed_ms(t)));
+    ani_clock_gettime(CLOCK_MONOTONIC, &t);
+    ANI_PROF_START(t_tests);
+    int rc = ani_pipeline_pass_tests(ctx, files, file_count);
+    ANI_PROF_END_N("pipeline", "pass_tests", t_tests, file_count);
+    ani_log_info("pass.timing", "pass", "tests", "elapsed_ms", itoa_buf((int)elapsed_ms(t)));
     if (rc == 0 && !check_cancel(p)) {
-        CBM_PROF_START(t_gh);
+        ANI_PROF_START(t_gh);
         rc = run_githistory(p, ctx);
-        CBM_PROF_END("pipeline", "pass_githistory", t_gh);
+        ANI_PROF_END("pipeline", "pass_githistory", t_gh);
     }
     if (check_cancel(p)) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     return rc;
 }
 
 /* Run tests, git history, predump passes, and dump+persist. */
-static int run_post_extraction(cbm_pipeline_t *p, cbm_pipeline_ctx_t *ctx,
-                               const cbm_file_info_t *files, int file_count,
-                               const cbm_file_hash_t *baseline_manifest, int baseline_count) {
+static int run_post_extraction(ani_pipeline_t *p, ani_pipeline_ctx_t *ctx,
+                               const ani_file_info_t *files, int file_count,
+                               const ani_file_hash_t *baseline_manifest, int baseline_count) {
     int rc = run_tests_and_history(p, ctx, files, file_count);
     if (rc != 0) {
         return rc;
     }
 
-    CBM_PROF_START(t_predump);
+    ANI_PROF_START(t_predump);
     run_predump_passes(p, ctx);
-    CBM_PROF_END("pipeline", "3_predump_passes_total", t_predump);
+    ANI_PROF_END("pipeline", "3_predump_passes_total", t_predump);
 
-#if defined(CBM_INCREMENTAL_TEST_API) && CBM_INCREMENTAL_TEST_API
-    if (cbm_pipeline_persist_test_take_cancel_after_predump()) {
+#if defined(ANI_INCREMENTAL_TEST_API) && ANI_INCREMENTAL_TEST_API
+    if (ani_pipeline_persist_test_take_cancel_after_predump()) {
         atomic_store(p->cancelled, 1);
     }
 #endif
 
     if (check_cancel(p)) {
-        return CBM_PIPELINE_ABORT_PRESERVE_DB;
+        return ANI_PIPELINE_ABORT_PRESERVE_DB;
     }
 
     struct timespec t;
-    CBM_PROF_START(t_dump);
+    ANI_PROF_START(t_dump);
     rc = dump_and_persist_hashes(p, baseline_manifest, baseline_count, &t);
-    CBM_PROF_END("pipeline", "4_dump_and_persist", t_dump);
+    ANI_PROF_END("pipeline", "4_dump_and_persist", t_dump);
     return rc;
 }
 
 #define MIN_FILES_FOR_PARALLEL 50
 
 /* Run structure + extraction passes (parallel or sequential). */
-static int run_extraction_phase(cbm_pipeline_t *p, cbm_pipeline_ctx_t *ctx,
-                                const cbm_file_info_t *files, int file_count) {
+static int run_extraction_phase(ani_pipeline_t *p, ani_pipeline_ctx_t *ctx,
+                                const ani_file_info_t *files, int file_count) {
     struct timespec t;
-    cbm_clock_gettime(CLOCK_MONOTONIC, &t);
-    CBM_PROF_START(t_struct);
+    ani_clock_gettime(CLOCK_MONOTONIC, &t);
+    ANI_PROF_START(t_struct);
     pass_structure(p, files, file_count);
-    CBM_PROF_END_N("pipeline", "pass_structure", t_struct, file_count);
-    cbm_log_info("pass.timing", "pass", "structure", "elapsed_ms", itoa_buf((int)elapsed_ms(t)));
+    ANI_PROF_END_N("pipeline", "pass_structure", t_struct, file_count);
+    ani_log_info("pass.timing", "pass", "structure", "elapsed_ms", itoa_buf((int)elapsed_ms(t)));
     if (check_cancel(p)) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
     int worker_count = effective_worker_count(true);
-    CBM_PROF_START(t_extract_total);
+    ANI_PROF_START(t_extract_total);
     int rc = (worker_count > SKIP_ONE && file_count > MIN_FILES_FOR_PARALLEL)
                  ? run_parallel_pipeline(p, ctx, files, file_count, worker_count, &t)
                  : run_sequential_pipeline(p, ctx, files, file_count, &t);
-    CBM_PROF_END_N("pipeline", "2_extraction_total", t_extract_total, file_count);
+    ANI_PROF_END_N("pipeline", "2_extraction_total", t_extract_total, file_count);
     if (check_cancel(p)) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     return rc;
 }
 
-static int cbm_pipeline_run_staged(cbm_pipeline_t *p) {
+static int ani_pipeline_run_staged(ani_pipeline_t *p) {
     if (!p) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
-    CBM_PROF_START(t_pipeline_total);
+    ANI_PROF_START(t_pipeline_total);
     struct timespec t0;
-    cbm_clock_gettime(CLOCK_MONOTONIC, &t0);
-    cbm_path_alias_collection_t *path_aliases = NULL;
-    cbm_file_hash_t *baseline_manifest = NULL;
+    ani_clock_gettime(CLOCK_MONOTONIC, &t0);
+    ani_path_alias_collection_t *path_aliases = NULL;
+    ani_file_hash_t *baseline_manifest = NULL;
     int baseline_count = 0;
     char **requested_excluded_dirs = NULL;
     int requested_excluded_count = 0;
-    cbm_ignored_file_t *requested_ignored_files = NULL;
+    ani_ignored_file_t *requested_ignored_files = NULL;
     int requested_ignored_count = 0;
     int requested_ignored_total = 0;
     bool restore_requested_discovery = false;
@@ -2196,55 +2196,55 @@ static int cbm_pipeline_run_staged(cbm_pipeline_t *p) {
     p->mode = p->requested_mode;
     bool mode_promoted = promote_mode_to_existing_coverage(p);
 
-    /* cbm_pipeline_new() may precede the actual run by an arbitrary interval.
+    /* ani_pipeline_new() may precede the actual run by an arbitrary interval.
      * Refresh once here, then use this exact snapshot for both Branch graph
      * construction and the baseline semantic manifest. */
     if (pipeline_refresh_git_context(p) != 0) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
     /* C/C++ #define Macro nodes (#375) dominate extraction on macro-dense repos
      * (≈49% of nodes on the Linux kernel), so gate them to full mode — moderate
      * and fast skip them entirely. Set before any extraction dispatch. */
-    cbm_set_macro_extraction(p->mode == CBM_MODE_FULL);
+    ani_set_macro_extraction(p->mode == ANI_MODE_FULL);
 
     /* Load user-defined extension overrides (fail-open: NULL on error) */
-    CBM_PROF_START(t_userconfig);
-    p->userconfig = cbm_userconfig_load(p->repo_path);
-    cbm_set_user_lang_config(p->userconfig);
-    CBM_PROF_END("pipeline", "0_userconfig_load", t_userconfig);
+    ANI_PROF_START(t_userconfig);
+    p->userconfig = ani_userconfig_load(p->repo_path);
+    ani_set_user_lang_config(p->userconfig);
+    ANI_PROF_END("pipeline", "0_userconfig_load", t_userconfig);
 
     /* Phase 1: Discover files */
-    CBM_PROF_START(t_discover);
-    cbm_discover_opts_t opts = {
+    ANI_PROF_START(t_discover);
+    ani_discover_opts_t opts = {
         .mode = p->requested_mode,
         .ignore_file = NULL,
         .max_file_size = 0,
     };
-    cbm_file_info_t *files = NULL;
+    ani_file_info_t *files = NULL;
     int file_count = 0;
     /* Capture skipped subtrees on the pipeline so the MCP layer can report
      * which directories were excluded (#411), plus the individually-ignored
      * files (#963 "purposely not indexed"). Replace any prior lists (e.g. a
      * re-run on the same pipeline) to avoid leaking the previous ones. */
-    cbm_discover_free_excluded(p->excluded_dirs, p->excluded_count);
+    ani_discover_free_excluded(p->excluded_dirs, p->excluded_count);
     p->excluded_dirs = NULL;
     p->excluded_count = 0;
-    cbm_discover_free_ignored(p->ignored_files, p->ignored_count);
+    ani_discover_free_ignored(p->ignored_files, p->ignored_count);
     p->ignored_files = NULL;
     p->ignored_count = 0;
     p->ignored_total = 0;
-    int rc = cbm_discover_ex2(p->repo_path, &opts, &files, &file_count, &p->excluded_dirs,
+    int rc = ani_discover_ex2(p->repo_path, &opts, &files, &file_count, &p->excluded_dirs,
                               &p->excluded_count, &p->ignored_files, &p->ignored_count,
                               &p->ignored_total);
     if (rc != 0) {
-        cbm_log_error("pipeline.err", "phase", "discover", "rc", itoa_buf(rc));
+        ani_log_error("pipeline.err", "phase", "discover", "rc", itoa_buf(rc));
     }
-    CBM_PROF_END_N("pipeline", "1_discover", t_discover, file_count);
-    cbm_log_info("pipeline.discover", "files", itoa_buf(file_count), "elapsed_ms",
+    ANI_PROF_END_N("pipeline", "1_discover", t_discover, file_count);
+    ani_log_info("pipeline.discover", "files", itoa_buf(file_count), "elapsed_ms",
                  itoa_buf((int)elapsed_ms(t0)));
     if (rc != 0 || check_cancel(p)) {
-        rc = CBM_NOT_FOUND;
+        rc = ANI_NOT_FOUND;
         goto cleanup;
     }
 
@@ -2252,34 +2252,34 @@ static int cbm_pipeline_run_staged(cbm_pipeline_t *p) {
      * bytes drive exact no-op comparison and are checked against a fresh
      * rediscovery immediately before any replacement is published. */
     rc = mode_promoted
-             ? cbm_pipeline_build_fresh_semantic_manifest(p->project_name, p->repo_path, p->mode,
+             ? ani_pipeline_build_fresh_semantic_manifest(p->project_name, p->repo_path, p->mode,
                                                           &baseline_manifest, &baseline_count)
-             : cbm_pipeline_build_semantic_manifest(p->project_name, p->repo_path, files,
+             : ani_pipeline_build_semantic_manifest(p->project_name, p->repo_path, files,
                                                     file_count, p->excluded_dirs, p->excluded_count,
                                                     &p->git_ctx, p->userconfig, &baseline_manifest,
                                                     &baseline_count);
     if (rc != 0) {
-        rc = CBM_PIPELINE_ABORT_PRESERVE_DB;
+        rc = ANI_PIPELINE_ABORT_PRESERVE_DB;
         goto cleanup;
     }
 
     /* Check for existing DB → try incremental or delete for reindex */
     rc = try_incremental_or_delete_db(p, files, file_count, baseline_manifest, baseline_count,
                                       mode_promoted);
-    if (rc == CBM_PIPELINE_ABORT_PRESERVE_DB || rc == CBM_PIPELINE_PERSIST_FAILED) {
+    if (rc == ANI_PIPELINE_ABORT_PRESERVE_DB || rc == ANI_PIPELINE_PERSIST_FAILED) {
         goto cleanup;
     }
     if (rc >= 0) {
         goto cleanup;
     }
-    if (rc != CBM_PIPELINE_FORCE_FULL_REINDEX) {
+    if (rc != ANI_PIPELINE_FORCE_FULL_REINDEX) {
         goto cleanup;
     }
 
     /* A changed downgrade rebuilds the complete graph at the stored effective
      * mode. Keep the requested discovery lists to report the caller's scope. */
     if (mode_promoted) {
-        cbm_discover_free(files, file_count);
+        ani_discover_free(files, file_count);
         files = NULL;
         file_count = 0;
 
@@ -2297,29 +2297,29 @@ static int cbm_pipeline_run_staged(cbm_pipeline_t *p) {
         p->ignored_total = 0;
 
         opts.mode = p->mode;
-        rc = cbm_discover_ex2(p->repo_path, &opts, &files, &file_count, &p->excluded_dirs,
+        rc = ani_discover_ex2(p->repo_path, &opts, &files, &file_count, &p->excluded_dirs,
                               &p->excluded_count, &p->ignored_files, &p->ignored_count,
                               &p->ignored_total);
-        cbm_log_info("pipeline.rediscover", "requested_mode", pipeline_mode_name(p->requested_mode),
+        ani_log_info("pipeline.rediscover", "requested_mode", pipeline_mode_name(p->requested_mode),
                      "effective_mode", pipeline_mode_name(p->mode), "files", itoa_buf(file_count));
         if (rc != 0 || check_cancel(p)) {
-            rc = CBM_NOT_FOUND;
+            rc = ANI_NOT_FOUND;
             goto cleanup;
         }
     }
-    cbm_log_info("pipeline.route", "path", "full");
+    ani_log_info("pipeline.route", "path", "full");
 
     /* Phase 2: Create graph buffer and registry */
-    p->gbuf = cbm_gbuf_new(p->project_name, p->repo_path);
-    p->registry = cbm_registry_new();
+    p->gbuf = ani_gbuf_new(p->project_name, p->repo_path);
+    p->registry = ani_registry_new();
 
     /* Phase 2b: Load build-tool path aliases (tsconfig/jsconfig today). NULL
      * when no usable configs are found — non-TS projects pay nothing. */
     path_aliases =
-        cbm_load_path_aliases_excluded(p->repo_path, p->excluded_dirs, p->excluded_count);
+        ani_load_path_aliases_excluded(p->repo_path, p->excluded_dirs, p->excluded_count);
 
     /* Build shared context for pass functions */
-    cbm_pipeline_ctx_t ctx = {
+    ani_pipeline_ctx_t ctx = {
         .project_name = p->project_name,
         .repo_path = p->repo_path,
         .gbuf = p->gbuf,
@@ -2342,23 +2342,23 @@ static int cbm_pipeline_run_staged(cbm_pipeline_t *p) {
         goto cleanup;
     }
 
-    cbm_log_info("pipeline.done", "nodes", itoa_buf(p->committed_nodes), "edges",
+    ani_log_info("pipeline.done", "nodes", itoa_buf(p->committed_nodes), "edges",
                  itoa_buf(p->committed_edges), "elapsed_ms", itoa_buf((int)elapsed_ms(t0)));
-    CBM_PROF_END("pipeline", "TOTAL", t_pipeline_total);
+    ANI_PROF_END("pipeline", "TOTAL", t_pipeline_total);
 
 cleanup:
-    cbm_pkgmap_free(cbm_pipeline_get_pkgmap());
-    cbm_pipeline_set_pkgmap(NULL);
-    cbm_discover_free(files, file_count);
-    cbm_pipeline_free_semantic_manifest(baseline_manifest, baseline_count);
-    cbm_gbuf_free(p->gbuf);
+    ani_pkgmap_free(ani_pipeline_get_pkgmap());
+    ani_pipeline_set_pkgmap(NULL);
+    ani_discover_free(files, file_count);
+    ani_pipeline_free_semantic_manifest(baseline_manifest, baseline_count);
+    ani_gbuf_free(p->gbuf);
     p->gbuf = NULL;
-    cbm_registry_free(p->registry);
+    ani_registry_free(p->registry);
     p->registry = NULL;
-    cbm_path_alias_collection_free(path_aliases);
+    ani_path_alias_collection_free(path_aliases);
     if (restore_requested_discovery) {
-        cbm_discover_free_excluded(p->excluded_dirs, p->excluded_count);
-        cbm_discover_free_ignored(p->ignored_files, p->ignored_count);
+        ani_discover_free_excluded(p->excluded_dirs, p->excluded_count);
+        ani_discover_free_ignored(p->ignored_files, p->ignored_count);
         p->excluded_dirs = requested_excluded_dirs;
         p->excluded_count = requested_excluded_count;
         p->ignored_files = requested_ignored_files;
@@ -2366,8 +2366,8 @@ cleanup:
         p->ignored_total = requested_ignored_total;
     }
     /* Clear and free user extension config */
-    cbm_set_user_lang_config(NULL);
-    cbm_userconfig_free(p->userconfig);
+    ani_set_user_lang_config(NULL);
+    ani_userconfig_free(p->userconfig);
     p->userconfig = NULL;
     return rc;
 }
@@ -2376,8 +2376,8 @@ static void cleanup_staging_db(const char *path) {
     if (!path) {
         return;
     }
-    (void)cbm_unlink(path);
-    (void)cbm_remove_db_sidecars(path);
+    (void)ani_unlink(path);
+    (void)ani_remove_db_sidecars(path);
 }
 
 static bool ensure_db_parent(const char *path) {
@@ -2400,7 +2400,7 @@ static bool ensure_db_parent(const char *path) {
         return true;
     }
     *slash = '\0';
-    bool ok = dir[0] == '\0' || cbm_mkdir_p(dir, CBM_DIR_PERMS);
+    bool ok = dir[0] == '\0' || ani_mkdir_p(dir, ANI_DIR_PERMS);
     free(dir);
     return ok;
 }
@@ -2416,13 +2416,13 @@ static char *create_staging_path(const char *final_path) {
     }
     size_t path_size = final_len + sizeof(suffix);
 #ifdef _WIN32
-    /* The Windows cbm_mkstemp compatibility contract may expand a /tmp/
+    /* The Windows ani_mkstemp compatibility contract may expand a /tmp/
      * prefix in-place and copies through a 4 KiB scratch path. Give it that
      * full capacity, and reject longer inputs exactly rather than truncating. */
-    if (path_size > CBM_SZ_4K) {
+    if (path_size > ANI_SZ_4K) {
         return NULL;
     }
-    path_size = CBM_SZ_4K;
+    path_size = ANI_SZ_4K;
 #endif
     char *path = (char *)malloc(path_size);
     if (!path) {
@@ -2430,7 +2430,7 @@ static char *create_staging_path(const char *final_path) {
     }
     memcpy(path, final_path, final_len);
     memcpy(path + final_len, suffix, sizeof(suffix));
-    int fd = cbm_mkstemp(path);
+    int fd = ani_mkstemp(path);
     if (fd < 0) {
         free(path);
         return NULL;
@@ -2470,32 +2470,32 @@ static bool db_sidecars_absent(const char *db_path) {
 }
 
 /* Ready the real destination to receive the staged generation. Returns 0, or a
- * CBM_PIPELINE_* code the caller propagates.
+ * ANI_PIPELINE_* code the caller propagates.
  *
  * `prepared` records whether the previous destination was moved aside, so a
  * failed rename can put it back. It is zeroed here and is only meaningful on a
  * 0 return. */
 static int prepare_publish_destination(const char *final_path, bool final_existed,
-                                       bool backup_succeeded, cbm_replacement_prepare_t *prepared) {
+                                       bool backup_succeeded, ani_replacement_prepare_t *prepared) {
     memset(prepared, 0, sizeof(*prepared));
     struct stat current_st;
     bool final_exists_now = stat(final_path, &current_st) == 0;
     if (final_exists_now != final_existed) {
         /* The destination appeared or vanished while we were indexing. Someone
          * else owns it now; leave whatever is there alone. */
-        return CBM_PIPELINE_ABORT_PRESERVE_DB;
+        return ANI_PIPELINE_ABORT_PRESERVE_DB;
     }
     if (!final_exists_now) {
         /* A crashed generation can leave sidecars without a main file. */
-        return cbm_remove_db_sidecars(final_path) == 0 ? 0 : CBM_PIPELINE_PERSIST_FAILED;
+        return ani_remove_db_sidecars(final_path) == 0 ? 0 : ANI_PIPELINE_PERSIST_FAILED;
     }
     if (!backup_succeeded) {
         /* Sidecars alongside an un-copyable destination may hold the only
          * committed pages; refuse rather than drop them. */
         if (!db_sidecars_absent(final_path)) {
-            cbm_log_error("pipeline.err", "phase", "publish", "reason",
+            ani_log_error("pipeline.err", "phase", "publish", "reason",
                           "backup_failed_sidecars_preserved", "path", final_path);
-            return CBM_PIPELINE_PERSIST_FAILED;
+            return ANI_PIPELINE_PERSIST_FAILED;
         }
         /* The destination could not be copied. If it is not a readable SQLite
          * database it is corrupt, and the publishing rename would destroy the
@@ -2505,67 +2505,67 @@ static int prepare_publish_destination(const char *final_path, bool final_existe
          * replaced as usual, never renamed away. */
         return prepare_existing_generation_for_replace(final_path, prepared, true);
     }
-    return cbm_store_prepare_path_for_replace(final_path) == CBM_STORE_OK &&
-                   cbm_remove_db_sidecars(final_path) == 0
+    return ani_store_prepare_path_for_replace(final_path) == ANI_STORE_OK &&
+                   ani_remove_db_sidecars(final_path) == 0
                ? 0
-               : CBM_PIPELINE_PERSIST_FAILED;
+               : ANI_PIPELINE_PERSIST_FAILED;
 }
 
 static int seal_staging_db(const char *staging_path) {
-    cbm_store_t *store = cbm_store_open_path(staging_path);
+    ani_store_t *store = ani_store_open_path(staging_path);
     if (!store) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     int rc =
-        cbm_store_check_integrity(store) && cbm_store_prepare_for_publish(store) == CBM_STORE_OK
+        ani_store_check_integrity(store) && ani_store_prepare_for_publish(store) == ANI_STORE_OK
             ? 0
-            : CBM_NOT_FOUND;
-    cbm_store_close(store);
-    if (rc == 0 && cbm_remove_db_sidecars(staging_path) != 0) {
-        rc = CBM_NOT_FOUND;
+            : ANI_NOT_FOUND;
+    ani_store_close(store);
+    if (rc == 0 && ani_remove_db_sidecars(staging_path) != 0) {
+        rc = ANI_NOT_FOUND;
     }
     return rc;
 }
 
-static int export_after_publish(cbm_pipeline_t *p, const char *final_path) {
+static int export_after_publish(ani_pipeline_t *p, const char *final_path) {
     if (p->persistence) {
-        CBM_PROF_START(t_art);
-        int rc = cbm_artifact_export(final_path, p->repo_path, p->project_name, CBM_ARTIFACT_BEST);
-        CBM_PROF_END("persist", "6_artifact_export", t_art);
+        ANI_PROF_START(t_art);
+        int rc = ani_artifact_export(final_path, p->repo_path, p->project_name, ANI_ARTIFACT_BEST);
+        ANI_PROF_END("persist", "6_artifact_export", t_art);
         if (rc != 0) {
-            const char *err = cbm_artifact_export_last_error();
-            cbm_log_error("pipeline.err", "phase", "artifact_export", "err", err ? err : "unknown");
+            const char *err = ani_artifact_export_last_error();
+            ani_log_error("pipeline.err", "phase", "artifact_export", "err", err ? err : "unknown");
         }
         return rc;
     }
-    if (p->repo_path && cbm_artifact_exists(p->repo_path)) {
-        (void)cbm_artifact_export(final_path, p->repo_path, p->project_name, CBM_ARTIFACT_FAST);
+    if (p->repo_path && ani_artifact_exists(p->repo_path)) {
+        (void)ani_artifact_export(final_path, p->repo_path, p->project_name, ANI_ARTIFACT_FAST);
     }
     return 0;
 }
 
-int cbm_pipeline_run(cbm_pipeline_t *p) {
+int ani_pipeline_run(ani_pipeline_t *p) {
     if (!p) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     char *final_path = resolve_db_path(p);
     if (!final_path || !ensure_db_parent(final_path)) {
         free(final_path);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     struct stat final_st;
     bool final_existed = stat(final_path, &final_st) == 0;
     char *staging_path = create_staging_path(final_path);
     if (!staging_path) {
         free(final_path);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
     bool backup_succeeded = false;
     if (final_existed) {
-        backup_succeeded = cbm_store_backup_path(final_path, staging_path) == CBM_STORE_OK;
+        backup_succeeded = ani_store_backup_path(final_path, staging_path) == ANI_STORE_OK;
         if (!backup_succeeded) {
-            cbm_log_warn("pipeline.stage", "action", "backup_failed_full_rebuild", "path",
+            ani_log_warn("pipeline.stage", "action", "backup_failed_full_rebuild", "path",
                          final_path);
             cleanup_staging_db(staging_path);
         }
@@ -2578,9 +2578,9 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
         cleanup_staging_db(staging_path);
         free(staging_path);
         free(final_path);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
-    int rc = cbm_pipeline_run_staged(p);
+    int rc = ani_pipeline_run_staged(p);
     free(p->db_path);
     p->db_path = configured_db_path;
 
@@ -2599,13 +2599,13 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
         cleanup_staging_db(staging_path);
         free(staging_path);
         free(final_path);
-        return CBM_PIPELINE_ABORT_PRESERVE_DB;
+        return ANI_PIPELINE_ABORT_PRESERVE_DB;
     }
     if (seal_staging_db(staging_path) != 0) {
         cleanup_staging_db(staging_path);
         free(staging_path);
         free(final_path);
-        return CBM_PIPELINE_PERSIST_FAILED;
+        return ANI_PIPELINE_PERSIST_FAILED;
     }
 
     if (p->before_publish_hook) {
@@ -2615,7 +2615,7 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
         cleanup_staging_db(staging_path);
         free(staging_path);
         free(final_path);
-        return CBM_PIPELINE_ABORT_PRESERVE_DB;
+        return ANI_PIPELINE_ABORT_PRESERVE_DB;
     }
 
     /* A test hook may inspect the DB through SQLite and re-enable WAL mode;
@@ -2624,22 +2624,22 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
         cleanup_staging_db(staging_path);
         free(staging_path);
         free(final_path);
-        return CBM_PIPELINE_PERSIST_FAILED;
+        return ANI_PIPELINE_PERSIST_FAILED;
     }
 
-    cbm_replacement_prepare_t prepared = {0};
+    ani_replacement_prepare_t prepared = {0};
     int prepare_rc =
         prepare_publish_destination(final_path, final_existed, backup_succeeded, &prepared);
     if (prepare_rc != 0) {
-        cbm_log_error("pipeline.err", "phase", "publish", "path", final_path);
+        ani_log_error("pipeline.err", "phase", "publish", "path", final_path);
         cleanup_staging_db(staging_path);
         free(staging_path);
         free(final_path);
         return prepare_rc;
     }
     if ((p->rename_hook ? p->rename_hook(staging_path, final_path, p->rename_hook_ctx)
-                        : cbm_rename_replace(staging_path, final_path)) != 0) {
-        cbm_log_error("pipeline.err", "phase", "publish", "path", final_path);
+                        : ani_rename_replace(staging_path, final_path)) != 0) {
+        ani_log_error("pipeline.err", "phase", "publish", "path", final_path);
         /* Put a quarantined destination back: the publish did not happen, so
          * leaving the previous generation parked under .corrupt would present
          * the caller with no database at all. */
@@ -2647,7 +2647,7 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
         cleanup_staging_db(staging_path);
         free(staging_path);
         free(final_path);
-        return CBM_PIPELINE_PERSIST_FAILED;
+        return ANI_PIPELINE_PERSIST_FAILED;
     }
 
     rc = export_after_publish(p, final_path);

@@ -1,9 +1,9 @@
-# install.ps1 - One-line installer for codebase-memory-mcp (Windows).
+# install.ps1 - One-line installer for ani (Windows).
 #
 # Usage: see README.md for install instructions.
 #
 # Environment:
-#   CBM_DOWNLOAD_URL  Override base URL for downloads (for testing)
+#   ANI_DOWNLOAD_URL  Override base URL for downloads (for testing)
 
 $ErrorActionPreference = "Stop"
 
@@ -11,16 +11,16 @@ $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
 Add-Type -AssemblyName System.Net.Http
 
-$Repo = "DeusData/codebase-memory-mcp"
-$InstallDir = "$env:LOCALAPPDATA\Programs\codebase-memory-mcp"
-$BinName = "codebase-memory-mcp.exe"
+$Repo = "DeusData/ani"
+$InstallDir = "$env:LOCALAPPDATA\Programs\ani"
+$BinName = "ani.exe"
 $WindowsArchiveNames = @(
     $BinName,
     "LICENSE",
     "install.ps1",
     "THIRD_PARTY_NOTICES.md"
 )
-$BaseUrl = if ($env:CBM_DOWNLOAD_URL) { $env:CBM_DOWNLOAD_URL } else { "https://github.com/$Repo/releases/latest/download" }
+$BaseUrl = if ($env:ANI_DOWNLOAD_URL) { $env:ANI_DOWNLOAD_URL } else { "https://github.com/$Repo/releases/latest/download" }
 
 try { $BaseUri = [Uri]$BaseUrl } catch { $BaseUri = $null }
 $AllowLoopbackHttp = (
@@ -35,7 +35,7 @@ if (-not $BaseUri -or -not $BaseUri.IsAbsoluteUri -or
     exit 1
 }
 
-function Invoke-CbmDownload {
+function Invoke-AniDownload {
     param([Parameter(Mandatory=$true)][string]$Url,
           [Parameter(Mandatory=$true)][string]$OutFile)
 
@@ -98,10 +98,10 @@ foreach ($arg in $args) {
 # unlike $env:PROCESSOR_ARCHITECTURE, which reports the emulated "AMD64", and
 # PROCESSOR_ARCHITEW6432, which is unset for 64-bit emulated processes. Fall back
 # to the env vars only if the .NET API is somehow unavailable.
-if ($env:CBM_ARCH) {
+if ($env:ANI_ARCH) {
     # Explicit override wins - used by CI/tests, and an escape hatch under x64
     # emulation on ARM64 where no in-process detection is reliable.
-    $Arch = $env:CBM_ARCH
+    $Arch = $env:ANI_ARCH
 } else {
     try {
         $osArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
@@ -115,17 +115,17 @@ if ($env:CBM_ARCH) {
     }
 }
 
-Write-Host "codebase-memory-mcp installer (Windows)"
+Write-Host "ani installer (Windows)"
 Write-Host "  arch:    $Arch"
 Write-Host "  target:  $InstallDir\$BinName"
 Write-Host ""
 
 # Build download URL
-$Archive = "codebase-memory-mcp-windows-$Arch.zip"
+$Archive = "ani-windows-$Arch.zip"
 $Url = "$BaseUrl/$Archive"
 
 # Download
-$TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "cbm-install-$(Get-Random)"
+$TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "ani-install-$(Get-Random)"
 New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null
 
 # Give the staging directory a protected owner-only DACL.
@@ -139,7 +139,7 @@ New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null
 #   activation transaction I/O failed: acl-grants-cross-account-mutation to S-1-5-21-...
 # naming an ACE the installer itself inherited. See issues 1529, 1614 and 1571.
 #
-# cbm's own C staging already creates its directory this way; install.ps1 was
+# ani's own C staging already creates its directory this way; install.ps1 was
 # the one path that did not, which is why redirecting TMP/TEMP worked around it.
 #
 # Applied after creation rather than atomically on purpose: the overload that
@@ -165,7 +165,7 @@ try {
 
 Write-Host "Downloading $Archive..."
 try {
-    Invoke-CbmDownload -Url $Url -OutFile "$TmpDir\$Archive"
+    Invoke-AniDownload -Url $Url -OutFile "$TmpDir\$Archive"
 } catch {
     Write-Host "error: download failed: $_" -ForegroundColor Red
     Remove-Item -Recurse -Force $TmpDir -ErrorAction SilentlyContinue
@@ -177,7 +177,7 @@ try {
 # a candidate that was not positively matched to the published release digest.
 $ChecksumUrl = "$BaseUrl/checksums.txt"
 try {
-    Invoke-CbmDownload -Url $ChecksumUrl -OutFile "$TmpDir\checksums.txt"
+    Invoke-AniDownload -Url $ChecksumUrl -OutFile "$TmpDir\checksums.txt"
     $checksumPath = "$TmpDir\checksums.txt"
     if ((Get-Item -LiteralPath $checksumPath).Length -gt 1048576) {
         throw "checksums.txt exceeds the 1 MiB safety limit"
@@ -319,7 +319,7 @@ if (Test-Path -LiteralPath $Dest -PathType Leaf) {
     }
     if (-not $renamed) {
         Write-Host "error: could not retire the existing $BinName - close all running" -ForegroundColor Red
-        Write-Host "       codebase-memory-mcp sessions and coding agents, then re-run." -ForegroundColor Red
+        Write-Host "       ani sessions and coding agents, then re-run." -ForegroundColor Red
         Remove-Item -Recurse -Force $TmpDir -ErrorAction SilentlyContinue
         exit 1
     }
@@ -396,4 +396,4 @@ if ($SkipConfig) {
 Remove-Item -Recurse -Force $TmpDir -ErrorAction SilentlyContinue
 
 Write-Host ""
-Write-Host "Done! Restart your terminal and coding agent to start using codebase-memory-mcp."
+Write-Host "Done! Restart your terminal and coding agent to start using ani."

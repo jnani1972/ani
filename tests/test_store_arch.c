@@ -29,111 +29,111 @@
 
 /* ── Helper: create architecture test store ──────────────────────── */
 
-static cbm_store_t *setup_arch_test_store(void) {
-    cbm_store_t *s = cbm_store_open_memory();
+static ani_store_t *setup_arch_test_store(void) {
+    ani_store_t *s = ani_store_open_memory();
     if (!s)
         return NULL;
-    cbm_store_upsert_project(s, "test", "/tmp/test");
+    ani_store_upsert_project(s, "test", "/tmp/test");
 
     /* Files */
     const char *files[] = {"main.go", "handler.go", "service.go", "model.py", "utils.js"};
     for (int i = 0; i < 5; i++) {
         char qn[64];
         snprintf(qn, sizeof(qn), "test.%s", files[i]);
-        cbm_node_t n = {.project = "test",
+        ani_node_t n = {.project = "test",
                         .label = "File",
                         .name = files[i],
                         .qualified_name = qn,
                         .file_path = files[i]};
-        cbm_store_upsert_node(s, &n);
+        ani_store_upsert_node(s, &n);
     }
 
     /* Packages */
-    cbm_node_t pkg1 = {
+    ani_node_t pkg1 = {
         .project = "test", .label = "Package", .name = "cmd", .qualified_name = "test.cmd"};
-    cbm_node_t pkg2 = {
+    ani_node_t pkg2 = {
         .project = "test", .label = "Package", .name = "handler", .qualified_name = "test.handler"};
-    cbm_node_t pkg3 = {
+    ani_node_t pkg3 = {
         .project = "test", .label = "Package", .name = "service", .qualified_name = "test.service"};
-    cbm_store_upsert_node(s, &pkg1);
-    cbm_store_upsert_node(s, &pkg2);
-    cbm_store_upsert_node(s, &pkg3);
+    ani_store_upsert_node(s, &pkg1);
+    ani_store_upsert_node(s, &pkg2);
+    ani_store_upsert_node(s, &pkg3);
 
     /* Functions with 4-segment QNs */
-    cbm_node_t fn_main = {.project = "test",
+    ani_node_t fn_main = {.project = "test",
                           .label = "Function",
                           .name = "main",
                           .qualified_name = "test.cmd.server.main",
                           .file_path = "cmd/server/main.go",
                           .properties_json = "{\"is_entry_point\":true}"};
-    int64_t id_main = cbm_store_upsert_node(s, &fn_main);
+    int64_t id_main = ani_store_upsert_node(s, &fn_main);
 
-    cbm_node_t fn_handle = {.project = "test",
+    ani_node_t fn_handle = {.project = "test",
                             .label = "Function",
                             .name = "HandleRequest",
                             .qualified_name = "test.internal.handler.HandleRequest",
                             .file_path = "internal/handler/handler.go",
                             .properties_json = "{\"is_entry_point\":true}"};
-    int64_t id_handle = cbm_store_upsert_node(s, &fn_handle);
+    int64_t id_handle = ani_store_upsert_node(s, &fn_handle);
 
-    cbm_node_t fn_process = {.project = "test",
+    ani_node_t fn_process = {.project = "test",
                              .label = "Function",
                              .name = "ProcessOrder",
                              .qualified_name = "test.internal.service.ProcessOrder",
                              .file_path = "internal/service/service.go"};
-    int64_t id_process = cbm_store_upsert_node(s, &fn_process);
+    int64_t id_process = ani_store_upsert_node(s, &fn_process);
 
-    cbm_node_t fn_validate = {.project = "test",
+    ani_node_t fn_validate = {.project = "test",
                               .label = "Function",
                               .name = "ValidateOrder",
                               .qualified_name = "test.internal.service.ValidateOrder",
                               .file_path = "internal/service/service.go"};
-    int64_t id_validate = cbm_store_upsert_node(s, &fn_validate);
+    int64_t id_validate = ani_store_upsert_node(s, &fn_validate);
 
-    cbm_node_t fn_helper = {.project = "test",
+    ani_node_t fn_helper = {.project = "test",
                             .label = "Function",
                             .name = "formatDate",
                             .qualified_name = "test.internal.service.formatDate",
                             .file_path = "internal/service/service.go"};
-    int64_t id_helper = cbm_store_upsert_node(s, &fn_helper);
+    int64_t id_helper = ani_store_upsert_node(s, &fn_helper);
 
     /* Test function (should be excluded) */
-    cbm_node_t fn_test = {.project = "test",
+    ani_node_t fn_test = {.project = "test",
                           .label = "Function",
                           .name = "TestHandleRequest",
                           .qualified_name = "test.internal.handler.handler_test.TestHandleRequest",
                           .file_path = "internal/handler/handler_test.go",
                           .properties_json = "{\"is_entry_point\":true}"};
-    int64_t id_test = cbm_store_upsert_node(s, &fn_test);
+    int64_t id_test = ani_store_upsert_node(s, &fn_test);
 
     /* Route */
-    cbm_node_t route = {
+    ani_node_t route = {
         .project = "test",
         .label = "Route",
         .name = "/api/orders",
         .qualified_name = "test.internal.handler.route./api/orders",
         .properties_json =
             "{\"method\":\"POST\",\"path\":\"/api/orders\",\"handler\":\"HandleRequest\"}"};
-    cbm_store_upsert_node(s, &route);
+    ani_store_upsert_node(s, &route);
 
     /* Edges: main → HandleRequest → ProcessOrder → ValidateOrder
      *                                ProcessOrder → formatDate
      *        TestHandleRequest → HandleRequest */
-    cbm_edge_t e1 = {
+    ani_edge_t e1 = {
         .project = "test", .source_id = id_main, .target_id = id_handle, .type = "CALLS"};
-    cbm_edge_t e2 = {
+    ani_edge_t e2 = {
         .project = "test", .source_id = id_handle, .target_id = id_process, .type = "CALLS"};
-    cbm_edge_t e3 = {
+    ani_edge_t e3 = {
         .project = "test", .source_id = id_process, .target_id = id_validate, .type = "CALLS"};
-    cbm_edge_t e4 = {
+    ani_edge_t e4 = {
         .project = "test", .source_id = id_process, .target_id = id_helper, .type = "CALLS"};
-    cbm_edge_t e5 = {
+    ani_edge_t e5 = {
         .project = "test", .source_id = id_test, .target_id = id_handle, .type = "CALLS"};
-    cbm_store_insert_edge(s, &e1);
-    cbm_store_insert_edge(s, &e2);
-    cbm_store_insert_edge(s, &e3);
-    cbm_store_insert_edge(s, &e4);
-    cbm_store_insert_edge(s, &e5);
+    ani_store_insert_edge(s, &e1);
+    ani_store_insert_edge(s, &e2);
+    ani_store_insert_edge(s, &e3);
+    ani_store_insert_edge(s, &e4);
+    ani_store_insert_edge(s, &e5);
 
     return s;
 }
@@ -141,9 +141,9 @@ static cbm_store_t *setup_arch_test_store(void) {
 /* ── Architecture tests ──────────────────────────────────────────── */
 
 TEST(arch_get_all) {
-    cbm_store_t *s = setup_arch_test_store();
-    cbm_architecture_info_t info;
-    ASSERT_EQ(cbm_store_get_architecture(s, "test", NULL, NULL, 0, &info), CBM_STORE_OK);
+    ani_store_t *s = setup_arch_test_store();
+    ani_architecture_info_t info;
+    ASSERT_EQ(ani_store_get_architecture(s, "test", NULL, NULL, 0, &info), ANI_STORE_OK);
 
     ASSERT_TRUE(info.language_count > 0);
     ASSERT_TRUE(info.package_count > 0);
@@ -152,49 +152,49 @@ TEST(arch_get_all) {
     ASSERT_TRUE(info.hotspot_count > 0);
     ASSERT_TRUE(info.boundary_count > 0);
 
-    cbm_store_architecture_free(&info);
-    cbm_store_close(s);
+    ani_store_architecture_free(&info);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(arch_entry_points_exclude_tests) {
-    cbm_store_t *s = setup_arch_test_store();
-    cbm_architecture_info_t info;
+    ani_store_t *s = setup_arch_test_store();
+    ani_architecture_info_t info;
     memset(&info, 0, sizeof(info));
     const char *aspects[] = {"entry_points"};
-    ASSERT_EQ(cbm_store_get_architecture(s, "test", NULL, aspects, 1, &info), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_get_architecture(s, "test", NULL, aspects, 1, &info), ANI_STORE_OK);
 
     for (int i = 0; i < info.entry_point_count; i++) {
         ASSERT_TRUE(strstr(info.entry_points[i].file, "test") == NULL);
     }
     ASSERT_EQ(info.entry_point_count, 2); /* main, HandleRequest */
 
-    cbm_store_architecture_free(&info);
-    cbm_store_close(s);
+    ani_store_architecture_free(&info);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(arch_hotspots_exclude_tests) {
-    cbm_store_t *s = setup_arch_test_store();
-    cbm_architecture_info_t info;
+    ani_store_t *s = setup_arch_test_store();
+    ani_architecture_info_t info;
     memset(&info, 0, sizeof(info));
     const char *aspects[] = {"hotspots"};
-    ASSERT_EQ(cbm_store_get_architecture(s, "test", NULL, aspects, 1, &info), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_get_architecture(s, "test", NULL, aspects, 1, &info), ANI_STORE_OK);
 
     for (int i = 0; i < info.hotspot_count; i++) {
         ASSERT_TRUE(strstr(info.hotspots[i].name, "Test") == NULL);
     }
 
-    cbm_store_architecture_free(&info);
-    cbm_store_close(s);
+    ani_store_architecture_free(&info);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(arch_specific_aspects) {
-    cbm_store_t *s = setup_arch_test_store();
-    cbm_architecture_info_t info;
+    ani_store_t *s = setup_arch_test_store();
+    ani_architecture_info_t info;
     const char *aspects[] = {"languages", "hotspots"};
-    ASSERT_EQ(cbm_store_get_architecture(s, "test", NULL, aspects, 2, &info), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_get_architecture(s, "test", NULL, aspects, 2, &info), ANI_STORE_OK);
 
     ASSERT_TRUE(info.language_count > 0);
     ASSERT_TRUE(info.hotspot_count > 0);
@@ -203,51 +203,51 @@ TEST(arch_specific_aspects) {
     ASSERT_EQ(info.entry_point_count, 0);
     ASSERT_EQ(info.route_count, 0);
 
-    cbm_store_architecture_free(&info);
-    cbm_store_close(s);
+    ani_store_architecture_free(&info);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(arch_path_scoping) {
-    cbm_store_t *s = cbm_store_open_memory();
+    ani_store_t *s = ani_store_open_memory();
     ASSERT_NOT_NULL(s);
-    ASSERT_EQ(cbm_store_upsert_project(s, "pscope", "/tmp/pscope"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(s, "pscope", "/tmp/pscope"), ANI_STORE_OK);
 
-    cbm_node_t f1 = {.project = "pscope",
+    ani_node_t f1 = {.project = "pscope",
                      .label = "File",
                      .name = "a.go",
                      .qualified_name = "pscope.apps.foo.a.go",
                      .file_path = "apps/foo/a.go"};
-    cbm_node_t f2 = {.project = "pscope",
+    ani_node_t f2 = {.project = "pscope",
                      .label = "File",
                      .name = "b.go",
                      .qualified_name = "pscope.other.b.go",
                      .file_path = "other/b.go"};
-    cbm_store_upsert_node(s, &f1);
-    cbm_store_upsert_node(s, &f2);
+    ani_store_upsert_node(s, &f1);
+    ani_store_upsert_node(s, &f2);
 
-    cbm_node_t fn_foo = {.project = "pscope",
+    ani_node_t fn_foo = {.project = "pscope",
                          .label = "Function",
                          .name = "Foo",
                          .qualified_name = "pscope.apps.foo.Foo",
                          .file_path = "apps/foo/a.go"};
-    cbm_node_t fn_other = {.project = "pscope",
+    ani_node_t fn_other = {.project = "pscope",
                            .label = "Function",
                            .name = "Bar",
                            .qualified_name = "pscope.other.Bar",
                            .file_path = "other/b.go"};
-    cbm_store_upsert_node(s, &fn_foo);
-    cbm_store_upsert_node(s, &fn_other);
+    ani_store_upsert_node(s, &fn_foo);
+    ani_store_upsert_node(s, &fn_other);
 
     const char *aspects[] = {"languages", "packages"};
-    cbm_architecture_info_t whole;
+    ani_architecture_info_t whole;
     memset(&whole, 0, sizeof(whole));
-    ASSERT_EQ(cbm_store_get_architecture(s, "pscope", NULL, aspects, 2, &whole), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_get_architecture(s, "pscope", NULL, aspects, 2, &whole), ANI_STORE_OK);
 
-    cbm_architecture_info_t scoped;
+    ani_architecture_info_t scoped;
     memset(&scoped, 0, sizeof(scoped));
-    ASSERT_EQ(cbm_store_get_architecture(s, "pscope", "apps/foo", aspects, 2, &scoped),
-              CBM_STORE_OK);
+    ASSERT_EQ(ani_store_get_architecture(s, "pscope", "apps/foo", aspects, 2, &scoped),
+              ANI_STORE_OK);
 
     int whole_go = 0;
     int scoped_go = 0;
@@ -275,12 +275,12 @@ TEST(arch_path_scoping) {
     ASSERT_TRUE(whole_pkg_nodes > scoped_pkg_nodes);
     ASSERT_EQ(scoped_pkg_nodes, 1);
 
-    ASSERT_TRUE(cbm_store_count_nodes(s, "pscope") > cbm_store_count_nodes_scoped(s, "pscope", "apps/foo"));
+    ASSERT_TRUE(ani_store_count_nodes(s, "pscope") > ani_store_count_nodes_scoped(s, "pscope", "apps/foo"));
 
-    cbm_architecture_info_t scoped_slash;
+    ani_architecture_info_t scoped_slash;
     memset(&scoped_slash, 0, sizeof(scoped_slash));
-    ASSERT_EQ(cbm_store_get_architecture(s, "pscope", "apps/foo/", aspects, 2, &scoped_slash),
-              CBM_STORE_OK);
+    ASSERT_EQ(ani_store_get_architecture(s, "pscope", "apps/foo/", aspects, 2, &scoped_slash),
+              ANI_STORE_OK);
     int slash_go = 0;
     for (int i = 0; i < scoped_slash.language_count; i++) {
         if (strcmp(scoped_slash.languages[i].language, "Go") == 0) {
@@ -289,34 +289,34 @@ TEST(arch_path_scoping) {
     }
     ASSERT_EQ(slash_go, scoped_go);
 
-    cbm_store_architecture_free(&scoped_slash);
-    cbm_store_architecture_free(&whole);
-    cbm_store_architecture_free(&scoped);
-    cbm_store_close(s);
+    ani_store_architecture_free(&scoped_slash);
+    ani_store_architecture_free(&whole);
+    ani_store_architecture_free(&scoped);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(arch_empty_project) {
-    cbm_store_t *s = cbm_store_open_memory();
+    ani_store_t *s = ani_store_open_memory();
     ASSERT_NOT_NULL(s);
-    ASSERT_EQ(cbm_store_upsert_project(s, "empty", "/tmp/empty"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(s, "empty", "/tmp/empty"), ANI_STORE_OK);
 
-    cbm_architecture_info_t info;
+    ani_architecture_info_t info;
     const char *aspects[] = {"all"};
-    ASSERT_EQ(cbm_store_get_architecture(s, "empty", NULL, aspects, 1, &info), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_get_architecture(s, "empty", NULL, aspects, 1, &info), ANI_STORE_OK);
     /* All should be empty but no errors */
 
-    cbm_store_architecture_free(&info);
-    cbm_store_close(s);
+    ani_store_architecture_free(&info);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(arch_languages) {
-    cbm_store_t *s = setup_arch_test_store();
-    cbm_architecture_info_t info;
+    ani_store_t *s = setup_arch_test_store();
+    ani_architecture_info_t info;
     memset(&info, 0, sizeof(info));
     const char *aspects[] = {"languages"};
-    ASSERT_EQ(cbm_store_get_architecture(s, "test", NULL, aspects, 1, &info), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_get_architecture(s, "test", NULL, aspects, 1, &info), ANI_STORE_OK);
 
     /* Check Go=3, Python=1, JavaScript=1 */
     int go_count = 0, py_count = 0, js_count = 0;
@@ -332,34 +332,34 @@ TEST(arch_languages) {
     ASSERT_EQ(py_count, 1);
     ASSERT_EQ(js_count, 1);
 
-    cbm_store_architecture_free(&info);
-    cbm_store_close(s);
+    ani_store_architecture_free(&info);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(arch_routes) {
-    cbm_store_t *s = setup_arch_test_store();
-    cbm_architecture_info_t info;
+    ani_store_t *s = setup_arch_test_store();
+    ani_architecture_info_t info;
     memset(&info, 0, sizeof(info));
     const char *aspects[] = {"routes"};
-    ASSERT_EQ(cbm_store_get_architecture(s, "test", NULL, aspects, 1, &info), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_get_architecture(s, "test", NULL, aspects, 1, &info), ANI_STORE_OK);
 
     ASSERT_EQ(info.route_count, 1);
     ASSERT_STR_EQ(info.routes[0].method, "POST");
     ASSERT_STR_EQ(info.routes[0].path, "/api/orders");
     ASSERT_STR_EQ(info.routes[0].handler, "HandleRequest");
 
-    cbm_store_architecture_free(&info);
-    cbm_store_close(s);
+    ani_store_architecture_free(&info);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(arch_hotspots) {
-    cbm_store_t *s = setup_arch_test_store();
-    cbm_architecture_info_t info;
+    ani_store_t *s = setup_arch_test_store();
+    ani_architecture_info_t info;
     memset(&info, 0, sizeof(info));
     const char *aspects[] = {"hotspots"};
-    ASSERT_EQ(cbm_store_get_architecture(s, "test", NULL, aspects, 1, &info), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_get_architecture(s, "test", NULL, aspects, 1, &info), ANI_STORE_OK);
 
     ASSERT_TRUE(info.hotspot_count > 0);
     /* ProcessOrder should be a hotspot (called by HandleRequest) */
@@ -373,17 +373,17 @@ TEST(arch_hotspots) {
     /* May not be found with few edges — just log */
     (void)found;
 
-    cbm_store_architecture_free(&info);
-    cbm_store_close(s);
+    ani_store_architecture_free(&info);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(arch_boundaries) {
-    cbm_store_t *s = setup_arch_test_store();
-    cbm_architecture_info_t info;
+    ani_store_t *s = setup_arch_test_store();
+    ani_architecture_info_t info;
     memset(&info, 0, sizeof(info));
     const char *aspects[] = {"boundaries"};
-    ASSERT_EQ(cbm_store_get_architecture(s, "test", NULL, aspects, 1, &info), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_get_architecture(s, "test", NULL, aspects, 1, &info), ANI_STORE_OK);
 
     ASSERT_TRUE(info.boundary_count > 0);
     /* server → handler and handler → service should be present */
@@ -399,8 +399,8 @@ TEST(arch_boundaries) {
     ASSERT_TRUE(found_sh);
     ASSERT_TRUE(found_hs);
 
-    cbm_store_architecture_free(&info);
-    cbm_store_close(s);
+    ani_store_architecture_free(&info);
+    ani_store_close(s);
     PASS();
 }
 
@@ -408,28 +408,28 @@ TEST(arch_boundaries) {
  * edges) and return the wall ms of the "boundaries" aspect. Returns -1 on
  * setup/query failure. */
 static double timed_boundaries_ms(int n_nodes, int n_edges, int n_pkgs) {
-    cbm_store_t *s = cbm_store_open_memory();
+    ani_store_t *s = ani_store_open_memory();
     if (!s) {
         return -1;
     }
-    cbm_store_upsert_project(s, "perf", "/tmp/perf");
+    ani_store_upsert_project(s, "perf", "/tmp/perf");
 
-    cbm_store_begin(s);
+    ani_store_begin(s);
     int64_t *ids = malloc((size_t)n_nodes * sizeof(int64_t));
     if (!ids) {
-        cbm_store_close(s);
+        ani_store_close(s);
         return -1;
     }
     for (int i = 0; i < n_nodes; i++) {
         char name[32], qn[64];
         snprintf(name, sizeof(name), "fn%d", i);
         snprintf(qn, sizeof(qn), "perf.pkg%d.fn%d", i % n_pkgs, i);
-        cbm_node_t n = {.project = "perf",
+        ani_node_t n = {.project = "perf",
                         .label = "Function",
                         .name = name,
                         .qualified_name = qn,
                         .file_path = "f.c"};
-        ids[i] = cbm_store_upsert_node(s, &n);
+        ids[i] = ani_store_upsert_node(s, &n);
     }
     uint64_t rng = 42;
     for (int i = 0; i < n_edges; i++) {
@@ -437,26 +437,26 @@ static double timed_boundaries_ms(int n_nodes, int n_edges, int n_pkgs) {
         int a = (int)((rng >> 33) % (uint64_t)n_nodes);
         rng = rng * 6364136223846793005ULL + 1442695040888963407ULL;
         int b = (int)((rng >> 33) % (uint64_t)n_nodes);
-        cbm_edge_t e = {
+        ani_edge_t e = {
             .project = "perf", .source_id = ids[a], .target_id = ids[b], .type = "CALLS"};
-        cbm_store_insert_edge(s, &e);
+        ani_store_insert_edge(s, &e);
     }
-    cbm_store_commit(s);
+    ani_store_commit(s);
     free(ids);
 
-    cbm_architecture_info_t info;
+    ani_architecture_info_t info;
     memset(&info, 0, sizeof(info));
     const char *aspects[] = {"boundaries"};
     struct timespec t0, t1;
     clock_gettime(CLOCK_MONOTONIC, &t0);
-    int rc = cbm_store_get_architecture(s, "perf", NULL, aspects, 1, &info);
+    int rc = ani_store_get_architecture(s, "perf", NULL, aspects, 1, &info);
     clock_gettime(CLOCK_MONOTONIC, &t1);
     double ms =
         (double)(t1.tv_sec - t0.tv_sec) * 1000.0 + (double)(t1.tv_nsec - t0.tv_nsec) / 1000000.0;
     int bcount = info.boundary_count;
-    cbm_store_architecture_free(&info);
-    cbm_store_close(s);
-    if (rc != CBM_STORE_OK || bcount <= 0) {
+    ani_store_architecture_free(&info);
+    ani_store_close(s);
+    if (rc != ANI_STORE_OK || bcount <= 0) {
         return -1;
     }
     return ms;
@@ -493,11 +493,11 @@ TEST(arch_boundaries_no_quadratic_scan) {
 }
 
 TEST(arch_layers) {
-    cbm_store_t *s = setup_arch_test_store();
-    cbm_architecture_info_t info;
+    ani_store_t *s = setup_arch_test_store();
+    ani_architecture_info_t info;
     memset(&info, 0, sizeof(info));
     const char *aspects[] = {"layers"};
-    ASSERT_EQ(cbm_store_get_architecture(s, "test", NULL, aspects, 1, &info), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_get_architecture(s, "test", NULL, aspects, 1, &info), ANI_STORE_OK);
 
     ASSERT_TRUE(info.layer_count > 0);
     /* Handler package has routes, should be "api" */
@@ -507,17 +507,17 @@ TEST(arch_layers) {
         }
     }
 
-    cbm_store_architecture_free(&info);
-    cbm_store_close(s);
+    ani_store_architecture_free(&info);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(arch_file_tree) {
-    cbm_store_t *s = setup_arch_test_store();
-    cbm_architecture_info_t info;
+    ani_store_t *s = setup_arch_test_store();
+    ani_architecture_info_t info;
     memset(&info, 0, sizeof(info));
     const char *aspects[] = {"file_tree"};
-    ASSERT_EQ(cbm_store_get_architecture(s, "test", NULL, aspects, 1, &info), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_get_architecture(s, "test", NULL, aspects, 1, &info), ANI_STORE_OK);
 
     ASSERT_TRUE(info.file_tree_count > 0);
     /* Check that entries have valid types */
@@ -526,23 +526,23 @@ TEST(arch_file_tree) {
                     strcmp(info.file_tree[i].type, "file") == 0);
     }
 
-    cbm_store_architecture_free(&info);
-    cbm_store_close(s);
+    ani_store_architecture_free(&info);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(arch_clusters) {
-    cbm_store_t *s = setup_arch_test_store();
-    cbm_architecture_info_t info;
+    ani_store_t *s = setup_arch_test_store();
+    ani_architecture_info_t info;
     memset(&info, 0, sizeof(info));
     const char *aspects[] = {"clusters"};
-    ASSERT_EQ(cbm_store_get_architecture(s, "test", NULL, aspects, 1, &info), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_get_architecture(s, "test", NULL, aspects, 1, &info), ANI_STORE_OK);
 
     /* With 5 functions and 4 edges, Louvain should find at least 1 cluster */
     if (info.cluster_count == 0) {
         /* May need more nodes for meaningful clustering — just log */
-        cbm_store_architecture_free(&info);
-        cbm_store_close(s);
+        ani_store_architecture_free(&info);
+        ani_store_close(s);
         PASS();
     }
 
@@ -552,152 +552,152 @@ TEST(arch_clusters) {
         ASSERT_TRUE(info.clusters[i].label[0] != '\0');
     }
 
-    cbm_store_architecture_free(&info);
-    cbm_store_close(s);
+    ani_store_architecture_free(&info);
+    ani_store_close(s);
     PASS();
 }
 
 /* ── ADR tests ──────────────────────────────────────────────────── */
 
 TEST(adr_store_and_retrieve) {
-    cbm_store_t *s = cbm_store_open_memory();
+    ani_store_t *s = ani_store_open_memory();
     ASSERT_NOT_NULL(s);
-    ASSERT_EQ(cbm_store_upsert_project(s, "test", "/tmp/test"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(s, "test", "/tmp/test"), ANI_STORE_OK);
 
     const char *content = "## PURPOSE\nTest project for unit tests.\n\n## STACK\n- Go: speed";
-    ASSERT_EQ(cbm_store_adr_store(s, "test", content), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_store(s, "test", content), ANI_STORE_OK);
 
-    cbm_adr_t adr;
-    ASSERT_EQ(cbm_store_adr_get(s, "test", &adr), CBM_STORE_OK);
+    ani_adr_t adr;
+    ASSERT_EQ(ani_store_adr_get(s, "test", &adr), ANI_STORE_OK);
     ASSERT_STR_EQ(adr.content, content);
     ASSERT_STR_EQ(adr.project, "test");
     ASSERT_TRUE(adr.created_at != NULL && adr.created_at[0] != '\0');
     ASSERT_TRUE(adr.updated_at != NULL && adr.updated_at[0] != '\0');
 
-    cbm_store_adr_free(&adr);
-    cbm_store_close(s);
+    ani_store_adr_free(&adr);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(adr_upsert) {
-    cbm_store_t *s = cbm_store_open_memory();
+    ani_store_t *s = ani_store_open_memory();
     ASSERT_NOT_NULL(s);
-    ASSERT_EQ(cbm_store_upsert_project(s, "test", "/tmp/test"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(s, "test", "/tmp/test"), ANI_STORE_OK);
 
-    ASSERT_EQ(cbm_store_adr_store(s, "test", "v1"), CBM_STORE_OK);
-    ASSERT_EQ(cbm_store_adr_store(s, "test", "v2"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_store(s, "test", "v1"), ANI_STORE_OK);
+    ASSERT_EQ(ani_store_adr_store(s, "test", "v2"), ANI_STORE_OK);
 
-    cbm_adr_t adr;
-    ASSERT_EQ(cbm_store_adr_get(s, "test", &adr), CBM_STORE_OK);
+    ani_adr_t adr;
+    ASSERT_EQ(ani_store_adr_get(s, "test", &adr), ANI_STORE_OK);
     ASSERT_STR_EQ(adr.content, "v2");
 
-    cbm_store_adr_free(&adr);
-    cbm_store_close(s);
+    ani_store_adr_free(&adr);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(adr_delete) {
-    cbm_store_t *s = cbm_store_open_memory();
+    ani_store_t *s = ani_store_open_memory();
     ASSERT_NOT_NULL(s);
-    ASSERT_EQ(cbm_store_upsert_project(s, "test", "/tmp/test"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(s, "test", "/tmp/test"), ANI_STORE_OK);
 
-    ASSERT_EQ(cbm_store_adr_store(s, "test", "## PURPOSE\nTest"), CBM_STORE_OK);
-    ASSERT_EQ(cbm_store_adr_delete(s, "test"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_store(s, "test", "## PURPOSE\nTest"), ANI_STORE_OK);
+    ASSERT_EQ(ani_store_adr_delete(s, "test"), ANI_STORE_OK);
 
-    cbm_adr_t adr;
-    ASSERT_TRUE(cbm_store_adr_get(s, "test", &adr) != CBM_STORE_OK);
+    ani_adr_t adr;
+    ASSERT_TRUE(ani_store_adr_get(s, "test", &adr) != ANI_STORE_OK);
 
-    cbm_store_close(s);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(adr_delete_not_found) {
-    cbm_store_t *s = cbm_store_open_memory();
+    ani_store_t *s = ani_store_open_memory();
     ASSERT_NOT_NULL(s);
 
-    ASSERT_TRUE(cbm_store_adr_delete(s, "nonexistent") != CBM_STORE_OK);
+    ASSERT_TRUE(ani_store_adr_delete(s, "nonexistent") != ANI_STORE_OK);
 
-    cbm_store_close(s);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(adr_parse_sections_basic) {
-    cbm_adr_sections_t sec = cbm_adr_parse_sections("## PURPOSE\nFoo\n\n## STACK\nBar");
+    ani_adr_sections_t sec = ani_adr_parse_sections("## PURPOSE\nFoo\n\n## STACK\nBar");
     ASSERT_EQ(sec.count, 2);
     ASSERT_STR_EQ(sec.keys[0], "PURPOSE");
     ASSERT_STR_EQ(sec.values[0], "Foo");
     ASSERT_STR_EQ(sec.keys[1], "STACK");
     ASSERT_STR_EQ(sec.values[1], "Bar");
-    cbm_adr_sections_free(&sec);
+    ani_adr_sections_free(&sec);
     PASS();
 }
 
 TEST(adr_parse_sections_all_six) {
-    cbm_adr_sections_t sec =
-        cbm_adr_parse_sections("## PURPOSE\nA\n\n## STACK\nB\n\n## ARCHITECTURE\nC\n\n## "
+    ani_adr_sections_t sec =
+        ani_adr_parse_sections("## PURPOSE\nA\n\n## STACK\nB\n\n## ARCHITECTURE\nC\n\n## "
                                "PATTERNS\nD\n\n## TRADEOFFS\nE\n\n## PHILOSOPHY\nF");
     ASSERT_EQ(sec.count, 6);
     ASSERT_STR_EQ(sec.keys[0], "PURPOSE");
     ASSERT_STR_EQ(sec.values[0], "A");
     ASSERT_STR_EQ(sec.keys[5], "PHILOSOPHY");
     ASSERT_STR_EQ(sec.values[5], "F");
-    cbm_adr_sections_free(&sec);
+    ani_adr_sections_free(&sec);
     PASS();
 }
 
 TEST(adr_parse_sections_non_canonical) {
-    cbm_adr_sections_t sec =
-        cbm_adr_parse_sections("## PURPOSE\nFoo\n## CUSTOM\nStill in PURPOSE\n\n## STACK\nBar");
+    ani_adr_sections_t sec =
+        ani_adr_parse_sections("## PURPOSE\nFoo\n## CUSTOM\nStill in PURPOSE\n\n## STACK\nBar");
     ASSERT_EQ(sec.count, 2);
     ASSERT_STR_EQ(sec.keys[0], "PURPOSE");
     ASSERT_STR_EQ(sec.values[0], "Foo\n## CUSTOM\nStill in PURPOSE");
     ASSERT_STR_EQ(sec.keys[1], "STACK");
     ASSERT_STR_EQ(sec.values[1], "Bar");
-    cbm_adr_sections_free(&sec);
+    ani_adr_sections_free(&sec);
     PASS();
 }
 
 TEST(adr_parse_sections_empty) {
-    cbm_adr_sections_t sec = cbm_adr_parse_sections("");
+    ani_adr_sections_t sec = ani_adr_parse_sections("");
     ASSERT_EQ(sec.count, 0);
-    cbm_adr_sections_free(&sec);
+    ani_adr_sections_free(&sec);
     PASS();
 }
 
 TEST(adr_parse_sections_preamble) {
-    cbm_adr_sections_t sec = cbm_adr_parse_sections("preamble\n## PURPOSE\nFoo");
+    ani_adr_sections_t sec = ani_adr_parse_sections("preamble\n## PURPOSE\nFoo");
     ASSERT_EQ(sec.count, 1);
     ASSERT_STR_EQ(sec.keys[0], "PURPOSE");
     ASSERT_STR_EQ(sec.values[0], "Foo");
-    cbm_adr_sections_free(&sec);
+    ani_adr_sections_free(&sec);
     PASS();
 }
 
 TEST(adr_parse_sections_multiline) {
-    cbm_adr_sections_t sec =
-        cbm_adr_parse_sections("## PURPOSE\nLine 1\nLine 2\nLine 3\n\n## STACK\n- Go\n- SQLite");
+    ani_adr_sections_t sec =
+        ani_adr_parse_sections("## PURPOSE\nLine 1\nLine 2\nLine 3\n\n## STACK\n- Go\n- SQLite");
     ASSERT_EQ(sec.count, 2);
     ASSERT_STR_EQ(sec.values[0], "Line 1\nLine 2\nLine 3");
     ASSERT_STR_EQ(sec.values[1], "- Go\n- SQLite");
-    cbm_adr_sections_free(&sec);
+    ani_adr_sections_free(&sec);
     PASS();
 }
 
 TEST(adr_render_canonical_order) {
-    cbm_adr_sections_t sec = {.count = 2};
+    ani_adr_sections_t sec = {.count = 2};
     sec.keys[0] = strdup("STACK");
     sec.values[0] = strdup("Bar");
     sec.keys[1] = strdup("PURPOSE");
     sec.values[1] = strdup("Foo");
-    char *rendered = cbm_adr_render(&sec);
+    char *rendered = ani_adr_render(&sec);
     ASSERT_STR_EQ(rendered, "## PURPOSE\nFoo\n\n## STACK\nBar");
     free(rendered);
-    cbm_adr_sections_free(&sec);
+    ani_adr_sections_free(&sec);
     PASS();
 }
 
 TEST(adr_render_all_sections) {
-    cbm_adr_sections_t sec = {.count = 6};
+    ani_adr_sections_t sec = {.count = 6};
     sec.keys[0] = strdup("PHILOSOPHY");
     sec.values[0] = strdup("F");
     sec.keys[1] = strdup("PURPOSE");
@@ -710,32 +710,32 @@ TEST(adr_render_all_sections) {
     sec.values[4] = strdup("D");
     sec.keys[5] = strdup("TRADEOFFS");
     sec.values[5] = strdup("E");
-    char *rendered = cbm_adr_render(&sec);
+    char *rendered = ani_adr_render(&sec);
     ASSERT_STR_EQ(rendered, "## PURPOSE\nA\n\n## STACK\nB\n\n## ARCHITECTURE\nC\n\n## "
                             "PATTERNS\nD\n\n## TRADEOFFS\nE\n\n## PHILOSOPHY\nF");
     free(rendered);
-    cbm_adr_sections_free(&sec);
+    ani_adr_sections_free(&sec);
     PASS();
 }
 
 TEST(adr_render_non_canonical) {
-    cbm_adr_sections_t sec = {.count = 3};
+    ani_adr_sections_t sec = {.count = 3};
     sec.keys[0] = strdup("PURPOSE");
     sec.values[0] = strdup("Foo");
     sec.keys[1] = strdup("ZEBRA");
     sec.values[1] = strdup("Z");
     sec.keys[2] = strdup("ALPHA");
     sec.values[2] = strdup("A");
-    char *rendered = cbm_adr_render(&sec);
+    char *rendered = ani_adr_render(&sec);
     ASSERT_STR_EQ(rendered, "## PURPOSE\nFoo\n\n## ALPHA\nA\n\n## ZEBRA\nZ");
     free(rendered);
-    cbm_adr_sections_free(&sec);
+    ani_adr_sections_free(&sec);
     PASS();
 }
 
 TEST(adr_render_empty) {
-    cbm_adr_sections_t sec = {.count = 0};
-    char *rendered = cbm_adr_render(&sec);
+    ani_adr_sections_t sec = {.count = 0};
+    char *rendered = ani_adr_render(&sec);
     ASSERT_STR_EQ(rendered, "");
     free(rendered);
     PASS();
@@ -764,7 +764,7 @@ static char *adr_test_fill(int len) {
  * Non-canonical keys render in alphabetical order (A, B, C). */
 TEST(adr_render_oversized_sections_no_overflow) {
     enum { ADR_RENDER_BUFSZ = 16384 };
-    cbm_adr_sections_t sec = {.count = 3};
+    ani_adr_sections_t sec = {.count = 3};
     /* A is first: header "## A\n" (5) + value -> pos = 16000. */
     sec.keys[0] = strdup("A");
     sec.values[0] = adr_test_fill(15995);
@@ -778,12 +778,12 @@ TEST(adr_render_oversized_sections_no_overflow) {
     for (int i = 0; i < 3; i++) {
         ASSERT_NOT_NULL(sec.values[i]);
     }
-    char *rendered = cbm_adr_render(&sec);
+    char *rendered = ani_adr_render(&sec);
     /* Must not crash; result must be NUL-terminated within the render buffer. */
     ASSERT_NOT_NULL(rendered);
     ASSERT_TRUE(strlen(rendered) < ADR_RENDER_BUFSZ);
     free(rendered);
-    cbm_adr_sections_free(&sec);
+    ani_adr_sections_free(&sec);
     PASS();
 }
 
@@ -792,29 +792,29 @@ TEST(adr_parse_render_roundtrip) {
         "## PURPOSE\nTest project\n\n## STACK\n- Go: speed\n- SQLite: embedded\n\n"
         "## ARCHITECTURE\nPipeline pattern\n\n## PATTERNS\n- Convention over config\n\n"
         "## TRADEOFFS\n- Speed over features\n\n## PHILOSOPHY\n- Keep it simple";
-    cbm_adr_sections_t sec = cbm_adr_parse_sections(original);
-    char *rendered = cbm_adr_render(&sec);
+    ani_adr_sections_t sec = ani_adr_parse_sections(original);
+    char *rendered = ani_adr_render(&sec);
     ASSERT_STR_EQ(rendered, original);
     free(rendered);
-    cbm_adr_sections_free(&sec);
+    ani_adr_sections_free(&sec);
     PASS();
 }
 
 TEST(adr_update_sections) {
-    cbm_store_t *s = cbm_store_open_memory();
+    ani_store_t *s = ani_store_open_memory();
     ASSERT_NOT_NULL(s);
-    ASSERT_EQ(cbm_store_upsert_project(s, "test", "/tmp/test"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(s, "test", "/tmp/test"), ANI_STORE_OK);
 
-    ASSERT_EQ(cbm_store_adr_store(s, "test", "## PURPOSE\nOriginal purpose\n\n## STACK\n- Go"),
-              CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_store(s, "test", "## PURPOSE\nOriginal purpose\n\n## STACK\n- Go"),
+              ANI_STORE_OK);
 
     const char *keys[] = {"PATTERNS"};
     const char *values[] = {"- Pipeline pattern"};
-    cbm_adr_t updated;
-    ASSERT_EQ(cbm_store_adr_update_sections(s, "test", keys, values, 1, &updated), CBM_STORE_OK);
+    ani_adr_t updated;
+    ASSERT_EQ(ani_store_adr_update_sections(s, "test", keys, values, 1, &updated), ANI_STORE_OK);
 
     /* Verify all sections preserved */
-    cbm_adr_sections_t sec = cbm_adr_parse_sections(updated.content);
+    ani_adr_sections_t sec = ani_adr_parse_sections(updated.content);
     bool found_purpose = false, found_stack = false, found_patterns = false;
     for (int i = 0; i < sec.count; i++) {
         if (strcmp(sec.keys[i], "PURPOSE") == 0) {
@@ -834,44 +834,44 @@ TEST(adr_update_sections) {
     ASSERT_TRUE(found_stack);
     ASSERT_TRUE(found_patterns);
 
-    cbm_adr_sections_free(&sec);
-    cbm_store_adr_free(&updated);
-    cbm_store_close(s);
+    ani_adr_sections_free(&sec);
+    ani_store_adr_free(&updated);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(adr_update_overflow) {
-    cbm_store_t *s = cbm_store_open_memory();
+    ani_store_t *s = ani_store_open_memory();
     ASSERT_NOT_NULL(s);
-    ASSERT_EQ(cbm_store_upsert_project(s, "test", "/tmp/test"), CBM_STORE_OK);
-    ASSERT_EQ(cbm_store_adr_store(s, "test", "## PURPOSE\nShort"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(s, "test", "/tmp/test"), ANI_STORE_OK);
+    ASSERT_EQ(ani_store_adr_store(s, "test", "## PURPOSE\nShort"), ANI_STORE_OK);
 
     /* Create huge content */
-    char *huge = malloc(CBM_ADR_MAX_LENGTH + 2);
-    memset(huge, 'x', CBM_ADR_MAX_LENGTH + 1);
-    huge[CBM_ADR_MAX_LENGTH + 1] = '\0';
+    char *huge = malloc(ANI_ADR_MAX_LENGTH + 2);
+    memset(huge, 'x', ANI_ADR_MAX_LENGTH + 1);
+    huge[ANI_ADR_MAX_LENGTH + 1] = '\0';
 
     const char *keys[] = {"STACK"};
     const char *values[] = {huge};
-    cbm_adr_t out;
-    ASSERT_TRUE(cbm_store_adr_update_sections(s, "test", keys, values, 1, &out) != CBM_STORE_OK);
+    ani_adr_t out;
+    ASSERT_TRUE(ani_store_adr_update_sections(s, "test", keys, values, 1, &out) != ANI_STORE_OK);
 
     free(huge);
-    cbm_store_close(s);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(adr_update_no_existing) {
-    cbm_store_t *s = cbm_store_open_memory();
+    ani_store_t *s = ani_store_open_memory();
     ASSERT_NOT_NULL(s);
-    ASSERT_EQ(cbm_store_upsert_project(s, "test", "/tmp/test"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(s, "test", "/tmp/test"), ANI_STORE_OK);
 
     const char *keys[] = {"PURPOSE"};
     const char *values[] = {"New purpose"};
-    cbm_adr_t out;
-    ASSERT_TRUE(cbm_store_adr_update_sections(s, "test", keys, values, 1, &out) != CBM_STORE_OK);
+    ani_adr_t out;
+    ASSERT_TRUE(ani_store_adr_update_sections(s, "test", keys, values, 1, &out) != ANI_STORE_OK);
 
-    cbm_store_close(s);
+    ani_store_close(s);
     PASS();
 }
 
@@ -879,14 +879,14 @@ TEST(adr_validate_all_sections) {
     const char *content = "## PURPOSE\nA\n\n## STACK\nB\n\n## ARCHITECTURE\nC\n\n## "
                           "PATTERNS\nD\n\n## TRADEOFFS\nE\n\n## PHILOSOPHY\nF";
     char errbuf[256];
-    ASSERT_EQ(cbm_adr_validate_content(content, errbuf, sizeof(errbuf)), CBM_STORE_OK);
+    ASSERT_EQ(ani_adr_validate_content(content, errbuf, sizeof(errbuf)), ANI_STORE_OK);
     PASS();
 }
 
 TEST(adr_validate_missing_sections) {
     const char *content = "## PURPOSE\nA\n\n## STACK\nB";
     char errbuf[512];
-    ASSERT_TRUE(cbm_adr_validate_content(content, errbuf, sizeof(errbuf)) != CBM_STORE_OK);
+    ASSERT_TRUE(ani_adr_validate_content(content, errbuf, sizeof(errbuf)) != ANI_STORE_OK);
     /* Error should mention missing sections */
     ASSERT_TRUE(strstr(errbuf, "ARCHITECTURE") != NULL);
     ASSERT_TRUE(strstr(errbuf, "PATTERNS") != NULL);
@@ -897,14 +897,14 @@ TEST(adr_validate_missing_sections) {
 
 TEST(adr_validate_empty) {
     char errbuf[256];
-    ASSERT_TRUE(cbm_adr_validate_content("", errbuf, sizeof(errbuf)) != CBM_STORE_OK);
+    ASSERT_TRUE(ani_adr_validate_content("", errbuf, sizeof(errbuf)) != ANI_STORE_OK);
     PASS();
 }
 
 TEST(adr_validate_keys_valid) {
     const char *keys[] = {"PURPOSE", "STACK"};
     char errbuf[256];
-    ASSERT_EQ(cbm_adr_validate_section_keys(keys, 2, errbuf, sizeof(errbuf)), CBM_STORE_OK);
+    ASSERT_EQ(ani_adr_validate_section_keys(keys, 2, errbuf, sizeof(errbuf)), ANI_STORE_OK);
     PASS();
 }
 
@@ -916,29 +916,29 @@ TEST(adr_validate_keys_valid) {
 TEST(adr_validate_keys_accepts_arbitrary_names) {
     const char *keys[] = {"PURPOSE", "STACKS", "CUSTOM", "Decisions (2026)"};
     char errbuf[256];
-    ASSERT_EQ(cbm_adr_validate_section_keys(keys, 4, errbuf, sizeof(errbuf)), CBM_STORE_OK);
+    ASSERT_EQ(ani_adr_validate_section_keys(keys, 4, errbuf, sizeof(errbuf)), ANI_STORE_OK);
     PASS();
 }
 
 TEST(adr_validate_keys_rejects_unroundtrippable) {
     char errbuf[256];
     const char *empty[] = {""};
-    ASSERT_TRUE(cbm_adr_validate_section_keys(empty, 1, errbuf, sizeof(errbuf)) != CBM_STORE_OK);
+    ASSERT_TRUE(ani_adr_validate_section_keys(empty, 1, errbuf, sizeof(errbuf)) != ANI_STORE_OK);
 
     const char *hashed[] = {"# PURPOSE"};
-    ASSERT_TRUE(cbm_adr_validate_section_keys(hashed, 1, errbuf, sizeof(errbuf)) != CBM_STORE_OK);
+    ASSERT_TRUE(ani_adr_validate_section_keys(hashed, 1, errbuf, sizeof(errbuf)) != ANI_STORE_OK);
 
     const char *newline[] = {"PUR\nPOSE"};
-    ASSERT_TRUE(cbm_adr_validate_section_keys(newline, 1, errbuf, sizeof(errbuf)) != CBM_STORE_OK);
+    ASSERT_TRUE(ani_adr_validate_section_keys(newline, 1, errbuf, sizeof(errbuf)) != ANI_STORE_OK);
 
     const char *padded[] = {" PURPOSE "};
-    ASSERT_TRUE(cbm_adr_validate_section_keys(padded, 1, errbuf, sizeof(errbuf)) != CBM_STORE_OK);
+    ASSERT_TRUE(ani_adr_validate_section_keys(padded, 1, errbuf, sizeof(errbuf)) != ANI_STORE_OK);
 
     char toolong[128];
     memset(toolong, 'X', sizeof(toolong) - 1);
     toolong[sizeof(toolong) - 1] = '\0';
     const char *big[] = {toolong};
-    ASSERT_TRUE(cbm_adr_validate_section_keys(big, 1, errbuf, sizeof(errbuf)) != CBM_STORE_OK);
+    ASSERT_TRUE(ani_adr_validate_section_keys(big, 1, errbuf, sizeof(errbuf)) != ANI_STORE_OK);
     PASS();
 }
 
@@ -949,14 +949,14 @@ typedef struct {
     int n;
 } adr_name_collect_t;
 
-static void adr_collect_names(void *ctx, const cbm_adr_heading_t *h) {
+static void adr_collect_names(void *ctx, const ani_adr_heading_t *h) {
     adr_name_collect_t *c = (adr_name_collect_t *)ctx;
     c->n += snprintf(c->buf + c->n, sizeof(c->buf) - (size_t)c->n, "[%.*s]", h->name_len, h->name);
 }
 
 static int adr_check_splice(const char *in, const char *name, const char *body,
                             const char *expect) {
-    char *out = cbm_adr_splice_section(in, name, body);
+    char *out = ani_adr_splice_section(in, name, body);
     ASSERT_NOT_NULL(out);
     if (strcmp(out, expect) != 0) {
         printf("  %sFAIL%s %s: splice(\"%s\")\n    in     >>>%s<<<\n    got    >>>%s<<<\n"
@@ -977,7 +977,7 @@ static int adr_check_splice(const char *in, const char *name, const char *body,
     } while (0)
 
 /* THE acceptance property. Every document below is a case where rebuilding
- * from cbm_adr_parse_sections() would have rewritten or destroyed text: a
+ * from ani_adr_parse_sections() would have rewritten or destroyed text: a
  * preamble (dropped), a mis-cased heading (dropped with its whole block), an
  * unrecognised heading in prose (absorbed), a fenced '##' (absorbed), and
  * out-of-canonical-order sections (reordered). Splicing touches only the
@@ -1088,23 +1088,23 @@ TEST(adr_splice_mixed_line_endings) {
 TEST(adr_splice_matches_headings_across_line_endings) {
     adr_name_collect_t c;
     memset(&c, 0, sizeof(c));
-    ASSERT_EQ(cbm_adr_scan_headings("## PURPOSE\r\nFoo\r\n\r\n## STACK\r\nBar",
+    ASSERT_EQ(ani_adr_scan_headings("## PURPOSE\r\nFoo\r\n\r\n## STACK\r\nBar",
                                     adr_collect_names, &c),
-              CBM_STORE_OK);
+              ANI_STORE_OK);
     ASSERT_STR_EQ(c.buf, "[PURPOSE][STACK]");
 
     /* A fenced block with CRLF still hides its heading, and still closes. */
     memset(&c, 0, sizeof(c));
-    ASSERT_EQ(cbm_adr_scan_headings("## PURPOSE\r\nFoo\r\n\r\n```md\r\n## Example\r\n```"
+    ASSERT_EQ(ani_adr_scan_headings("## PURPOSE\r\nFoo\r\n\r\n```md\r\n## Example\r\n```"
                                     "\r\n\r\n## STACK\r\nBar",
                                     adr_collect_names, &c),
-              CBM_STORE_OK);
+              ANI_STORE_OK);
     ASSERT_STR_EQ(c.buf, "[PURPOSE][STACK]");
 
     /* And an unterminated CRLF fence is still refused. */
     char errbuf[256];
-    ASSERT_TRUE(cbm_adr_check_structure("## PURPOSE\r\nFoo\r\n\r\n```\r\nopen\r\n", errbuf,
-                                        sizeof(errbuf)) != CBM_STORE_OK);
+    ASSERT_TRUE(ani_adr_check_structure("## PURPOSE\r\nFoo\r\n\r\n```\r\nopen\r\n", errbuf,
+                                        sizeof(errbuf)) != ANI_STORE_OK);
     PASS();
 }
 
@@ -1126,12 +1126,12 @@ TEST(adr_splice_appends_arbitrary_heading) {
  * cannot grow by a blank line on every repeat. */
 TEST(adr_splice_is_idempotent) {
     const char *doc = "## PURPOSE\nFoo\n\n## STACK\nBar";
-    char *once = cbm_adr_splice_section(doc, "DECISIONS", "- Chose SQLite.\n");
+    char *once = ani_adr_splice_section(doc, "DECISIONS", "- Chose SQLite.\n");
     ASSERT_NOT_NULL(once);
-    char *twice = cbm_adr_splice_section(once, "DECISIONS", "- Chose SQLite.\n");
+    char *twice = ani_adr_splice_section(once, "DECISIONS", "- Chose SQLite.\n");
     ASSERT_NOT_NULL(twice);
     ASSERT_STR_EQ(twice, once);
-    char *thrice = cbm_adr_splice_section(twice, "DECISIONS", "- Chose SQLite.\n");
+    char *thrice = ani_adr_splice_section(twice, "DECISIONS", "- Chose SQLite.\n");
     ASSERT_NOT_NULL(thrice);
     ASSERT_STR_EQ(thrice, once);
     free(once);
@@ -1155,10 +1155,10 @@ TEST(adr_splice_matches_case_exactly) {
 TEST(adr_splice_ignores_heading_inside_fence) {
     adr_name_collect_t c;
     memset(&c, 0, sizeof(c));
-    ASSERT_EQ(cbm_adr_scan_headings(
+    ASSERT_EQ(ani_adr_scan_headings(
                   "## PURPOSE\nFoo\n\n```md\n## Example\n```\n\n### Sub\n# Title\n\n## STACK\nBar",
                   adr_collect_names, &c),
-              CBM_STORE_OK);
+              ANI_STORE_OK);
     ASSERT_STR_EQ(c.buf, "[PURPOSE][STACK]");
     PASS();
 }
@@ -1168,24 +1168,24 @@ TEST(adr_splice_ignores_heading_inside_fence) {
 TEST(adr_splice_refuses_unterminated_fence) {
     const char *doc = "## PURPOSE\nFoo\n\n```\nunclosed sample\n\n## STACK\nBar";
     char errbuf[256];
-    ASSERT_TRUE(cbm_adr_check_structure(doc, errbuf, sizeof(errbuf)) != CBM_STORE_OK);
+    ASSERT_TRUE(ani_adr_check_structure(doc, errbuf, sizeof(errbuf)) != ANI_STORE_OK);
     ASSERT_TRUE(strstr(errbuf, "code fence") != NULL);
 
     adr_name_collect_t c;
     memset(&c, 0, sizeof(c));
-    ASSERT_TRUE(cbm_adr_scan_headings(doc, adr_collect_names, &c) != CBM_STORE_OK);
+    ASSERT_TRUE(ani_adr_scan_headings(doc, adr_collect_names, &c) != ANI_STORE_OK);
     ASSERT_EQ(c.n, 0);
 
-    ASSERT_NULL(cbm_adr_splice_section(doc, "STACK", "New bar"));
+    ASSERT_NULL(ani_adr_splice_section(doc, "STACK", "New bar"));
 
     /* A closed fence is fine. */
-    ASSERT_EQ(cbm_adr_check_structure("## A\n```\nx\n```\n", errbuf, sizeof(errbuf)), CBM_STORE_OK);
+    ASSERT_EQ(ani_adr_check_structure("## A\n```\nx\n```\n", errbuf, sizeof(errbuf)), ANI_STORE_OK);
     PASS();
 }
 
 TEST(adr_validate_keys_empty) {
     char errbuf[256];
-    ASSERT_EQ(cbm_adr_validate_section_keys(NULL, 0, errbuf, sizeof(errbuf)), CBM_STORE_OK);
+    ASSERT_EQ(ani_adr_validate_section_keys(NULL, 0, errbuf, sizeof(errbuf)), ANI_STORE_OK);
     PASS();
 }
 
@@ -1194,10 +1194,10 @@ TEST(adr_validate_keys_empty) {
 TEST(louvain_basic) {
     /* Triangle: 1-2, 2-3, 1-3. Pair: 4-5. */
     int64_t nodes[] = {1, 2, 3, 4, 5};
-    cbm_louvain_edge_t edges[] = {{1, 2}, {2, 3}, {1, 3}, {4, 5}};
-    cbm_louvain_result_t *result = NULL;
+    ani_louvain_edge_t edges[] = {{1, 2}, {2, 3}, {1, 3}, {4, 5}};
+    ani_louvain_result_t *result = NULL;
     int count = 0;
-    ASSERT_EQ(cbm_louvain(nodes, 5, edges, 4, &result, &count), CBM_STORE_OK);
+    ASSERT_EQ(ani_louvain(nodes, 5, edges, 4, &result, &count), ANI_STORE_OK);
     ASSERT_EQ(count, 5);
 
     /* Build node→community map */
@@ -1219,9 +1219,9 @@ TEST(louvain_basic) {
 }
 
 TEST(louvain_empty) {
-    cbm_louvain_result_t *result = NULL;
+    ani_louvain_result_t *result = NULL;
     int count = 0;
-    ASSERT_EQ(cbm_louvain(NULL, 0, NULL, 0, &result, &count), CBM_STORE_OK);
+    ASSERT_EQ(ani_louvain(NULL, 0, NULL, 0, &result, &count), ANI_STORE_OK);
     ASSERT_EQ(count, 0);
     free(result);
     PASS();
@@ -1229,9 +1229,9 @@ TEST(louvain_empty) {
 
 TEST(louvain_single_node) {
     int64_t nodes[] = {42};
-    cbm_louvain_result_t *result = NULL;
+    ani_louvain_result_t *result = NULL;
     int count = 0;
-    ASSERT_EQ(cbm_louvain(nodes, 1, NULL, 0, &result, &count), CBM_STORE_OK);
+    ASSERT_EQ(ani_louvain(nodes, 1, NULL, 0, &result, &count), ANI_STORE_OK);
     ASSERT_EQ(count, 1);
     ASSERT_EQ(result[0].node_id, 42);
     free(result);
@@ -1241,7 +1241,7 @@ TEST(louvain_single_node) {
 TEST(louvain_converges) {
     /* Two fully connected clusters of 10 nodes each, bridged by one edge */
     int64_t nodes[20];
-    cbm_louvain_edge_t edges[200];
+    ani_louvain_edge_t edges[200];
     int nedges = 0;
 
     for (int i = 0; i < 20; i++)
@@ -1250,21 +1250,21 @@ TEST(louvain_converges) {
     /* Cluster 1: nodes 1-10, fully connected */
     for (int i = 1; i <= 10; i++) {
         for (int j = i + 1; j <= 10; j++) {
-            edges[nedges++] = (cbm_louvain_edge_t){i, j};
+            edges[nedges++] = (ani_louvain_edge_t){i, j};
         }
     }
     /* Cluster 2: nodes 11-20, fully connected */
     for (int i = 11; i <= 20; i++) {
         for (int j = i + 1; j <= 20; j++) {
-            edges[nedges++] = (cbm_louvain_edge_t){i, j};
+            edges[nedges++] = (ani_louvain_edge_t){i, j};
         }
     }
     /* Bridge */
-    edges[nedges++] = (cbm_louvain_edge_t){5, 15};
+    edges[nedges++] = (ani_louvain_edge_t){5, 15};
 
-    cbm_louvain_result_t *result = NULL;
+    ani_louvain_result_t *result = NULL;
     int count = 0;
-    ASSERT_EQ(cbm_louvain(nodes, 20, edges, nedges, &result, &count), CBM_STORE_OK);
+    ASSERT_EQ(ani_louvain(nodes, 20, edges, nedges, &result, &count), ANI_STORE_OK);
     ASSERT_EQ(count, 20);
 
     /* Count communities */
@@ -1304,7 +1304,7 @@ TEST(louvain_converges) {
 /* ── Leiden multi-level / refinement tests ──────────────────────── */
 
 /* Count distinct community labels in a result. */
-static int leiden_count_communities(const cbm_louvain_result_t *r, int n) {
+static int leiden_count_communities(const ani_louvain_result_t *r, int n) {
     int *seen = malloc((size_t)n * sizeof(int));
     int nd = 0;
     for (int i = 0; i < n; i++) {
@@ -1325,8 +1325,8 @@ static int leiden_count_communities(const cbm_louvain_result_t *r, int n) {
 
 /* Verify every community induces a connected subgraph under `edges` — the
  * property Leiden's refinement guarantees and single-level Louvain does not. */
-static bool leiden_all_communities_connected(const cbm_louvain_result_t *r, int n,
-                                             const cbm_louvain_edge_t *edges, int ne) {
+static bool leiden_all_communities_connected(const ani_louvain_result_t *r, int n,
+                                             const ani_louvain_edge_t *edges, int ne) {
     bool *vis = calloc((size_t)n, sizeof(bool));
     int *stack = malloc((size_t)n * sizeof(int));
     bool ok = true;
@@ -1396,23 +1396,23 @@ TEST(leiden_multilevel_collapses_noise) {
     for (int i = 0; i < N; i++) {
         nodes[i] = i + 1;
     }
-    cbm_louvain_edge_t edges[CL * (SZ * (SZ - 1) / 2) + CL];
+    ani_louvain_edge_t edges[CL * (SZ * (SZ - 1) / 2) + CL];
     int ne = 0;
     for (int c = 0; c < CL; c++) {
         int base = c * SZ + 1;
         for (int i = 0; i < SZ; i++) {
             for (int j = i + 1; j < SZ; j++) {
-                edges[ne++] = (cbm_louvain_edge_t){base + i, base + j};
+                edges[ne++] = (ani_louvain_edge_t){base + i, base + j};
             }
         }
     }
     for (int c = 0; c + 1 < CL; c++) {
-        edges[ne++] = (cbm_louvain_edge_t){c * SZ + 1, (c + 1) * SZ + 1};
+        edges[ne++] = (ani_louvain_edge_t){c * SZ + 1, (c + 1) * SZ + 1};
     }
 
-    cbm_louvain_result_t *result = NULL;
+    ani_louvain_result_t *result = NULL;
     int count = 0;
-    ASSERT_EQ(cbm_louvain(nodes, N, edges, ne, &result, &count), CBM_STORE_OK);
+    ASSERT_EQ(ani_louvain(nodes, N, edges, ne, &result, &count), ANI_STORE_OK);
     ASSERT_EQ(count, N);
 
     int nc = leiden_count_communities(result, N);
@@ -1443,18 +1443,18 @@ TEST(leiden_resolution_controls_granularity) {
     for (int i = 0; i < N; i++) {
         nodes[i] = i + 1;
     }
-    cbm_louvain_edge_t edges[N - 1];
+    ani_louvain_edge_t edges[N - 1];
     int ne = 0;
     for (int i = 0; i + 1 < N; i++) {
-        edges[ne++] = (cbm_louvain_edge_t){i + 1, i + 2};
+        edges[ne++] = (ani_louvain_edge_t){i + 1, i + 2};
     }
 
-    cbm_louvain_result_t *lo = NULL;
-    cbm_louvain_result_t *hi = NULL;
+    ani_louvain_result_t *lo = NULL;
+    ani_louvain_result_t *hi = NULL;
     int lc = 0;
     int hc = 0;
-    ASSERT_EQ(cbm_leiden(nodes, N, edges, ne, 0.1, &lo, &lc), CBM_STORE_OK);
-    ASSERT_EQ(cbm_leiden(nodes, N, edges, ne, 5.0, &hi, &hc), CBM_STORE_OK);
+    ASSERT_EQ(ani_leiden(nodes, N, edges, ne, 0.1, &lo, &lc), ANI_STORE_OK);
+    ASSERT_EQ(ani_leiden(nodes, N, edges, ne, 5.0, &hi, &hc), ANI_STORE_OK);
     ASSERT_EQ(lc, N);
     ASSERT_EQ(hc, N);
 
@@ -1470,8 +1470,8 @@ TEST(leiden_resolution_controls_granularity) {
 
 /* get_architecture "clusters" aspect: Leiden communities surfaced compactly. */
 TEST(arch_clusters_basic) {
-    cbm_store_t *s = cbm_store_open_memory();
-    cbm_store_upsert_project(s, "test", "/tmp/test");
+    ani_store_t *s = ani_store_open_memory();
+    ani_store_upsert_project(s, "test", "/tmp/test");
 
     /* Two 4-function cliques in two packages, one bridge between them. */
     int64_t id[8];
@@ -1481,32 +1481,32 @@ TEST(arch_clusters_basic) {
         int grp = i / 4;
         snprintf(nm, sizeof(nm), "fn%d", i);
         snprintf(qn, sizeof(qn), "test.pkg%d.mod.fn%d", grp, i);
-        cbm_node_t node = {.project = "test",
+        ani_node_t node = {.project = "test",
                            .label = "Function",
                            .name = nm,
                            .qualified_name = qn,
                            .file_path = "f.go"};
-        id[i] = cbm_store_upsert_node(s, &node);
+        id[i] = ani_store_upsert_node(s, &node);
     }
     for (int g = 0; g < 2; g++) {
         for (int a = 0; a < 4; a++) {
             for (int b = a + 1; b < 4; b++) {
-                cbm_edge_t e = {.project = "test",
+                ani_edge_t e = {.project = "test",
                                 .source_id = id[(g * 4) + a],
                                 .target_id = id[(g * 4) + b],
                                 .type = "CALLS"};
-                cbm_store_insert_edge(s, &e);
+                ani_store_insert_edge(s, &e);
             }
         }
     }
-    cbm_edge_t bridge = {
+    ani_edge_t bridge = {
         .project = "test", .source_id = id[0], .target_id = id[4], .type = "CALLS"};
-    cbm_store_insert_edge(s, &bridge);
+    ani_store_insert_edge(s, &bridge);
 
-    cbm_architecture_info_t info;
+    ani_architecture_info_t info;
     memset(&info, 0, sizeof(info));
     const char *aspects[] = {"clusters"};
-    ASSERT_EQ(cbm_store_get_architecture(s, "test", NULL, aspects, 1, &info), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_get_architecture(s, "test", NULL, aspects, 1, &info), ANI_STORE_OK);
     ASSERT_TRUE(info.cluster_count >= 2); /* two dense communities */
     for (int i = 0; i < info.cluster_count; i++) {
         ASSERT_TRUE(info.clusters[i].members >= 2);
@@ -1515,8 +1515,8 @@ TEST(arch_clusters_basic) {
         ASSERT_EQ(info.clusters[i].edge_type_count, 1);
         ASSERT_TRUE(info.clusters[i].top_node_count > 0);
     }
-    cbm_store_architecture_free(&info);
-    cbm_store_close(s);
+    ani_store_architecture_free(&info);
+    ani_store_close(s);
     PASS();
 }
 
@@ -1524,57 +1524,57 @@ TEST(arch_clusters_basic) {
 
 TEST(qn_to_package) {
     /* 4+ segments: returns segment[2] */
-    ASSERT_STR_EQ(cbm_qn_to_package("project.internal.store.search.Search"), "store");
-    ASSERT_STR_EQ(cbm_qn_to_package("project.src.utils.helper.foo"), "utils");
-    ASSERT_STR_EQ(cbm_qn_to_package("project.src.components.Button.render"), "components");
-    ASSERT_STR_EQ(cbm_qn_to_package("project.cmd.server.main"), "server");
+    ASSERT_STR_EQ(ani_qn_to_package("project.internal.store.search.Search"), "store");
+    ASSERT_STR_EQ(ani_qn_to_package("project.src.utils.helper.foo"), "utils");
+    ASSERT_STR_EQ(ani_qn_to_package("project.src.components.Button.render"), "components");
+    ASSERT_STR_EQ(ani_qn_to_package("project.cmd.server.main"), "server");
     /* 3 segments: falls back to segment[1] */
-    ASSERT_STR_EQ(cbm_qn_to_package("project.main.foo"), "main");
-    ASSERT_STR_EQ(cbm_qn_to_package("project.cmd"), "cmd");
+    ASSERT_STR_EQ(ani_qn_to_package("project.main.foo"), "main");
+    ASSERT_STR_EQ(ani_qn_to_package("project.cmd"), "cmd");
     /* Edge cases */
-    ASSERT_STR_EQ(cbm_qn_to_package("standalone"), "");
-    ASSERT_STR_EQ(cbm_qn_to_package(""), "");
+    ASSERT_STR_EQ(ani_qn_to_package("standalone"), "");
+    ASSERT_STR_EQ(ani_qn_to_package(""), "");
     PASS();
 }
 
 TEST(qn_to_top_package) {
-    ASSERT_STR_EQ(cbm_qn_to_top_package("project.internal.store.search.Search"), "internal");
-    ASSERT_STR_EQ(cbm_qn_to_top_package("project.src.components.Button"), "src");
-    ASSERT_STR_EQ(cbm_qn_to_top_package("project.cmd"), "cmd");
-    ASSERT_STR_EQ(cbm_qn_to_top_package("standalone"), "");
+    ASSERT_STR_EQ(ani_qn_to_top_package("project.internal.store.search.Search"), "internal");
+    ASSERT_STR_EQ(ani_qn_to_top_package("project.src.components.Button"), "src");
+    ASSERT_STR_EQ(ani_qn_to_top_package("project.cmd"), "cmd");
+    ASSERT_STR_EQ(ani_qn_to_top_package("standalone"), "");
     PASS();
 }
 
 TEST(is_test_file_path) {
-    ASSERT_TRUE(!cbm_is_test_file_path("internal/handler/handler.go"));
-    ASSERT_TRUE(cbm_is_test_file_path("src/__tests__/handler.test.ts"));
-    ASSERT_TRUE(cbm_is_test_file_path("src/test/java/com/example/Test.java"));
-    ASSERT_TRUE(cbm_is_test_file_path("tests/test_handler.py"));
-    ASSERT_TRUE(cbm_is_test_file_path("testdata/fixture.json"));
-    ASSERT_TRUE(!cbm_is_test_file_path(""));
+    ASSERT_TRUE(!ani_is_test_file_path("internal/handler/handler.go"));
+    ASSERT_TRUE(ani_is_test_file_path("src/__tests__/handler.test.ts"));
+    ASSERT_TRUE(ani_is_test_file_path("src/test/java/com/example/Test.java"));
+    ASSERT_TRUE(ani_is_test_file_path("tests/test_handler.py"));
+    ASSERT_TRUE(ani_is_test_file_path("testdata/fixture.json"));
+    ASSERT_TRUE(!ani_is_test_file_path(""));
     PASS();
 }
 
 TEST(find_architecture_docs) {
-    cbm_store_t *s = cbm_store_open_memory();
+    ani_store_t *s = ani_store_open_memory();
     ASSERT_NOT_NULL(s);
-    ASSERT_EQ(cbm_store_upsert_project(s, "test", "/tmp/test"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(s, "test", "/tmp/test"), ANI_STORE_OK);
 
     const char *fps[] = {"main.go", "ARCHITECTURE.md", "docs/adr/001-use-sqlite.md", "README.md"};
     for (int i = 0; i < 4; i++) {
         char qn[64];
         snprintf(qn, sizeof(qn), "test.%s", fps[i]);
-        cbm_node_t n = {.project = "test",
+        ani_node_t n = {.project = "test",
                         .label = "File",
                         .name = fps[i],
                         .qualified_name = qn,
                         .file_path = fps[i]};
-        cbm_store_upsert_node(s, &n);
+        ani_store_upsert_node(s, &n);
     }
 
     char **docs = NULL;
     int count = 0;
-    ASSERT_EQ(cbm_store_find_architecture_docs(s, "test", &docs, &count), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_find_architecture_docs(s, "test", &docs, &count), ANI_STORE_OK);
     ASSERT_EQ(count, 2);
 
     bool found_arch = false, found_adr = false;
@@ -1589,85 +1589,85 @@ TEST(find_architecture_docs) {
     ASSERT_TRUE(found_arch);
     ASSERT_TRUE(found_adr);
 
-    cbm_store_close(s);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(find_architecture_docs_empty) {
-    cbm_store_t *s = cbm_store_open_memory();
+    ani_store_t *s = ani_store_open_memory();
     ASSERT_NOT_NULL(s);
-    ASSERT_EQ(cbm_store_upsert_project(s, "test", "/tmp/test"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(s, "test", "/tmp/test"), ANI_STORE_OK);
 
     char **docs = NULL;
     int count = 0;
-    ASSERT_EQ(cbm_store_find_architecture_docs(s, "test", &docs, &count), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_find_architecture_docs(s, "test", &docs, &count), ANI_STORE_OK);
     ASSERT_EQ(count, 0);
     free(docs);
 
-    cbm_store_close(s);
+    ani_store_close(s);
     PASS();
 }
 
 /* ── Case-insensitive search tests ───────────────────────────────── */
 
 TEST(search_case_insensitive_default) {
-    cbm_store_t *s = cbm_store_open_memory();
-    cbm_store_upsert_project(s, "test", "/tmp/test");
+    ani_store_t *s = ani_store_open_memory();
+    ani_store_upsert_project(s, "test", "/tmp/test");
 
-    cbm_node_t n1 = {
+    ani_node_t n1 = {
         .project = "test", .label = "Function", .name = "FooBar", .qualified_name = "test.FooBar"};
-    cbm_node_t n2 = {
+    ani_node_t n2 = {
         .project = "test", .label = "Function", .name = "foobar", .qualified_name = "test.foobar"};
-    cbm_node_t n3 = {
+    ani_node_t n3 = {
         .project = "test", .label = "Function", .name = "FOOBAR", .qualified_name = "test.FOOBAR"};
-    cbm_store_upsert_node(s, &n1);
-    cbm_store_upsert_node(s, &n2);
-    cbm_store_upsert_node(s, &n3);
+    ani_store_upsert_node(s, &n1);
+    ani_store_upsert_node(s, &n2);
+    ani_store_upsert_node(s, &n3);
 
     /* Default (case_sensitive=false) should match all 3 */
-    cbm_search_params_t params = {.project = "test",
+    ani_search_params_t params = {.project = "test",
                                   .name_pattern = "foobar",
                                   .min_degree = -1,
                                   .max_degree = -1,
                                   .case_sensitive = false};
-    cbm_search_output_t out = {0};
-    ASSERT_EQ(cbm_store_search(s, &params, &out), CBM_STORE_OK);
+    ani_search_output_t out = {0};
+    ASSERT_EQ(ani_store_search(s, &params, &out), ANI_STORE_OK);
     ASSERT_EQ(out.count, 3);
-    cbm_store_search_free(&out);
+    ani_store_search_free(&out);
 
-    cbm_store_close(s);
+    ani_store_close(s);
     PASS();
 }
 
 TEST(search_case_sensitive_explicit) {
-    cbm_store_t *s = cbm_store_open_memory();
-    cbm_store_upsert_project(s, "test", "/tmp/test");
+    ani_store_t *s = ani_store_open_memory();
+    ani_store_upsert_project(s, "test", "/tmp/test");
 
-    cbm_node_t n1 = {
+    ani_node_t n1 = {
         .project = "test", .label = "Function", .name = "FooBar", .qualified_name = "test.FooBar"};
-    cbm_node_t n2 = {
+    ani_node_t n2 = {
         .project = "test", .label = "Function", .name = "foobar", .qualified_name = "test.foobar"};
-    cbm_node_t n3 = {
+    ani_node_t n3 = {
         .project = "test", .label = "Function", .name = "FOOBAR", .qualified_name = "test.FOOBAR"};
-    cbm_store_upsert_node(s, &n1);
-    cbm_store_upsert_node(s, &n2);
-    cbm_store_upsert_node(s, &n3);
+    ani_store_upsert_node(s, &n1);
+    ani_store_upsert_node(s, &n2);
+    ani_store_upsert_node(s, &n3);
 
     /* Explicit case-sensitive should match only "foobar" */
-    cbm_search_params_t params = {.project = "test",
+    ani_search_params_t params = {.project = "test",
                                   .name_pattern = "foobar",
                                   .min_degree = -1,
                                   .max_degree = -1,
                                   .case_sensitive = true};
-    cbm_search_output_t out = {0};
-    ASSERT_EQ(cbm_store_search(s, &params, &out), CBM_STORE_OK);
+    ani_search_output_t out = {0};
+    ASSERT_EQ(ani_store_search(s, &params, &out), ANI_STORE_OK);
     ASSERT_EQ(out.count, 1);
     if (out.count > 0) {
         ASSERT_STR_EQ(out.results[0].node.name, "foobar");
     }
-    cbm_store_search_free(&out);
+    ani_store_search_free(&out);
 
-    cbm_store_close(s);
+    ani_store_close(s);
     PASS();
 }
 

@@ -1,5 +1,5 @@
 /*
- * ipc.c — Authenticated, owner-scoped local transport for the CBM daemon.
+ * ipc.c — Authenticated, owner-scoped local transport for the ANI daemon.
  */
 #include "daemon/ipc.h"
 #include "daemon/ipc_internal.h"
@@ -22,11 +22,11 @@
 #include <string.h>
 
 enum {
-    CBM_DAEMON_IPC_SEND_TIMEOUT_MS = 5000,
-    CBM_DAEMON_IPC_PATH_CAP = 4096,
-    CBM_DAEMON_IPC_RETRY_INTERVAL_MS = 10,
-    CBM_DAEMON_IPC_COORDINATION_CLEANUP_MS = 500,
-    CBM_DAEMON_IPC_WINDOWS_RENDEZVOUS_RETRY_MS = 250,
+    ANI_DAEMON_IPC_SEND_TIMEOUT_MS = 5000,
+    ANI_DAEMON_IPC_PATH_CAP = 4096,
+    ANI_DAEMON_IPC_RETRY_INTERVAL_MS = 10,
+    ANI_DAEMON_IPC_COORDINATION_CLEANUP_MS = 500,
+    ANI_DAEMON_IPC_WINDOWS_RENDEZVOUS_RETRY_MS = 250,
 };
 
 /* Last private-namespace validation refusal, set at the exact failing check.
@@ -42,14 +42,14 @@ static void ipc_validation_detail_set(const char *format, ...) {
     va_end(arguments);
 }
 
-#ifdef CBM_ENABLE_TEST_SEAMS
-void cbm_daemon_ipc_set_validation_detail_for_testing(const char *detail) {
+#ifdef ANI_ENABLE_TEST_SEAMS
+void ani_daemon_ipc_set_validation_detail_for_testing(const char *detail) {
     (void)snprintf(ipc_validation_detail_buffer, sizeof(ipc_validation_detail_buffer), "%s",
                    detail ? detail : "");
 }
 #endif
 
-const char *cbm_daemon_ipc_validation_detail(void) {
+const char *ani_daemon_ipc_validation_detail(void) {
     return ipc_validation_detail_buffer;
 }
 
@@ -101,13 +101,13 @@ static char *string_format(const char *format, ...) {
 }
 
 #ifndef _WIN32
-static cbm_daemon_ipc_posix_publication_hook_fn g_posix_publication_hook_for_test;
+static ani_daemon_ipc_posix_publication_hook_fn g_posix_publication_hook_for_test;
 static void *g_posix_publication_hook_context_for_test;
 #endif
 static atomic_uint g_windows_legacy_guard_release_failures_for_test;
 
-void cbm_daemon_ipc_posix_publication_hook_set_for_test(
-    cbm_daemon_ipc_posix_publication_hook_fn hook, void *context) {
+void ani_daemon_ipc_posix_publication_hook_set_for_test(
+    ani_daemon_ipc_posix_publication_hook_fn hook, void *context) {
 #ifndef _WIN32
     g_posix_publication_hook_context_for_test = context;
     g_posix_publication_hook_for_test = hook;
@@ -117,17 +117,17 @@ void cbm_daemon_ipc_posix_publication_hook_set_for_test(
 #endif
 }
 
-void cbm_daemon_ipc_windows_legacy_guard_release_failures_set_for_test(unsigned int count) {
+void ani_daemon_ipc_windows_legacy_guard_release_failures_set_for_test(unsigned int count) {
     atomic_store_explicit(&g_windows_legacy_guard_release_failures_for_test, count,
                           memory_order_release);
 }
 
 #ifdef _WIN32
-static cbm_daemon_ipc_startup_gate_fn g_startup_gate_for_test;
+static ani_daemon_ipc_startup_gate_fn g_startup_gate_for_test;
 static void *g_startup_gate_context_for_test;
 #endif
 
-void cbm_daemon_ipc_startup_gate_set_for_test(cbm_daemon_ipc_startup_gate_fn gate, void *context) {
+void ani_daemon_ipc_startup_gate_set_for_test(ani_daemon_ipc_startup_gate_fn gate, void *context) {
 #ifdef _WIN32
     g_startup_gate_context_for_test = context;
     g_startup_gate_for_test = gate;
@@ -139,17 +139,17 @@ void cbm_daemon_ipc_startup_gate_set_for_test(cbm_daemon_ipc_startup_gate_fn gat
 
 #ifdef _WIN32
 static void ipc_startup_gate_run(void) {
-    cbm_daemon_ipc_startup_gate_fn gate = g_startup_gate_for_test;
+    ani_daemon_ipc_startup_gate_fn gate = g_startup_gate_for_test;
     if (gate) {
         gate(g_startup_gate_context_for_test);
     }
 }
 #endif
 
-bool cbm_daemon_ipc_windows_legacy_names(const char *canonical_runtime_parent,
+bool ani_daemon_ipc_windows_legacy_names(const char *canonical_runtime_parent,
                                          const char *instance_key,
-                                         char pipe_out[CBM_DAEMON_IPC_WINDOWS_NAME_CAP],
-                                         char startup_mutex_out[CBM_DAEMON_IPC_WINDOWS_NAME_CAP]) {
+                                         char pipe_out[ANI_DAEMON_IPC_WINDOWS_NAME_CAP],
+                                         char startup_mutex_out[ANI_DAEMON_IPC_WINDOWS_NAME_CAP]) {
     if (!canonical_runtime_parent || !canonical_runtime_parent[0] ||
         !instance_key_valid(instance_key) || !pipe_out || !startup_mutex_out) {
         return false;
@@ -161,13 +161,13 @@ bool cbm_daemon_ipc_windows_legacy_names(const char *canonical_runtime_parent,
         hash *= UINT64_C(1099511628211);
     }
     int pipe_length =
-        snprintf(pipe_out, CBM_DAEMON_IPC_WINDOWS_NAME_CAP, "\\\\.\\pipe\\cbm-daemon-%016llx-%s",
+        snprintf(pipe_out, ANI_DAEMON_IPC_WINDOWS_NAME_CAP, "\\\\.\\pipe\\ani-daemon-%016llx-%s",
                  (unsigned long long)hash, instance_key);
     int mutex_length =
-        snprintf(startup_mutex_out, CBM_DAEMON_IPC_WINDOWS_NAME_CAP,
-                 "Local\\cbm-daemon-%016llx-%s-startup", (unsigned long long)hash, instance_key);
-    return pipe_length > 0 && (size_t)pipe_length < CBM_DAEMON_IPC_WINDOWS_NAME_CAP &&
-           mutex_length > 0 && (size_t)mutex_length < CBM_DAEMON_IPC_WINDOWS_NAME_CAP;
+        snprintf(startup_mutex_out, ANI_DAEMON_IPC_WINDOWS_NAME_CAP,
+                 "Local\\ani-daemon-%016llx-%s-startup", (unsigned long long)hash, instance_key);
+    return pipe_length > 0 && (size_t)pipe_length < ANI_DAEMON_IPC_WINDOWS_NAME_CAP &&
+           mutex_length > 0 && (size_t)mutex_length < ANI_DAEMON_IPC_WINDOWS_NAME_CAP;
 }
 
 static bool windows_sid_valid(const uint8_t *sid, size_t sid_length) {
@@ -182,106 +182,106 @@ static bool windows_sid_valid(const uint8_t *sid, size_t sid_length) {
 }
 
 static bool windows_pipe_address_valid(const char *address) {
-    static const char prefix[] = "\\\\.\\pipe\\cbm-daemon-";
+    static const char prefix[] = "\\\\.\\pipe\\ani-daemon-";
     if (!address || strncmp(address, prefix, sizeof(prefix) - 1U) != 0) {
         return false;
     }
     const char *digest = address + sizeof(prefix) - 1U;
-    for (size_t index = 0; index < CBM_SHA256_HEX_LEN; index++) {
+    for (size_t index = 0; index < ANI_SHA256_HEX_LEN; index++) {
         char character = digest[index];
         if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'))) {
             return false;
         }
     }
-    return digest[CBM_SHA256_HEX_LEN] == '\0';
+    return digest[ANI_SHA256_HEX_LEN] == '\0';
 }
 
-bool cbm_daemon_ipc_windows_generation_address(
+bool ani_daemon_ipc_windows_generation_address(
     const uint8_t *sid, size_t sid_length, const char *instance_key,
-    const uint8_t nonce[CBM_DAEMON_IPC_WINDOWS_NONCE_SIZE],
-    char address_out[CBM_DAEMON_IPC_WINDOWS_NAME_CAP]) {
-    static const uint8_t domain[] = "cbm-daemon-win-pipe-v1";
+    const uint8_t nonce[ANI_DAEMON_IPC_WINDOWS_NONCE_SIZE],
+    char address_out[ANI_DAEMON_IPC_WINDOWS_NAME_CAP]) {
+    static const uint8_t domain[] = "ani-daemon-win-pipe-v1";
     if (!windows_sid_valid(sid, sid_length) || !instance_key_valid(instance_key) || !nonce ||
         !address_out) {
         return false;
     }
-    cbm_sha256_ctx context;
-    cbm_sha256_init(&context);
-    cbm_sha256_update(&context, domain, sizeof(domain) - 1U);
-    cbm_sha256_update(&context, sid, sid_length);
-    cbm_sha256_update(&context, instance_key, 16U);
-    cbm_sha256_update(&context, nonce, CBM_DAEMON_IPC_WINDOWS_NONCE_SIZE);
-    uint8_t digest[CBM_SHA256_DIGEST_LEN];
-    cbm_sha256_final(&context, digest);
+    ani_sha256_ctx context;
+    ani_sha256_init(&context);
+    ani_sha256_update(&context, domain, sizeof(domain) - 1U);
+    ani_sha256_update(&context, sid, sid_length);
+    ani_sha256_update(&context, instance_key, 16U);
+    ani_sha256_update(&context, nonce, ANI_DAEMON_IPC_WINDOWS_NONCE_SIZE);
+    uint8_t digest[ANI_SHA256_DIGEST_LEN];
+    ani_sha256_final(&context, digest);
 
-    char digest_hex[CBM_SHA256_HEX_LEN + 1U];
+    char digest_hex[ANI_SHA256_HEX_LEN + 1U];
     static const char hex[] = "0123456789abcdef";
     for (size_t index = 0; index < sizeof(digest); index++) {
         digest_hex[index * 2U] = hex[digest[index] >> 4U];
         digest_hex[index * 2U + 1U] = hex[digest[index] & 0x0fU];
     }
-    digest_hex[CBM_SHA256_HEX_LEN] = '\0';
-    int written = snprintf(address_out, CBM_DAEMON_IPC_WINDOWS_NAME_CAP,
-                           "\\\\.\\pipe\\cbm-daemon-%s", digest_hex);
-    return written > 0 && (size_t)written < CBM_DAEMON_IPC_WINDOWS_NAME_CAP;
+    digest_hex[ANI_SHA256_HEX_LEN] = '\0';
+    int written = snprintf(address_out, ANI_DAEMON_IPC_WINDOWS_NAME_CAP,
+                           "\\\\.\\pipe\\ani-daemon-%s", digest_hex);
+    return written > 0 && (size_t)written < ANI_DAEMON_IPC_WINDOWS_NAME_CAP;
 }
 
-bool cbm_daemon_ipc_windows_rendezvous_record_encode(
-    const uint8_t nonce[CBM_DAEMON_IPC_WINDOWS_NONCE_SIZE], const char *address,
-    uint8_t record_out[CBM_DAEMON_IPC_WINDOWS_RENDEZVOUS_RECORD_SIZE]) {
+bool ani_daemon_ipc_windows_rendezvous_record_encode(
+    const uint8_t nonce[ANI_DAEMON_IPC_WINDOWS_NONCE_SIZE], const char *address,
+    uint8_t record_out[ANI_DAEMON_IPC_WINDOWS_RENDEZVOUS_RECORD_SIZE]) {
     static const uint8_t magic[8] = {'C', 'B', 'M', 'R', 'D', 'V', '1', 0};
     if (!nonce || !windows_pipe_address_valid(address) || !record_out) {
         return false;
     }
-    memset(record_out, 0, CBM_DAEMON_IPC_WINDOWS_RENDEZVOUS_RECORD_SIZE);
+    memset(record_out, 0, ANI_DAEMON_IPC_WINDOWS_RENDEZVOUS_RECORD_SIZE);
     memcpy(record_out, magic, sizeof(magic));
-    memcpy(record_out + sizeof(magic), nonce, CBM_DAEMON_IPC_WINDOWS_NONCE_SIZE);
+    memcpy(record_out + sizeof(magic), nonce, ANI_DAEMON_IPC_WINDOWS_NONCE_SIZE);
     size_t address_length = strlen(address);
-    memcpy(record_out + sizeof(magic) + CBM_DAEMON_IPC_WINDOWS_NONCE_SIZE, address,
+    memcpy(record_out + sizeof(magic) + ANI_DAEMON_IPC_WINDOWS_NONCE_SIZE, address,
            address_length + 1U);
     return true;
 }
 
-bool cbm_daemon_ipc_windows_rendezvous_record_decode(
+bool ani_daemon_ipc_windows_rendezvous_record_decode(
     const uint8_t *record, size_t record_length,
-    uint8_t nonce_out[CBM_DAEMON_IPC_WINDOWS_NONCE_SIZE],
-    char address_out[CBM_DAEMON_IPC_WINDOWS_NAME_CAP]) {
+    uint8_t nonce_out[ANI_DAEMON_IPC_WINDOWS_NONCE_SIZE],
+    char address_out[ANI_DAEMON_IPC_WINDOWS_NAME_CAP]) {
     static const uint8_t magic[8] = {'C', 'B', 'M', 'R', 'D', 'V', '1', 0};
-    if (!record || record_length != CBM_DAEMON_IPC_WINDOWS_RENDEZVOUS_RECORD_SIZE || !nonce_out ||
+    if (!record || record_length != ANI_DAEMON_IPC_WINDOWS_RENDEZVOUS_RECORD_SIZE || !nonce_out ||
         !address_out || memcmp(record, magic, sizeof(magic)) != 0) {
         return false;
     }
-    const uint8_t *encoded_address = record + sizeof(magic) + CBM_DAEMON_IPC_WINDOWS_NONCE_SIZE;
-    const uint8_t *terminator = memchr(encoded_address, 0, CBM_DAEMON_IPC_WINDOWS_NAME_CAP);
+    const uint8_t *encoded_address = record + sizeof(magic) + ANI_DAEMON_IPC_WINDOWS_NONCE_SIZE;
+    const uint8_t *terminator = memchr(encoded_address, 0, ANI_DAEMON_IPC_WINDOWS_NAME_CAP);
     if (!terminator) {
         return false;
     }
     size_t address_length = (size_t)(terminator - encoded_address);
-    if (address_length + 1U > CBM_DAEMON_IPC_WINDOWS_NAME_CAP) {
+    if (address_length + 1U > ANI_DAEMON_IPC_WINDOWS_NAME_CAP) {
         return false;
     }
-    for (size_t index = address_length + 1U; index < CBM_DAEMON_IPC_WINDOWS_NAME_CAP; index++) {
+    for (size_t index = address_length + 1U; index < ANI_DAEMON_IPC_WINDOWS_NAME_CAP; index++) {
         if (encoded_address[index] != 0) {
             return false;
         }
     }
     memcpy(address_out, encoded_address, address_length + 1U);
     if (!windows_pipe_address_valid(address_out)) {
-        memset(address_out, 0, CBM_DAEMON_IPC_WINDOWS_NAME_CAP);
+        memset(address_out, 0, ANI_DAEMON_IPC_WINDOWS_NAME_CAP);
         return false;
     }
-    memcpy(nonce_out, record + sizeof(magic), CBM_DAEMON_IPC_WINDOWS_NONCE_SIZE);
+    memcpy(nonce_out, record + sizeof(magic), ANI_DAEMON_IPC_WINDOWS_NONCE_SIZE);
     return true;
 }
 
-int cbm_daemon_ipc_wait_pending(const cbm_ipc_pending_ops_t *ops, uint32_t timeout_ms,
+int ani_daemon_ipc_wait_pending(const ani_ipc_pending_ops_t *ops, uint32_t timeout_ms,
                                 uint32_t *transferred_out) {
     if (!ops || !ops->wait || !ops->cancel || !ops->finish || !transferred_out) {
         return -1;
     }
-    cbm_ipc_pending_wait_status_t wait_status = ops->wait(ops->context, timeout_ms);
-    if (wait_status == CBM_IPC_PENDING_WAIT_SIGNALED) {
-        return ops->finish(ops->context, false, transferred_out) == CBM_IPC_PENDING_FINISH_COMPLETED
+    ani_ipc_pending_wait_status_t wait_status = ops->wait(ops->context, timeout_ms);
+    if (wait_status == ANI_IPC_PENDING_WAIT_SIGNALED) {
+        return ops->finish(ops->context, false, transferred_out) == ANI_IPC_PENDING_FINISH_COMPLETED
                    ? 1
                    : -1;
     }
@@ -291,15 +291,15 @@ int cbm_daemon_ipc_wait_pending(const cbm_ipc_pending_ops_t *ops, uint32_t timeo
      * failed. */
     ops->cancel(ops->context);
     uint32_t transferred = 0;
-    cbm_ipc_pending_finish_status_t finish_status = ops->finish(ops->context, true, &transferred);
-    if (wait_status != CBM_IPC_PENDING_WAIT_TIMEOUT) {
+    ani_ipc_pending_finish_status_t finish_status = ops->finish(ops->context, true, &transferred);
+    if (wait_status != ANI_IPC_PENDING_WAIT_TIMEOUT) {
         return -1;
     }
-    if (finish_status == CBM_IPC_PENDING_FINISH_COMPLETED) {
+    if (finish_status == ANI_IPC_PENDING_FINISH_COMPLETED) {
         *transferred_out = transferred;
         return 1;
     }
-    return finish_status == CBM_IPC_PENDING_FINISH_CANCELLED ? 0 : -1;
+    return finish_status == ANI_IPC_PENDING_FINISH_CANCELLED ? 0 : -1;
 }
 
 #ifndef _WIN32
@@ -361,8 +361,8 @@ typedef struct {
     char anchor_name[POSIX_SOCKET_ANCHOR_NAME_CAP];
 } posix_socket_record_t;
 
-static void posix_publication_stage_reached(cbm_daemon_ipc_posix_publication_stage_t stage) {
-    cbm_daemon_ipc_posix_publication_hook_fn hook = g_posix_publication_hook_for_test;
+static void posix_publication_stage_reached(ani_daemon_ipc_posix_publication_stage_t stage) {
+    ani_daemon_ipc_posix_publication_hook_fn hook = g_posix_publication_hook_for_test;
     if (hook) {
         hook(stage, g_posix_publication_hook_context_for_test);
     }
@@ -370,20 +370,20 @@ static void posix_publication_stage_reached(cbm_daemon_ipc_posix_publication_sta
 
 static void posix_record_publication_stage_reached(
     const uint8_t magic[POSIX_SOCKET_RECORD_MAGIC_SIZE], bool linked) {
-    cbm_daemon_ipc_posix_publication_stage_t stage;
+    ani_daemon_ipc_posix_publication_stage_t stage;
     if (memcmp(magic, POSIX_SOCKET_PENDING_MAGIC, POSIX_SOCKET_RECORD_MAGIC_SIZE) == 0) {
-        stage = linked ? CBM_DAEMON_IPC_POSIX_PUBLICATION_PENDING_RECORD_LINKED
-                       : CBM_DAEMON_IPC_POSIX_PUBLICATION_PENDING_TEMP_SYNCED;
+        stage = linked ? ANI_DAEMON_IPC_POSIX_PUBLICATION_PENDING_RECORD_LINKED
+                       : ANI_DAEMON_IPC_POSIX_PUBLICATION_PENDING_TEMP_SYNCED;
     } else if (memcmp(magic, POSIX_SOCKET_MARKER_MAGIC, POSIX_SOCKET_RECORD_MAGIC_SIZE) == 0) {
-        stage = linked ? CBM_DAEMON_IPC_POSIX_PUBLICATION_MARKER_RECORD_LINKED
-                       : CBM_DAEMON_IPC_POSIX_PUBLICATION_MARKER_TEMP_SYNCED;
+        stage = linked ? ANI_DAEMON_IPC_POSIX_PUBLICATION_MARKER_RECORD_LINKED
+                       : ANI_DAEMON_IPC_POSIX_PUBLICATION_MARKER_TEMP_SYNCED;
     } else {
         return;
     }
     posix_publication_stage_reached(stage);
 }
 
-struct cbm_daemon_ipc_endpoint {
+struct ani_daemon_ipc_endpoint {
     char *runtime_dir;
     char *address;
     char *socket_name;
@@ -399,13 +399,13 @@ struct cbm_daemon_ipc_endpoint {
     ino_t dir_inode;
 };
 
-struct cbm_daemon_ipc_lifetime_reservation {
+struct ani_daemon_ipc_lifetime_reservation {
     int fd;
     struct process_lock_entry *process_entry;
     pid_t owner_pid;
 };
 
-struct cbm_daemon_ipc_listener {
+struct ani_daemon_ipc_listener {
     int fd;
     int dir_fd;
     char *runtime_dir;
@@ -420,11 +420,11 @@ struct cbm_daemon_ipc_listener {
     dev_t identity_device;
     ino_t identity_inode;
     pid_t owner_pid;
-    cbm_daemon_ipc_lifetime_reservation_t *lifetime_reservation;
-    cbm_daemon_ipc_participant_guard_t *participant_guard;
+    ani_daemon_ipc_lifetime_reservation_t *lifetime_reservation;
+    ani_daemon_ipc_participant_guard_t *participant_guard;
 };
 
-struct cbm_daemon_ipc_connection {
+struct ani_daemon_ipc_connection {
     int fd;
     atomic_bool poisoned;
 };
@@ -437,28 +437,28 @@ typedef struct process_lock_entry {
     struct process_lock_entry *next;
 } process_lock_entry_t;
 
-struct cbm_daemon_ipc_startup_lock {
+struct ani_daemon_ipc_startup_lock {
     int startup_v2_fd;
     process_lock_entry_t *startup_v2_process_entry;
     int legacy_fd;
     process_lock_entry_t *legacy_process_entry;
-    cbm_daemon_ipc_endpoint_t *endpoint_snapshot;
+    ani_daemon_ipc_endpoint_t *endpoint_snapshot;
     pid_t owner_pid;
     bool prepared;
 };
 
-struct cbm_daemon_ipc_local_transition {
+struct ani_daemon_ipc_local_transition {
     int startup_v2_fd;
     process_lock_entry_t *startup_v2_process_entry;
     int legacy_fd;
     process_lock_entry_t *legacy_process_entry;
-    const cbm_daemon_ipc_endpoint_t *endpoint;
+    const ani_daemon_ipc_endpoint_t *endpoint;
     pid_t owner_pid;
     bool sealed;
     bool work_begun;
 };
 
-struct cbm_daemon_ipc_participant_guard {
+struct ani_daemon_ipc_participant_guard {
     int legacy_fd;
     process_lock_entry_t *legacy_process_entry;
     pid_t owner_pid;
@@ -469,7 +469,7 @@ static process_lock_entry_t *process_locks;
 
 static bool posix_socket_status_secure_transport(const struct stat *status);
 
-static int process_lock_claim_mode(const cbm_daemon_ipc_endpoint_t *endpoint, const char *lock_name,
+static int process_lock_claim_mode(const ani_daemon_ipc_endpoint_t *endpoint, const char *lock_name,
                                    bool shared, process_lock_entry_t **entry_out) {
     *entry_out = NULL;
     if (!endpoint || !lock_name || pthread_mutex_lock(&process_locks_mutex) != 0) {
@@ -502,7 +502,7 @@ static int process_lock_claim_mode(const cbm_daemon_ipc_endpoint_t *endpoint, co
     return 1;
 }
 
-static int process_lock_claim(const cbm_daemon_ipc_endpoint_t *endpoint, const char *lock_name,
+static int process_lock_claim(const ani_daemon_ipc_endpoint_t *endpoint, const char *lock_name,
                               process_lock_entry_t **entry_out) {
     return process_lock_claim_mode(endpoint, lock_name, false, entry_out);
 }
@@ -523,7 +523,7 @@ static void process_lock_unclaim(process_lock_entry_t *claimed) {
     (void)pthread_mutex_unlock(&process_locks_mutex);
 }
 
-static int process_lock_is_claimed(const cbm_daemon_ipc_endpoint_t *endpoint,
+static int process_lock_is_claimed(const ani_daemon_ipc_endpoint_t *endpoint,
                                    const char *lock_name) {
     if (!endpoint || !lock_name || pthread_mutex_lock(&process_locks_mutex) != 0) {
         return -1;
@@ -550,45 +550,45 @@ static uint64_t ipc_now_ms(void) {
 }
 
 static uint64_t ipc_deadline_after(uint32_t timeout_ms) {
-    if (timeout_ms == CBM_DAEMON_IPC_WAIT_FOREVER) {
+    if (timeout_ms == ANI_DAEMON_IPC_WAIT_FOREVER) {
         return UINT64_MAX;
     }
     return ipc_now_ms() + (uint64_t)timeout_ms;
 }
 
 static _Noreturn void ipc_coordination_cleanup_fail_stop(const char *component) {
-    cbm_log_error("daemon.forced_shutdown", "component", component, "action",
+    ani_log_error("daemon.forced_shutdown", "component", component, "action",
                   "coordination_cleanup");
     (void)fflush(stdout);
     (void)fflush(stderr);
     _exit(EXIT_FAILURE);
 }
 
-static void ipc_startup_lock_release_complete(cbm_daemon_ipc_startup_lock_t **lock_io) {
-    uint64_t deadline = ipc_deadline_after(CBM_DAEMON_IPC_COORDINATION_CLEANUP_MS);
+static void ipc_startup_lock_release_complete(ani_daemon_ipc_startup_lock_t **lock_io) {
+    uint64_t deadline = ipc_deadline_after(ANI_DAEMON_IPC_COORDINATION_CLEANUP_MS);
     while (lock_io && *lock_io) {
-        (void)cbm_daemon_ipc_startup_lock_release(lock_io);
+        (void)ani_daemon_ipc_startup_lock_release(lock_io);
         if (!*lock_io) {
             return;
         }
         if (ipc_now_ms() >= deadline) {
             ipc_coordination_cleanup_fail_stop("startup_lock_cleanup");
         }
-        cbm_usleep(1000);
+        ani_usleep(1000);
     }
 }
 
-static void ipc_participant_guard_release_complete(cbm_daemon_ipc_participant_guard_t **guard_io) {
-    uint64_t deadline = ipc_deadline_after(CBM_DAEMON_IPC_COORDINATION_CLEANUP_MS);
+static void ipc_participant_guard_release_complete(ani_daemon_ipc_participant_guard_t **guard_io) {
+    uint64_t deadline = ipc_deadline_after(ANI_DAEMON_IPC_COORDINATION_CLEANUP_MS);
     while (guard_io && *guard_io) {
-        (void)cbm_daemon_ipc_participant_guard_release(guard_io);
+        (void)ani_daemon_ipc_participant_guard_release(guard_io);
         if (!*guard_io) {
             return;
         }
         if (ipc_now_ms() >= deadline) {
             ipc_coordination_cleanup_fail_stop("participant_guard_cleanup");
         }
-        cbm_usleep(1000);
+        ani_usleep(1000);
     }
 }
 
@@ -606,9 +606,9 @@ static bool ipc_retry_pause(uint64_t deadline_ms) {
     if (remaining_ms <= 0) {
         return false;
     }
-    int pause_ms = remaining_ms < CBM_DAEMON_IPC_RETRY_INTERVAL_MS
+    int pause_ms = remaining_ms < ANI_DAEMON_IPC_RETRY_INTERVAL_MS
                        ? remaining_ms
-                       : CBM_DAEMON_IPC_RETRY_INTERVAL_MS;
+                       : ANI_DAEMON_IPC_RETRY_INTERVAL_MS;
     struct timespec pause = {
         .tv_sec = 0,
         .tv_nsec = (long)pause_ms * 1000000L,
@@ -691,7 +691,7 @@ static bool private_runtime_snapshot(int fd, const char *path, bool require_empt
                  by_path.st_uid == geteuid() && (by_handle.st_mode & 07777) == 0700 &&
                  (by_path.st_mode & 07777) == 0700 && by_handle.st_dev == by_path.st_dev &&
                  by_handle.st_ino == by_path.st_ino &&
-                 (!require_empty_acl || cbm_macos_extended_acl_fd_is_empty(fd));
+                 (!require_empty_acl || ani_macos_extended_acl_fd_is_empty(fd));
     if (valid && status_out) {
         *status_out = by_handle;
     }
@@ -723,7 +723,7 @@ static bool private_runtime_open(const char *path, int *fd_out, dev_t *device_ou
     return true;
 }
 
-static bool endpoint_runtime_still_valid(const cbm_daemon_ipc_endpoint_t *endpoint) {
+static bool endpoint_runtime_still_valid(const ani_daemon_ipc_endpoint_t *endpoint) {
     if (!endpoint || endpoint->dir_fd < 0) {
         return false;
     }
@@ -744,8 +744,8 @@ static bool private_regular_file_snapshot(int directory_fd, const char *base_nam
                  by_handle.st_nlink == expected_links && by_path.st_nlink == expected_links &&
                  (by_handle.st_mode & 07777) == 0600 && (by_path.st_mode & 07777) == 0600 &&
                  by_handle.st_dev == by_path.st_dev && by_handle.st_ino == by_path.st_ino &&
-                 cbm_macos_extended_acl_fd_is_empty(directory_fd) &&
-                 cbm_macos_extended_acl_fd_is_empty(fd);
+                 ani_macos_extended_acl_fd_is_empty(directory_fd) &&
+                 ani_macos_extended_acl_fd_is_empty(fd);
     if (valid && status_out) {
         *status_out = by_handle;
     }
@@ -799,7 +799,7 @@ static bool socket_peer_is_current_user(int fd) {
 #endif
 }
 
-static int connection_read_full(cbm_daemon_ipc_connection_t *connection, void *buffer,
+static int connection_read_full(ani_daemon_ipc_connection_t *connection, void *buffer,
                                 size_t length, uint64_t deadline_ms) {
     if (!connection || atomic_load_explicit(&connection->poisoned, memory_order_acquire)) {
         return -1;
@@ -832,7 +832,7 @@ static int connection_read_full(cbm_daemon_ipc_connection_t *connection, void *b
     return 1;
 }
 
-static int connection_write_full(cbm_daemon_ipc_connection_t *connection, const void *buffer,
+static int connection_write_full(ani_daemon_ipc_connection_t *connection, const void *buffer,
                                  size_t length, uint64_t deadline_ms) {
     if (!connection || atomic_load_explicit(&connection->poisoned, memory_order_acquire)) {
         return -1;
@@ -866,7 +866,7 @@ static int connection_write_full(cbm_daemon_ipc_connection_t *connection, const 
     return 1;
 }
 
-cbm_daemon_ipc_endpoint_t *cbm_daemon_ipc_endpoint_new(const char *instance_key,
+ani_daemon_ipc_endpoint_t *ani_daemon_ipc_endpoint_new(const char *instance_key,
                                                        const char *runtime_parent) {
     if (!instance_key_valid(instance_key)) {
         return NULL;
@@ -877,8 +877,8 @@ cbm_daemon_ipc_endpoint_t *cbm_daemon_ipc_endpoint_new(const char *instance_key,
     const char *default_parent = "/tmp";
 #endif
     const char *requested_parent = runtime_parent ? runtime_parent : default_parent;
-    char canonical_parent[CBM_DAEMON_IPC_PATH_CAP];
-    if (!cbm_canonical_path(requested_parent, canonical_parent, sizeof(canonical_parent))) {
+    char canonical_parent[ANI_DAEMON_IPC_PATH_CAP];
+    if (!ani_canonical_path(requested_parent, canonical_parent, sizeof(canonical_parent))) {
         return NULL;
     }
     const char *parent = canonical_parent;
@@ -886,27 +886,27 @@ cbm_daemon_ipc_endpoint_t *cbm_daemon_ipc_endpoint_new(const char *instance_key,
         return NULL;
     }
 
-    cbm_daemon_ipc_endpoint_t *endpoint = calloc(1, sizeof(*endpoint));
+    ani_daemon_ipc_endpoint_t *endpoint = calloc(1, sizeof(*endpoint));
     if (!endpoint) {
         return NULL;
     }
     endpoint->dir_fd = -1;
     endpoint->runtime_dir =
         string_format("%s%s%s%lu", parent, parent[strlen(parent) - 1] == '/' ? "" : "/",
-                      "cbm-daemon-", (unsigned long)geteuid());
-    endpoint->socket_name = string_format("cbm-%s.sock", instance_key);
-    endpoint->socket_anchor_name = string_format("cbm-%s.anc", instance_key);
-    endpoint->socket_identity_name = string_format("cbm-%s.sock.identity", instance_key);
-    endpoint->socket_pending_name = string_format("cbm-%s.sock.pending", instance_key);
-    endpoint->lock_name = string_format("cbm-%s.lock", instance_key);
-    endpoint->startup_v2_lock_name = string_format("cbm-%s.startup-v2.lock", instance_key);
-    endpoint->lifetime_lock_name = string_format("cbm-%s.lifetime.lock", instance_key);
+                      "ani-daemon-", (unsigned long)geteuid());
+    endpoint->socket_name = string_format("ani-%s.sock", instance_key);
+    endpoint->socket_anchor_name = string_format("ani-%s.anc", instance_key);
+    endpoint->socket_identity_name = string_format("ani-%s.sock.identity", instance_key);
+    endpoint->socket_pending_name = string_format("ani-%s.sock.pending", instance_key);
+    endpoint->lock_name = string_format("ani-%s.lock", instance_key);
+    endpoint->startup_v2_lock_name = string_format("ani-%s.startup-v2.lock", instance_key);
+    endpoint->lifetime_lock_name = string_format("ani-%s.lifetime.lock", instance_key);
     if (!endpoint->runtime_dir || !endpoint->socket_name || !endpoint->socket_anchor_name ||
         !endpoint->socket_identity_name || !endpoint->socket_pending_name || !endpoint->lock_name ||
         !endpoint->startup_v2_lock_name || !endpoint->lifetime_lock_name ||
         !private_runtime_open(endpoint->runtime_dir, &endpoint->dir_fd, &endpoint->dir_device,
                               &endpoint->dir_inode)) {
-        cbm_daemon_ipc_endpoint_free(endpoint);
+        ani_daemon_ipc_endpoint_free(endpoint);
         return NULL;
     }
     endpoint->address = string_format("%s/%s", endpoint->runtime_dir, endpoint->socket_name);
@@ -918,13 +918,13 @@ cbm_daemon_ipc_endpoint_t *cbm_daemon_ipc_endpoint_new(const char *instance_key,
         strlen(endpoint->socket_anchor_name) >= POSIX_SOCKET_ANCHOR_NAME_CAP ||
         !unix_address_set(&address, endpoint->address, &address_length) ||
         !unix_address_set(&address, endpoint->socket_anchor_address, &address_length)) {
-        cbm_daemon_ipc_endpoint_free(endpoint);
+        ani_daemon_ipc_endpoint_free(endpoint);
         return NULL;
     }
     return endpoint;
 }
 
-void cbm_daemon_ipc_endpoint_free(cbm_daemon_ipc_endpoint_t *endpoint) {
+void ani_daemon_ipc_endpoint_free(ani_daemon_ipc_endpoint_t *endpoint) {
     if (!endpoint) {
         return;
     }
@@ -944,11 +944,11 @@ void cbm_daemon_ipc_endpoint_free(cbm_daemon_ipc_endpoint_t *endpoint) {
     free(endpoint);
 }
 
-static cbm_daemon_ipc_endpoint_t *endpoint_snapshot_new(const cbm_daemon_ipc_endpoint_t *endpoint) {
+static ani_daemon_ipc_endpoint_t *endpoint_snapshot_new(const ani_daemon_ipc_endpoint_t *endpoint) {
     if (!endpoint_runtime_still_valid(endpoint)) {
         return NULL;
     }
-    cbm_daemon_ipc_endpoint_t *snapshot = calloc(1, sizeof(*snapshot));
+    ani_daemon_ipc_endpoint_t *snapshot = calloc(1, sizeof(*snapshot));
     if (!snapshot) {
         return NULL;
     }
@@ -971,27 +971,27 @@ static cbm_daemon_ipc_endpoint_t *endpoint_snapshot_new(const cbm_daemon_ipc_end
         !snapshot->socket_identity_name || !snapshot->socket_pending_name || !snapshot->lock_name ||
         !snapshot->startup_v2_lock_name || !snapshot->lifetime_lock_name || snapshot->dir_fd < 0 ||
         !fd_set_cloexec(snapshot->dir_fd) || !endpoint_runtime_still_valid(snapshot)) {
-        cbm_daemon_ipc_endpoint_free(snapshot);
+        ani_daemon_ipc_endpoint_free(snapshot);
         return NULL;
     }
     return snapshot;
 }
 
-const char *cbm_daemon_ipc_endpoint_address(const cbm_daemon_ipc_endpoint_t *endpoint) {
+const char *ani_daemon_ipc_endpoint_address(const ani_daemon_ipc_endpoint_t *endpoint) {
     return endpoint ? endpoint->address : NULL;
 }
 
-const char *cbm_daemon_ipc_endpoint_runtime_dir(const cbm_daemon_ipc_endpoint_t *endpoint) {
+const char *ani_daemon_ipc_endpoint_runtime_dir(const ani_daemon_ipc_endpoint_t *endpoint) {
     return endpoint ? endpoint->runtime_dir : NULL;
 }
 
-cbm_private_file_lock_status_t cbm_daemon_ipc_private_lock_directory_new(
-    const cbm_daemon_ipc_endpoint_t *endpoint, cbm_private_lock_directory_t **directory_out) {
+ani_private_file_lock_status_t ani_daemon_ipc_private_lock_directory_new(
+    const ani_daemon_ipc_endpoint_t *endpoint, ani_private_lock_directory_t **directory_out) {
     if (directory_out) {
         *directory_out = NULL;
     }
     if (!directory_out || !endpoint_runtime_still_valid(endpoint)) {
-        return CBM_PRIVATE_FILE_LOCK_UNSAFE;
+        return ANI_PRIVATE_FILE_LOCK_UNSAFE;
     }
 #ifdef F_DUPFD_CLOEXEC
     int duplicate = fcntl(endpoint->dir_fd, F_DUPFD_CLOEXEC, 0);
@@ -1003,11 +1003,11 @@ cbm_private_file_lock_status_t cbm_daemon_ipc_private_lock_directory_new(
     }
 #endif
     if (duplicate < 0) {
-        return CBM_PRIVATE_FILE_LOCK_IO;
+        return ANI_PRIVATE_FILE_LOCK_IO;
     }
-    cbm_private_file_lock_status_t status =
-        cbm_private_lock_directory_adopt_posix(duplicate, endpoint->runtime_dir, directory_out);
-    if (status != CBM_PRIVATE_FILE_LOCK_OK) {
+    ani_private_file_lock_status_t status =
+        ani_private_lock_directory_adopt_posix(duplicate, endpoint->runtime_dir, directory_out);
+    if (status != ANI_PRIVATE_FILE_LOCK_OK) {
         (void)close(duplicate);
     }
     return status;
@@ -1021,7 +1021,7 @@ static void posix_named_lock_release(int fd, process_lock_entry_t *process_entry
     process_lock_unclaim(process_entry);
 }
 
-static int posix_named_lock_try_acquire_mode(const cbm_daemon_ipc_endpoint_t *endpoint,
+static int posix_named_lock_try_acquire_mode(const ani_daemon_ipc_endpoint_t *endpoint,
                                              const char *lock_name, bool shared, int *fd_out,
                                              process_lock_entry_t **process_entry_out) {
     if (fd_out) {
@@ -1077,13 +1077,13 @@ static int posix_named_lock_try_acquire_mode(const cbm_daemon_ipc_endpoint_t *en
     return 1;
 }
 
-static int posix_named_lock_try_acquire(const cbm_daemon_ipc_endpoint_t *endpoint,
+static int posix_named_lock_try_acquire(const ani_daemon_ipc_endpoint_t *endpoint,
                                         const char *lock_name, int *fd_out,
                                         process_lock_entry_t **process_entry_out) {
     return posix_named_lock_try_acquire_mode(endpoint, lock_name, false, fd_out, process_entry_out);
 }
 
-static int posix_named_shared_lock_try_acquire(const cbm_daemon_ipc_endpoint_t *endpoint,
+static int posix_named_shared_lock_try_acquire(const ani_daemon_ipc_endpoint_t *endpoint,
                                                const char *lock_name, int *fd_out,
                                                process_lock_entry_t **process_entry_out) {
     return posix_named_lock_try_acquire_mode(endpoint, lock_name, true, fd_out, process_entry_out);
@@ -1103,7 +1103,7 @@ static int posix_record_lock_set(int fd, short lock_type) {
     return result;
 }
 
-static int posix_lifetime_lock_probe(const cbm_daemon_ipc_endpoint_t *endpoint,
+static int posix_lifetime_lock_probe(const ani_daemon_ipc_endpoint_t *endpoint,
                                      const char *lock_name) {
     if (!lock_name || !endpoint_runtime_still_valid(endpoint)) {
         return -1;
@@ -1149,7 +1149,7 @@ static int posix_lifetime_lock_probe(const cbm_daemon_ipc_endpoint_t *endpoint,
     return record_lock.l_type == F_RDLCK || record_lock.l_type == F_WRLCK ? 1 : -1;
 }
 
-static int posix_lifetime_lock_try_acquire(const cbm_daemon_ipc_endpoint_t *endpoint,
+static int posix_lifetime_lock_try_acquire(const ani_daemon_ipc_endpoint_t *endpoint,
                                            const char *lock_name, int *fd_out,
                                            process_lock_entry_t **process_entry_out) {
     if (fd_out) {
@@ -1214,9 +1214,9 @@ static void posix_lifetime_lock_release(int fd, process_lock_entry_t *process_en
     process_lock_unclaim(process_entry);
 }
 
-int cbm_daemon_ipc_lifetime_reservation_try_acquire(
-    const cbm_daemon_ipc_endpoint_t *endpoint,
-    cbm_daemon_ipc_lifetime_reservation_t **reservation_out) {
+int ani_daemon_ipc_lifetime_reservation_try_acquire(
+    const ani_daemon_ipc_endpoint_t *endpoint,
+    ani_daemon_ipc_lifetime_reservation_t **reservation_out) {
     if (reservation_out) {
         *reservation_out = NULL;
     }
@@ -1230,7 +1230,7 @@ int cbm_daemon_ipc_lifetime_reservation_try_acquire(
     if (result != 1) {
         return result;
     }
-    cbm_daemon_ipc_lifetime_reservation_t *reservation = malloc(sizeof(*reservation));
+    ani_daemon_ipc_lifetime_reservation_t *reservation = malloc(sizeof(*reservation));
     if (!reservation) {
         posix_lifetime_lock_release(fd, process_entry);
         return -1;
@@ -1242,8 +1242,8 @@ int cbm_daemon_ipc_lifetime_reservation_try_acquire(
     return 1;
 }
 
-void cbm_daemon_ipc_lifetime_reservation_release(
-    cbm_daemon_ipc_lifetime_reservation_t *reservation) {
+void ani_daemon_ipc_lifetime_reservation_release(
+    ani_daemon_ipc_lifetime_reservation_t *reservation) {
     if (!reservation) {
         return;
     }
@@ -1252,8 +1252,8 @@ void cbm_daemon_ipc_lifetime_reservation_release(
 }
 
 static bool lifetime_reservation_matches_endpoint(
-    const cbm_daemon_ipc_endpoint_t *endpoint,
-    const cbm_daemon_ipc_lifetime_reservation_t *reservation) {
+    const ani_daemon_ipc_endpoint_t *endpoint,
+    const ani_daemon_ipc_lifetime_reservation_t *reservation) {
     const process_lock_entry_t *entry = reservation ? reservation->process_entry : NULL;
     if (!endpoint_runtime_still_valid(endpoint) || !reservation || reservation->fd < 0 ||
         reservation->owner_pid != getpid() || !entry || !endpoint->lifetime_lock_name ||
@@ -1272,11 +1272,11 @@ static bool lifetime_reservation_matches_endpoint(
     return posix_record_lock_set(reservation->fd, F_WRLCK) == 0;
 }
 
-int cbm_daemon_ipc_lifetime_reservation_probe(const cbm_daemon_ipc_endpoint_t *endpoint) {
+int ani_daemon_ipc_lifetime_reservation_probe(const ani_daemon_ipc_endpoint_t *endpoint) {
     return endpoint ? posix_lifetime_lock_probe(endpoint, endpoint->lifetime_lock_name) : -1;
 }
 
-static int posix_startup_lock_probe(const cbm_daemon_ipc_endpoint_t *endpoint) {
+static int posix_startup_lock_probe(const ani_daemon_ipc_endpoint_t *endpoint) {
     if (!endpoint_runtime_still_valid(endpoint)) {
         return -1;
     }
@@ -1320,7 +1320,7 @@ static int posix_startup_lock_probe(const cbm_daemon_ipc_endpoint_t *endpoint) {
     return unlock_result == 0 && still_private && close_result == 0 ? 0 : -1;
 }
 
-int cbm_daemon_ipc_legacy_generation_probe(const cbm_daemon_ipc_endpoint_t *endpoint) {
+int ani_daemon_ipc_legacy_generation_probe(const ani_daemon_ipc_endpoint_t *endpoint) {
     if (!endpoint_runtime_still_valid(endpoint)) {
         return -1;
     }
@@ -1368,7 +1368,7 @@ static char *private_log_directory_path_copy(const char *directory_path) {
             break;
         }
         struct stat root_status;
-        char resolved[CBM_DAEMON_IPC_PATH_CAP];
+        char resolved[ANI_DAEMON_IPC_PATH_CAP];
         if (alias_status.st_uid != 0 || lstat("/", &root_status) != 0 ||
             !S_ISDIR(root_status.st_mode) || root_status.st_uid != 0 ||
             (root_status.st_mode & 0022) != 0 || !realpath(alias, resolved)) {
@@ -1393,7 +1393,7 @@ static bool posix_directory_parent_secure(int directory_fd) {
     struct stat status;
     if (directory_fd < 0 || fstat(directory_fd, &status) != 0 || !S_ISDIR(status.st_mode) ||
         !posix_directory_owner_trusted(status.st_uid) ||
-        !cbm_macos_extended_acl_fd_is_deny_only(directory_fd)) {
+        !ani_macos_extended_acl_fd_is_deny_only(directory_fd)) {
         return false;
     }
     /* #1537: this ANCESTOR check refused any group-write bit, which is the same
@@ -1413,7 +1413,7 @@ static bool posix_directory_parent_secure(int directory_fd) {
     if ((status.st_mode & 0020) != 0) {
         char mode_text[16];
         (void)snprintf(mode_text, sizeof(mode_text), "%04o", (unsigned)(status.st_mode & 07777));
-        cbm_log_warn("daemon.private_dir_group_writable_ancestor", "mode", mode_text);
+        ani_log_warn("daemon.private_dir_group_writable_ancestor", "mode", mode_text);
     }
     return true;
 }
@@ -1478,7 +1478,7 @@ static int private_directory_tree_open(const char *directory_path) {
                  * directory we are already in — but the message printed
                  * `component`, the child about to be entered. So #1537 read
                  * "ancestor '.cache'" when /Users/<user> was refusing, and
-                 * #1621 read "cbm-daemon-501" when /private/tmp was. Both
+                 * #1621 read "ani-daemon-501" when /private/tmp was. Both
                  * reporters inspected a directory that was not the one
                  * refusing, found it clean, and said so — correctly. Naming the
                  * containing directory is the difference between a report we
@@ -1501,8 +1501,8 @@ static int private_directory_tree_open(const char *directory_path) {
                  S_ISDIR(status.st_mode) && posix_directory_transition_secure(current_fd, next_fd);
             if (ok && created) {
                 ok = status.st_uid == geteuid() && fchmod(next_fd, 0700) == 0 &&
-                     cbm_macos_extended_acl_fd_clear(next_fd) &&
-                     cbm_macos_extended_acl_fd_is_empty(next_fd);
+                     ani_macos_extended_acl_fd_clear(next_fd) &&
+                     ani_macos_extended_acl_fd_is_empty(next_fd);
             }
             if (ok) {
                 (void)close(current_fd);
@@ -1536,7 +1536,7 @@ static int private_directory_tree_open(const char *directory_path) {
         ipc_validation_detail_set("%s: chmod 0700 failed (errno %d)", directory_path, errno);
         ok = false;
     }
-    if (ok && !cbm_macos_extended_acl_fd_clear(current_fd)) {
+    if (ok && !ani_macos_extended_acl_fd_clear(current_fd)) {
         ipc_validation_detail_set("%s: extended ACL not clearable", directory_path);
         ok = false;
     }
@@ -1545,7 +1545,7 @@ static int private_directory_tree_open(const char *directory_path) {
                                   (unsigned)(final_status.st_mode & 07777));
         ok = false;
     }
-    if (ok && !cbm_macos_extended_acl_fd_is_empty(current_fd)) {
+    if (ok && !ani_macos_extended_acl_fd_is_empty(current_fd)) {
         ipc_validation_detail_set("%s: extended ACL still present after clear", directory_path);
         ok = false;
     }
@@ -1559,7 +1559,7 @@ static int private_directory_tree_open(const char *directory_path) {
     return current_fd;
 }
 
-bool cbm_daemon_ipc_private_directory_secure(const char *directory_path) {
+bool ani_daemon_ipc_private_directory_secure(const char *directory_path) {
     ipc_validation_detail_set("%s", "");
     int directory_fd = private_directory_tree_open(directory_path);
     if (directory_fd < 0) {
@@ -1591,7 +1591,7 @@ static int private_log_file_open(int directory_fd, const char *base_name, struct
     return fd;
 }
 
-FILE *cbm_daemon_ipc_private_log_open(const char *directory_path, const char *base_name,
+FILE *ani_daemon_ipc_private_log_open(const char *directory_path, const char *base_name,
                                       size_t rotate_cap_bytes) {
     if (!private_log_base_name_valid(base_name) || rotate_cap_bytes == 0) {
         return NULL;
@@ -1838,7 +1838,7 @@ typedef enum {
 } posix_record_state_t;
 
 static posix_record_state_t posix_socket_record_read_links(
-    const cbm_daemon_ipc_endpoint_t *endpoint, const char *record_name,
+    const ani_daemon_ipc_endpoint_t *endpoint, const char *record_name,
     const uint8_t magic[POSIX_SOCKET_RECORD_MAGIC_SIZE], nlink_t expected_links,
     posix_socket_record_t *record_out, struct stat *record_status_out) {
     if (!endpoint || !record_name || !magic || !record_out || !record_status_out ||
@@ -1860,7 +1860,7 @@ static posix_record_state_t posix_socket_record_read_links(
     bool metadata_safe =
         fd_set_cloexec(fd) && fstat(fd, &before) == 0 && S_ISREG(before.st_mode) &&
         before.st_uid == geteuid() && before.st_nlink == expected_links &&
-        (before.st_mode & 07777) == 0600 && cbm_macos_extended_acl_fd_is_empty(fd) &&
+        (before.st_mode & 07777) == 0600 && ani_macos_extended_acl_fd_is_empty(fd) &&
         posix_stat_ctime(&before, &before_ctime_seconds, &before_ctime_nanoseconds);
     if (!metadata_safe) {
         (void)close(fd);
@@ -1880,7 +1880,7 @@ static posix_record_state_t posix_socket_record_read_links(
                   fstatat(endpoint->dir_fd, record_name, &by_path, AT_SYMLINK_NOFOLLOW) == 0 &&
                   S_ISREG(after.st_mode) && after.st_uid == geteuid() &&
                   after.st_nlink == expected_links && (after.st_mode & 07777) == 0600 &&
-                  cbm_macos_extended_acl_fd_is_empty(fd) && after.st_size == before.st_size &&
+                  ani_macos_extended_acl_fd_is_empty(fd) && after.st_size == before.st_size &&
                   after.st_dev == before.st_dev && after.st_ino == before.st_ino &&
                   after_ctime_seconds == before_ctime_seconds &&
                   after_ctime_nanoseconds == before_ctime_nanoseconds && S_ISREG(by_path.st_mode) &&
@@ -1900,14 +1900,14 @@ static posix_record_state_t posix_socket_record_read_links(
 }
 
 static posix_record_state_t posix_socket_record_read(
-    const cbm_daemon_ipc_endpoint_t *endpoint, const char *record_name,
+    const ani_daemon_ipc_endpoint_t *endpoint, const char *record_name,
     const uint8_t magic[POSIX_SOCKET_RECORD_MAGIC_SIZE], posix_socket_record_t *record_out,
     struct stat *record_status_out) {
     return posix_socket_record_read_links(endpoint, record_name, magic, 1, record_out,
                                           record_status_out);
 }
 
-static int posix_socket_path_identity_read(const cbm_daemon_ipc_endpoint_t *endpoint,
+static int posix_socket_path_identity_read(const ani_daemon_ipc_endpoint_t *endpoint,
                                            const char *socket_name,
                                            posix_socket_identity_t *identity_out,
                                            struct stat *status_out) {
@@ -1991,7 +1991,7 @@ static bool posix_socket_record_temp_name(const char *record_name, char temp_nam
     return written > 0 && written <= NAME_MAX;
 }
 
-static int posix_record_artifact_status(const cbm_daemon_ipc_endpoint_t *endpoint, const char *name,
+static int posix_record_artifact_status(const ani_daemon_ipc_endpoint_t *endpoint, const char *name,
                                         struct stat *status_out) {
     if (!endpoint || !name || !status_out || !endpoint_runtime_still_valid(endpoint)) {
         return -1;
@@ -2021,7 +2021,7 @@ static int posix_record_artifact_status(const cbm_daemon_ipc_endpoint_t *endpoin
 }
 
 static int posix_socket_record_identity_corroborated(
-    const cbm_daemon_ipc_endpoint_t *endpoint, const uint8_t magic[POSIX_SOCKET_RECORD_MAGIC_SIZE],
+    const ani_daemon_ipc_endpoint_t *endpoint, const uint8_t magic[POSIX_SOCKET_RECORD_MAGIC_SIZE],
     const posix_socket_record_t *record) {
     if (!endpoint || !magic || !record) {
         return -1;
@@ -2060,7 +2060,7 @@ static int posix_socket_record_identity_corroborated(
  * mismatched artifact is preserved and blocks startup rather than becoming
  * deletion authority. */
 static int posix_socket_record_publication_recover(
-    const cbm_daemon_ipc_endpoint_t *endpoint, const char *record_name,
+    const ani_daemon_ipc_endpoint_t *endpoint, const char *record_name,
     const uint8_t magic[POSIX_SOCKET_RECORD_MAGIC_SIZE]) {
     char temp_name[NAME_MAX + 1];
     if (!posix_socket_record_temp_name(record_name, temp_name)) {
@@ -2139,7 +2139,7 @@ static void posix_bound_socket_unlink_if_matches(int dir_fd, const char *socket_
     }
 }
 
-static bool posix_socket_record_publish(const cbm_daemon_ipc_endpoint_t *endpoint,
+static bool posix_socket_record_publish(const ani_daemon_ipc_endpoint_t *endpoint,
                                         const char *record_name,
                                         const uint8_t magic[POSIX_SOCKET_RECORD_MAGIC_SIZE],
                                         const posix_socket_record_t *source, dev_t *device_out,
@@ -2222,8 +2222,8 @@ static bool posix_socket_record_publish(const cbm_daemon_ipc_endpoint_t *endpoin
     return true;
 }
 
-static bool posix_endpoint_namespace_equal(const cbm_daemon_ipc_endpoint_t *left,
-                                           const cbm_daemon_ipc_endpoint_t *right) {
+static bool posix_endpoint_namespace_equal(const ani_daemon_ipc_endpoint_t *left,
+                                           const ani_daemon_ipc_endpoint_t *right) {
     return left && right && left->dir_device == right->dir_device &&
            left->dir_inode == right->dir_inode && left->socket_name && right->socket_name &&
            strcmp(left->socket_name, right->socket_name) == 0 && left->socket_anchor_name &&
@@ -2242,7 +2242,7 @@ static bool posix_endpoint_namespace_equal(const cbm_daemon_ipc_endpoint_t *left
            strcmp(left->lifetime_lock_name, right->lifetime_lock_name) == 0;
 }
 
-static bool posix_named_lock_is_retained(const cbm_daemon_ipc_endpoint_t *endpoint,
+static bool posix_named_lock_is_retained(const ani_daemon_ipc_endpoint_t *endpoint,
                                          const char *lock_name, bool shared, int fd,
                                          const process_lock_entry_t *entry, pid_t owner_pid) {
     if (!endpoint_runtime_still_valid(endpoint) || !lock_name || fd < 0 || !entry ||
@@ -2266,8 +2266,8 @@ static bool posix_named_lock_is_retained(const cbm_daemon_ipc_endpoint_t *endpoi
     return lock_result == 0;
 }
 
-static bool posix_startup_lock_matches_endpoint(const cbm_daemon_ipc_endpoint_t *endpoint,
-                                                const cbm_daemon_ipc_startup_lock_t *startup_lock) {
+static bool posix_startup_lock_matches_endpoint(const ani_daemon_ipc_endpoint_t *endpoint,
+                                                const ani_daemon_ipc_startup_lock_t *startup_lock) {
     return startup_lock && endpoint_runtime_still_valid(startup_lock->endpoint_snapshot) &&
            posix_endpoint_namespace_equal(endpoint, startup_lock->endpoint_snapshot) &&
            posix_named_lock_is_retained(
@@ -2278,13 +2278,13 @@ static bool posix_startup_lock_matches_endpoint(const cbm_daemon_ipc_endpoint_t 
                                         startup_lock->owner_pid);
 }
 
-static int posix_stale_generation_cleanup_locked(const cbm_daemon_ipc_endpoint_t *endpoint) {
+static int posix_stale_generation_cleanup_locked(const ani_daemon_ipc_endpoint_t *endpoint) {
     /* Holding the startup lock excludes compliant starters. Reserving the
      * endpoint lifetime as well closes the check/unlink race against a caller
      * that already owns a transferred reservation. */
-    cbm_daemon_ipc_lifetime_reservation_t *cleanup_reservation = NULL;
+    ani_daemon_ipc_lifetime_reservation_t *cleanup_reservation = NULL;
     int reservation_result =
-        cbm_daemon_ipc_lifetime_reservation_try_acquire(endpoint, &cleanup_reservation);
+        ani_daemon_ipc_lifetime_reservation_try_acquire(endpoint, &cleanup_reservation);
     if (reservation_result != 1) {
         return reservation_result == 0 ? 0 : -1;
     }
@@ -2296,7 +2296,7 @@ static int posix_stale_generation_cleanup_locked(const cbm_daemon_ipc_endpoint_t
         endpoint, endpoint->socket_identity_name, POSIX_SOCKET_MARKER_MAGIC);
     if (pending_publication != 1 || marker_publication != 1) {
         result = pending_publication < 0 || marker_publication < 0 ? -1 : 0;
-        cbm_daemon_ipc_lifetime_reservation_release(cleanup_reservation);
+        ani_daemon_ipc_lifetime_reservation_release(cleanup_reservation);
         return result;
     }
 
@@ -2457,18 +2457,18 @@ static int posix_stale_generation_cleanup_locked(const cbm_daemon_ipc_endpoint_t
     result = stable_state == 0 ? 1 : 0;
 
 cleanup_done:
-    cbm_daemon_ipc_lifetime_reservation_release(cleanup_reservation);
+    ani_daemon_ipc_lifetime_reservation_release(cleanup_reservation);
     return result;
 }
 
-int cbm_daemon_ipc_stale_generation_cleanup(const cbm_daemon_ipc_endpoint_t *endpoint,
-                                            const cbm_daemon_ipc_startup_lock_t *startup_lock) {
+int ani_daemon_ipc_stale_generation_cleanup(const ani_daemon_ipc_endpoint_t *endpoint,
+                                            const ani_daemon_ipc_startup_lock_t *startup_lock) {
     return posix_startup_lock_matches_endpoint(endpoint, startup_lock)
                ? posix_stale_generation_cleanup_locked(endpoint)
                : -1;
 }
 
-static void posix_publication_abort(const cbm_daemon_ipc_endpoint_t *endpoint,
+static void posix_publication_abort(const ani_daemon_ipc_endpoint_t *endpoint,
                                     const posix_socket_identity_t *anchor_identity,
                                     bool pending_published, const struct stat *pending_status,
                                     bool marker_published, const struct stat *marker_status) {
@@ -2507,13 +2507,13 @@ static void posix_publication_abort(const cbm_daemon_ipc_endpoint_t *endpoint,
     (void)posix_directory_sync(endpoint->dir_fd);
 }
 
-cbm_daemon_ipc_listener_t *cbm_daemon_ipc_listen_reserved(
-    const cbm_daemon_ipc_endpoint_t *endpoint,
-    cbm_daemon_ipc_lifetime_reservation_t **reservation_io) {
-    cbm_daemon_ipc_lifetime_reservation_t *lifetime_reservation =
+ani_daemon_ipc_listener_t *ani_daemon_ipc_listen_reserved(
+    const ani_daemon_ipc_endpoint_t *endpoint,
+    ani_daemon_ipc_lifetime_reservation_t **reservation_io) {
+    ani_daemon_ipc_lifetime_reservation_t *lifetime_reservation =
         reservation_io ? *reservation_io : NULL;
     if (!lifetime_reservation_matches_endpoint(endpoint, lifetime_reservation)) {
-        cbm_log_error("daemon.ipc.listen_failed", "stage", "reservation_validation");
+        ani_log_error("daemon.ipc.listen_failed", "stage", "reservation_validation");
         return NULL;
     }
     /* Stale removal happens only under the startup lock, before a daemon host
@@ -2523,7 +2523,7 @@ cbm_daemon_ipc_listener_t *cbm_daemon_ipc_listen_reserved(
     char pending_temp_name[NAME_MAX + 1];
     if (!posix_socket_record_temp_name(endpoint->socket_identity_name, identity_temp_name) ||
         !posix_socket_record_temp_name(endpoint->socket_pending_name, pending_temp_name)) {
-        cbm_log_error("daemon.ipc.listen_failed", "stage", "temp_names");
+        ani_log_error("daemon.ipc.listen_failed", "stage", "temp_names");
         return NULL;
     }
     struct stat existing;
@@ -2541,18 +2541,18 @@ cbm_daemon_ipc_listener_t *cbm_daemon_ipc_listen_reserved(
         }
     }
     if (!endpoint_runtime_still_valid(endpoint) || !namespace_absent) {
-        cbm_log_error("daemon.ipc.listen_failed", "stage", "namespace_validation");
+        ani_log_error("daemon.ipc.listen_failed", "stage", "namespace_validation");
         return NULL;
     }
 
     int fd = local_socket_new();
     if (fd < 0) {
-        cbm_log_error("daemon.ipc.listen_failed", "stage", "socket_creation");
+        ani_log_error("daemon.ipc.listen_failed", "stage", "socket_creation");
         return NULL;
     }
-    cbm_daemon_ipc_listener_t *listener = calloc(1, sizeof(*listener));
+    ani_daemon_ipc_listener_t *listener = calloc(1, sizeof(*listener));
     if (!listener) {
-        cbm_log_error("daemon.ipc.listen_failed", "stage", "listener_allocation");
+        ani_log_error("daemon.ipc.listen_failed", "stage", "listener_allocation");
         (void)close(fd);
         return NULL;
     }
@@ -2570,7 +2570,7 @@ cbm_daemon_ipc_listener_t *cbm_daemon_ipc_listen_reserved(
     if (listener->dir_fd < 0 || !fd_set_cloexec(listener->dir_fd) || !listener->runtime_dir ||
         !listener->address || !listener->socket_name || !listener->socket_anchor_name ||
         !listener->socket_identity_name || !listener->socket_pending_name) {
-        cbm_log_error("daemon.ipc.listen_failed", "stage", "listener_initialization");
+        ani_log_error("daemon.ipc.listen_failed", "stage", "listener_initialization");
         if (listener->dir_fd >= 0) {
             (void)close(listener->dir_fd);
         }
@@ -2588,16 +2588,16 @@ cbm_daemon_ipc_listener_t *cbm_daemon_ipc_listen_reserved(
     struct sockaddr_un address;
     socklen_t address_length;
     if (!unix_address_set(&address, endpoint->socket_anchor_address, &address_length)) {
-        cbm_log_error("daemon.ipc.listen_failed", "stage", "socket_address");
-        cbm_daemon_ipc_listener_close(listener);
+        ani_log_error("daemon.ipc.listen_failed", "stage", "socket_address");
+        ani_daemon_ipc_listener_close(listener);
         return NULL;
     }
     if (bind(fd, (const struct sockaddr *)&address, address_length) != 0) {
         int bind_error = errno;
         char error_text[32];
         (void)snprintf(error_text, sizeof(error_text), "%d", bind_error);
-        cbm_log_error("daemon.ipc.listen_failed", "bind_errno", error_text);
-        cbm_daemon_ipc_listener_close(listener);
+        ani_log_error("daemon.ipc.listen_failed", "bind_errno", error_text);
+        ani_daemon_ipc_listener_close(listener);
         return NULL;
     }
 
@@ -2625,12 +2625,12 @@ cbm_daemon_ipc_listener_t *cbm_daemon_ipc_listen_reserved(
             posix_bound_socket_unlink_if_matches(endpoint->dir_fd, endpoint->socket_anchor_name,
                                                  bound_status.st_dev, bound_status.st_ino);
         }
-        cbm_log_error("daemon.ipc.listen_failed", "stage", "socket_security");
-        cbm_daemon_ipc_listener_close(listener);
+        ani_log_error("daemon.ipc.listen_failed", "stage", "socket_security");
+        ani_daemon_ipc_listener_close(listener);
         return NULL;
     }
     listener->socket_identity = anchor_identity;
-    posix_publication_stage_reached(CBM_DAEMON_IPC_POSIX_PUBLICATION_ANCHOR_DURABLE);
+    posix_publication_stage_reached(ANI_DAEMON_IPC_POSIX_PUBLICATION_ANCHOR_DURABLE);
 
     posix_socket_record_t pending = {
         .identity = anchor_identity,
@@ -2642,12 +2642,12 @@ cbm_daemon_ipc_listener_t *cbm_daemon_ipc_listen_reserved(
         endpoint, endpoint->socket_pending_name, POSIX_SOCKET_PENDING_MAGIC, &pending,
         &pending_status.st_dev, &pending_status.st_ino);
     if (!pending_published) {
-        cbm_log_error("daemon.ipc.listen_failed", "stage", "pending_publication");
+        ani_log_error("daemon.ipc.listen_failed", "stage", "pending_publication");
         posix_publication_abort(endpoint, &anchor_identity, false, NULL, false, NULL);
-        cbm_daemon_ipc_listener_close(listener);
+        ani_daemon_ipc_listener_close(listener);
         return NULL;
     }
-    posix_publication_stage_reached(CBM_DAEMON_IPC_POSIX_PUBLICATION_PENDING_DURABLE);
+    posix_publication_stage_reached(ANI_DAEMON_IPC_POSIX_PUBLICATION_PENDING_DURABLE);
 
     bool stable_linked = posix_linkat_no_follow(endpoint->dir_fd, endpoint->socket_anchor_name,
                                                 endpoint->dir_fd, endpoint->socket_name) == 0 &&
@@ -2666,14 +2666,14 @@ cbm_daemon_ipc_listener_t *cbm_daemon_ipc_listen_reserved(
         posix_socket_identity_equal(&stable_identity, &committed_identity) &&
         posix_socket_inode_equal(&anchor_identity, &committed_identity);
     if (!stable_valid) {
-        cbm_log_error("daemon.ipc.listen_failed", "stage", "stable_publication");
+        ani_log_error("daemon.ipc.listen_failed", "stage", "stable_publication");
         posix_publication_abort(endpoint, &anchor_identity, pending_published, &pending_status,
                                 false, NULL);
-        cbm_daemon_ipc_listener_close(listener);
+        ani_daemon_ipc_listener_close(listener);
         return NULL;
     }
     listener->socket_identity = committed_identity;
-    posix_publication_stage_reached(CBM_DAEMON_IPC_POSIX_PUBLICATION_STABLE_DURABLE);
+    posix_publication_stage_reached(ANI_DAEMON_IPC_POSIX_PUBLICATION_STABLE_DURABLE);
 
     posix_socket_record_t marker = {
         .identity = committed_identity,
@@ -2685,63 +2685,63 @@ cbm_daemon_ipc_listener_t *cbm_daemon_ipc_listen_reserved(
         endpoint, endpoint->socket_identity_name, POSIX_SOCKET_MARKER_MAGIC, &marker,
         &marker_status.st_dev, &marker_status.st_ino);
     if (!marker_published) {
-        cbm_log_error("daemon.ipc.listen_failed", "stage", "marker_publication");
+        ani_log_error("daemon.ipc.listen_failed", "stage", "marker_publication");
         posix_publication_abort(endpoint, &committed_identity, pending_published, &pending_status,
                                 false, NULL);
-        cbm_daemon_ipc_listener_close(listener);
+        ani_daemon_ipc_listener_close(listener);
         return NULL;
     }
     listener->identity_device = marker_status.st_dev;
     listener->identity_inode = marker_status.st_ino;
-    posix_publication_stage_reached(CBM_DAEMON_IPC_POSIX_PUBLICATION_MARKER_DURABLE);
+    posix_publication_stage_reached(ANI_DAEMON_IPC_POSIX_PUBLICATION_MARKER_DURABLE);
 
     if (!posix_path_unlink_regular_if_matches(endpoint->dir_fd, endpoint->socket_pending_name,
                                               pending_status.st_dev, pending_status.st_ino, 1) ||
         !posix_directory_sync(endpoint->dir_fd)) {
-        cbm_log_error("daemon.ipc.listen_failed", "stage", "pending_removal");
+        ani_log_error("daemon.ipc.listen_failed", "stage", "pending_removal");
         posix_publication_abort(endpoint, &committed_identity, true, &pending_status,
                                 marker_published, &marker_status);
-        cbm_daemon_ipc_listener_close(listener);
+        ani_daemon_ipc_listener_close(listener);
         return NULL;
     }
-    posix_publication_stage_reached(CBM_DAEMON_IPC_POSIX_PUBLICATION_PENDING_REMOVED);
+    posix_publication_stage_reached(ANI_DAEMON_IPC_POSIX_PUBLICATION_PENDING_REMOVED);
     listener->lifetime_reservation = lifetime_reservation;
     *reservation_io = NULL;
     return listener;
 }
 
-cbm_daemon_ipc_listener_t *cbm_daemon_ipc_listen(const cbm_daemon_ipc_endpoint_t *endpoint) {
-    cbm_daemon_ipc_startup_lock_t *startup_lock = NULL;
-    if (cbm_daemon_ipc_startup_lock_try_acquire(endpoint, &startup_lock) != 1) {
+ani_daemon_ipc_listener_t *ani_daemon_ipc_listen(const ani_daemon_ipc_endpoint_t *endpoint) {
+    ani_daemon_ipc_startup_lock_t *startup_lock = NULL;
+    if (ani_daemon_ipc_startup_lock_try_acquire(endpoint, &startup_lock) != 1) {
         return NULL;
     }
-    cbm_daemon_ipc_lifetime_reservation_t *reservation = NULL;
-    cbm_daemon_ipc_participant_guard_t *participant_guard = NULL;
-    if (cbm_daemon_ipc_stale_generation_cleanup(endpoint, startup_lock) != 1 ||
-        cbm_daemon_ipc_participant_guard_try_join(endpoint, &participant_guard) != 1 ||
-        cbm_daemon_ipc_lifetime_reservation_try_acquire(endpoint, &reservation) != 1) {
+    ani_daemon_ipc_lifetime_reservation_t *reservation = NULL;
+    ani_daemon_ipc_participant_guard_t *participant_guard = NULL;
+    if (ani_daemon_ipc_stale_generation_cleanup(endpoint, startup_lock) != 1 ||
+        ani_daemon_ipc_participant_guard_try_join(endpoint, &participant_guard) != 1 ||
+        ani_daemon_ipc_lifetime_reservation_try_acquire(endpoint, &reservation) != 1) {
         ipc_participant_guard_release_complete(&participant_guard);
         ipc_startup_lock_release_complete(&startup_lock);
         return NULL;
     }
-    cbm_daemon_ipc_listener_t *listener = cbm_daemon_ipc_listen_reserved(endpoint, &reservation);
+    ani_daemon_ipc_listener_t *listener = ani_daemon_ipc_listen_reserved(endpoint, &reservation);
     if (listener) {
         listener->participant_guard = participant_guard;
         participant_guard = NULL;
     }
-    cbm_daemon_ipc_lifetime_reservation_release(reservation);
+    ani_daemon_ipc_lifetime_reservation_release(reservation);
     ipc_participant_guard_release_complete(&participant_guard);
     ipc_startup_lock_release_complete(&startup_lock);
     return listener;
 }
 
-static void posix_listener_artifacts_remove_if_matches(cbm_daemon_ipc_listener_t *listener) {
+static void posix_listener_artifacts_remove_if_matches(ani_daemon_ipc_listener_t *listener) {
     if (!listener || listener->dir_fd < 0 || !listener->socket_name ||
         !listener->socket_anchor_name || !listener->socket_identity_name ||
         !listener->socket_pending_name || listener->owner_pid != getpid()) {
         return;
     }
-    cbm_daemon_ipc_endpoint_t view = {
+    ani_daemon_ipc_endpoint_t view = {
         .runtime_dir = listener->runtime_dir,
         .dir_device = listener->dir_device,
         .dir_inode = listener->dir_inode,
@@ -2816,7 +2816,7 @@ static void posix_listener_artifacts_remove_if_matches(cbm_daemon_ipc_listener_t
     (void)posix_directory_sync(listener->dir_fd);
 }
 
-void cbm_daemon_ipc_listener_close(cbm_daemon_ipc_listener_t *listener) {
+void ani_daemon_ipc_listener_close(ani_daemon_ipc_listener_t *listener) {
     if (!listener) {
         return;
     }
@@ -2828,7 +2828,7 @@ void cbm_daemon_ipc_listener_close(cbm_daemon_ipc_listener_t *listener) {
         posix_listener_artifacts_remove_if_matches(listener);
         (void)close(listener->dir_fd);
     }
-    cbm_daemon_ipc_lifetime_reservation_release(listener->lifetime_reservation);
+    ani_daemon_ipc_lifetime_reservation_release(listener->lifetime_reservation);
     ipc_participant_guard_release_complete(&listener->participant_guard);
     free(listener->runtime_dir);
     free(listener->address);
@@ -2839,8 +2839,8 @@ void cbm_daemon_ipc_listener_close(cbm_daemon_ipc_listener_t *listener) {
     free(listener);
 }
 
-int cbm_daemon_ipc_accept(cbm_daemon_ipc_listener_t *listener, uint32_t timeout_ms,
-                          cbm_daemon_ipc_connection_t **connection_out) {
+int ani_daemon_ipc_accept(ani_daemon_ipc_listener_t *listener, uint32_t timeout_ms,
+                          ani_daemon_ipc_connection_t **connection_out) {
     if (connection_out) {
         *connection_out = NULL;
     }
@@ -2865,7 +2865,7 @@ int cbm_daemon_ipc_accept(cbm_daemon_ipc_listener_t *listener, uint32_t timeout_
             (void)close(fd);
             return -1;
         }
-        cbm_daemon_ipc_connection_t *connection = malloc(sizeof(*connection));
+        ani_daemon_ipc_connection_t *connection = malloc(sizeof(*connection));
         if (!connection) {
             (void)close(fd);
             return -1;
@@ -2877,7 +2877,7 @@ int cbm_daemon_ipc_accept(cbm_daemon_ipc_listener_t *listener, uint32_t timeout_
     }
 }
 
-int cbm_daemon_ipc_endpoint_probe(const cbm_daemon_ipc_endpoint_t *endpoint, uint32_t timeout_ms) {
+int ani_daemon_ipc_endpoint_probe(const ani_daemon_ipc_endpoint_t *endpoint, uint32_t timeout_ms) {
     if (!endpoint_runtime_still_valid(endpoint)) {
         return -1;
     }
@@ -2960,7 +2960,7 @@ int cbm_daemon_ipc_endpoint_probe(const cbm_daemon_ipc_endpoint_t *endpoint, uin
     return -1;
 }
 
-cbm_daemon_ipc_connection_t *cbm_daemon_ipc_connect(const cbm_daemon_ipc_endpoint_t *endpoint,
+ani_daemon_ipc_connection_t *ani_daemon_ipc_connect(const ani_daemon_ipc_endpoint_t *endpoint,
                                                     uint32_t timeout_ms) {
     if (!endpoint_runtime_still_valid(endpoint)) {
         return NULL;
@@ -3024,7 +3024,7 @@ cbm_daemon_ipc_connection_t *cbm_daemon_ipc_connect(const cbm_daemon_ipc_endpoin
             return NULL;
         }
 
-        cbm_daemon_ipc_connection_t *connection = malloc(sizeof(*connection));
+        ani_daemon_ipc_connection_t *connection = malloc(sizeof(*connection));
         if (!connection) {
             (void)close(fd);
             return NULL;
@@ -3035,7 +3035,7 @@ cbm_daemon_ipc_connection_t *cbm_daemon_ipc_connect(const cbm_daemon_ipc_endpoin
     }
 }
 
-void cbm_daemon_ipc_connection_close(cbm_daemon_ipc_connection_t *connection) {
+void ani_daemon_ipc_connection_close(ani_daemon_ipc_connection_t *connection) {
     if (!connection) {
         return;
     }
@@ -3045,20 +3045,20 @@ void cbm_daemon_ipc_connection_close(cbm_daemon_ipc_connection_t *connection) {
     free(connection);
 }
 
-void cbm_daemon_ipc_connection_drain(cbm_daemon_ipc_connection_t *connection, uint32_t timeout_ms) {
+void ani_daemon_ipc_connection_drain(ani_daemon_ipc_connection_t *connection, uint32_t timeout_ms) {
     /* POSIX stream sockets deliver buffered data after close; the final
      * response cannot be lost to an immediate close, so no wait is needed. */
     (void)connection;
     (void)timeout_ms;
 }
 
-void cbm_daemon_ipc_connection_interrupt(cbm_daemon_ipc_connection_t *connection) {
+void ani_daemon_ipc_connection_interrupt(ani_daemon_ipc_connection_t *connection) {
     if (connection && connection->fd >= 0) {
         (void)shutdown(connection->fd, SHUT_RDWR);
     }
 }
 
-uint64_t cbm_daemon_ipc_connection_peer_pid(const cbm_daemon_ipc_connection_t *connection) {
+uint64_t ani_daemon_ipc_connection_peer_pid(const ani_daemon_ipc_connection_t *connection) {
     if (!connection || connection->fd < 0 || !socket_peer_is_current_user(connection->fd)) {
         return 0;
     }
@@ -3091,8 +3091,8 @@ uint64_t cbm_daemon_ipc_connection_peer_pid(const cbm_daemon_ipc_connection_t *c
 #endif
 }
 
-int cbm_daemon_ipc_startup_lock_try_acquire(const cbm_daemon_ipc_endpoint_t *endpoint,
-                                            cbm_daemon_ipc_startup_lock_t **lock_out) {
+int ani_daemon_ipc_startup_lock_try_acquire(const ani_daemon_ipc_endpoint_t *endpoint,
+                                            ani_daemon_ipc_startup_lock_t **lock_out) {
     if (lock_out) {
         *lock_out = NULL;
     }
@@ -3114,13 +3114,13 @@ int cbm_daemon_ipc_startup_lock_try_acquire(const cbm_daemon_ipc_endpoint_t *end
         posix_named_lock_release(startup_v2_fd, startup_v2_process_entry);
         return legacy_result;
     }
-    cbm_daemon_ipc_startup_lock_t *lock = calloc(1, sizeof(*lock));
+    ani_daemon_ipc_startup_lock_t *lock = calloc(1, sizeof(*lock));
     if (lock) {
         lock->endpoint_snapshot = endpoint_snapshot_new(endpoint);
     }
     if (!lock || !lock->endpoint_snapshot) {
         if (lock) {
-            cbm_daemon_ipc_endpoint_free(lock->endpoint_snapshot);
+            ani_daemon_ipc_endpoint_free(lock->endpoint_snapshot);
         }
         free(lock);
         posix_named_lock_release(legacy_fd, legacy_process_entry);
@@ -3136,34 +3136,34 @@ int cbm_daemon_ipc_startup_lock_try_acquire(const cbm_daemon_ipc_endpoint_t *end
     return 1;
 }
 
-int cbm_daemon_ipc_generation_probe_under_startup_lock(
-    const cbm_daemon_ipc_endpoint_t *endpoint, const cbm_daemon_ipc_startup_lock_t *startup_lock) {
+int ani_daemon_ipc_generation_probe_under_startup_lock(
+    const ani_daemon_ipc_endpoint_t *endpoint, const ani_daemon_ipc_startup_lock_t *startup_lock) {
     if (!posix_startup_lock_matches_endpoint(endpoint, startup_lock) || startup_lock->prepared) {
         return -1;
     }
-    int lifetime = cbm_daemon_ipc_lifetime_reservation_probe(endpoint);
+    int lifetime = ani_daemon_ipc_lifetime_reservation_probe(endpoint);
     if (lifetime != 0) {
         return lifetime;
     }
-    return cbm_daemon_ipc_endpoint_probe(endpoint, 0);
+    return ani_daemon_ipc_endpoint_probe(endpoint, 0);
 }
 
-bool cbm_daemon_ipc_startup_lock_prepare_handoff(cbm_daemon_ipc_startup_lock_t *lock) {
+bool ani_daemon_ipc_startup_lock_prepare_handoff(ani_daemon_ipc_startup_lock_t *lock) {
     if (!lock || !lock->endpoint_snapshot) {
         return false;
     }
     if (lock->prepared) {
         return true;
     }
-    lock->prepared = cbm_daemon_ipc_stale_generation_cleanup(lock->endpoint_snapshot, lock) == 1;
+    lock->prepared = ani_daemon_ipc_stale_generation_cleanup(lock->endpoint_snapshot, lock) == 1;
     return lock->prepared;
 }
 
-bool cbm_daemon_ipc_startup_lock_release(cbm_daemon_ipc_startup_lock_t **lock_io) {
+bool ani_daemon_ipc_startup_lock_release(ani_daemon_ipc_startup_lock_t **lock_io) {
     if (!lock_io) {
         return false;
     }
-    cbm_daemon_ipc_startup_lock_t *lock = *lock_io;
+    ani_daemon_ipc_startup_lock_t *lock = *lock_io;
     if (!lock) {
         return true;
     }
@@ -3172,14 +3172,14 @@ bool cbm_daemon_ipc_startup_lock_release(cbm_daemon_ipc_startup_lock_t **lock_io
     }
     posix_named_lock_release(lock->legacy_fd, lock->legacy_process_entry);
     posix_named_lock_release(lock->startup_v2_fd, lock->startup_v2_process_entry);
-    cbm_daemon_ipc_endpoint_free(lock->endpoint_snapshot);
+    ani_daemon_ipc_endpoint_free(lock->endpoint_snapshot);
     free(lock);
     *lock_io = NULL;
     return true;
 }
 
-int cbm_daemon_ipc_participant_guard_try_join(const cbm_daemon_ipc_endpoint_t *endpoint,
-                                              cbm_daemon_ipc_participant_guard_t **guard_out) {
+int ani_daemon_ipc_participant_guard_try_join(const ani_daemon_ipc_endpoint_t *endpoint,
+                                              ani_daemon_ipc_participant_guard_t **guard_out) {
     if (guard_out) {
         *guard_out = NULL;
     }
@@ -3193,7 +3193,7 @@ int cbm_daemon_ipc_participant_guard_try_join(const cbm_daemon_ipc_endpoint_t *e
     if (result != 1) {
         return result;
     }
-    cbm_daemon_ipc_participant_guard_t *guard = calloc(1, sizeof(*guard));
+    ani_daemon_ipc_participant_guard_t *guard = calloc(1, sizeof(*guard));
     if (!guard) {
         posix_named_lock_release(legacy_fd, legacy_process_entry);
         return -1;
@@ -3205,11 +3205,11 @@ int cbm_daemon_ipc_participant_guard_try_join(const cbm_daemon_ipc_endpoint_t *e
     return 1;
 }
 
-bool cbm_daemon_ipc_participant_guard_release(cbm_daemon_ipc_participant_guard_t **guard_io) {
+bool ani_daemon_ipc_participant_guard_release(ani_daemon_ipc_participant_guard_t **guard_io) {
     if (!guard_io) {
         return false;
     }
-    cbm_daemon_ipc_participant_guard_t *guard = *guard_io;
+    ani_daemon_ipc_participant_guard_t *guard = *guard_io;
     if (!guard) {
         return true;
     }
@@ -3222,8 +3222,8 @@ bool cbm_daemon_ipc_participant_guard_release(cbm_daemon_ipc_participant_guard_t
     return true;
 }
 
-int cbm_daemon_ipc_local_transition_try_acquire(
-    const cbm_daemon_ipc_endpoint_t *endpoint, cbm_daemon_ipc_local_transition_t **transition_out) {
+int ani_daemon_ipc_local_transition_try_acquire(
+    const ani_daemon_ipc_endpoint_t *endpoint, ani_daemon_ipc_local_transition_t **transition_out) {
     if (transition_out) {
         *transition_out = NULL;
     }
@@ -3245,7 +3245,7 @@ int cbm_daemon_ipc_local_transition_try_acquire(
         posix_named_lock_release(startup_v2_fd, startup_v2_process_entry);
         return legacy_result;
     }
-    cbm_daemon_ipc_local_transition_t *transition = calloc(1, sizeof(*transition));
+    ani_daemon_ipc_local_transition_t *transition = calloc(1, sizeof(*transition));
     if (!transition) {
         posix_named_lock_release(legacy_fd, legacy_process_entry);
         posix_named_lock_release(startup_v2_fd, startup_v2_process_entry);
@@ -3261,7 +3261,7 @@ int cbm_daemon_ipc_local_transition_try_acquire(
     return 1;
 }
 
-int cbm_daemon_ipc_local_transition_seal_legacy(cbm_daemon_ipc_local_transition_t *transition) {
+int ani_daemon_ipc_local_transition_seal_legacy(ani_daemon_ipc_local_transition_t *transition) {
     if (!transition || !transition->endpoint ||
         !posix_named_lock_is_retained(
             transition->endpoint, transition->endpoint->startup_v2_lock_name, false,
@@ -3276,7 +3276,7 @@ int cbm_daemon_ipc_local_transition_seal_legacy(cbm_daemon_ipc_local_transition_
     if (transition->sealed) {
         return 1;
     }
-    int lifetime = cbm_daemon_ipc_lifetime_reservation_probe(transition->endpoint);
+    int lifetime = ani_daemon_ipc_lifetime_reservation_probe(transition->endpoint);
     int result = lifetime == 1   ? 1
                  : lifetime == 0 ? posix_stale_generation_cleanup_locked(transition->endpoint)
                                  : -1;
@@ -3286,9 +3286,9 @@ int cbm_daemon_ipc_local_transition_seal_legacy(cbm_daemon_ipc_local_transition_
     return result;
 }
 
-int cbm_daemon_ipc_local_transition_lifetime_probe(
-    const cbm_daemon_ipc_endpoint_t *endpoint,
-    const cbm_daemon_ipc_local_transition_t *transition) {
+int ani_daemon_ipc_local_transition_lifetime_probe(
+    const ani_daemon_ipc_endpoint_t *endpoint,
+    const ani_daemon_ipc_local_transition_t *transition) {
     if (!transition || !transition->sealed || !transition->endpoint || transition->work_begun ||
         !posix_endpoint_namespace_equal(endpoint, transition->endpoint) ||
         !posix_named_lock_is_retained(
@@ -3298,10 +3298,10 @@ int cbm_daemon_ipc_local_transition_lifetime_probe(
                                       transition->legacy_process_entry, transition->owner_pid)) {
         return -1;
     }
-    return cbm_daemon_ipc_lifetime_reservation_probe(endpoint);
+    return ani_daemon_ipc_lifetime_reservation_probe(endpoint);
 }
 
-bool cbm_daemon_ipc_local_transition_begin_work(cbm_daemon_ipc_local_transition_t *transition) {
+bool ani_daemon_ipc_local_transition_begin_work(ani_daemon_ipc_local_transition_t *transition) {
     if (!transition || !transition->sealed || transition->work_begun || !transition->endpoint ||
         !posix_named_lock_is_retained(
             transition->endpoint, transition->endpoint->startup_v2_lock_name, false,
@@ -3319,11 +3319,11 @@ bool cbm_daemon_ipc_local_transition_begin_work(cbm_daemon_ipc_local_transition_
     return true;
 }
 
-bool cbm_daemon_ipc_local_transition_release(cbm_daemon_ipc_local_transition_t **transition_io) {
+bool ani_daemon_ipc_local_transition_release(ani_daemon_ipc_local_transition_t **transition_io) {
     if (!transition_io) {
         return false;
     }
-    cbm_daemon_ipc_local_transition_t *transition = *transition_io;
+    ani_daemon_ipc_local_transition_t *transition = *transition_io;
     if (!transition) {
         return true;
     }
@@ -3425,32 +3425,32 @@ typedef struct {
 } win_security_t;
 
 typedef struct win_generation_address {
-    char address[CBM_DAEMON_IPC_WINDOWS_NAME_CAP];
+    char address[ANI_DAEMON_IPC_WINDOWS_NAME_CAP];
     wchar_t *pipe_name;
     struct win_generation_address *next;
 } win_generation_address_t;
 
 typedef struct win_legacy_mutex_guard win_legacy_mutex_guard_t;
 
-struct cbm_daemon_ipc_lifetime_reservation {
-    const struct cbm_daemon_ipc_endpoint *endpoint;
-    cbm_private_lock_directory_t *directory;
-    cbm_private_file_lock_t *lock;
+struct ani_daemon_ipc_lifetime_reservation {
+    const struct ani_daemon_ipc_endpoint *endpoint;
+    ani_private_lock_directory_t *directory;
+    ani_private_file_lock_t *lock;
 };
 
-struct cbm_daemon_ipc_endpoint {
+struct ani_daemon_ipc_endpoint {
     char *runtime_dir;
     char instance_key[17];
     uint8_t *user_sid;
     size_t user_sid_length;
     wchar_t *legacy_pipe_name;
     wchar_t *legacy_startup_mutex_name;
-    cbm_mutex_t generations_lock;
+    ani_mutex_t generations_lock;
     _Atomic(win_generation_address_t *) current_generation;
     win_generation_address_t *generations;
 };
 
-struct cbm_daemon_ipc_listener {
+struct ani_daemon_ipc_listener {
     wchar_t *pipe_name;
     HANDLE pipe;
     bool first_instance;
@@ -3462,48 +3462,48 @@ struct cbm_daemon_ipc_listener {
     HANDLE connect_event;
     OVERLAPPED connect_overlapped;
     bool connect_pending;
-    cbm_daemon_ipc_lifetime_reservation_t *lifetime_reservation;
-    cbm_daemon_ipc_participant_guard_t *participant_guard;
+    ani_daemon_ipc_lifetime_reservation_t *lifetime_reservation;
+    ani_daemon_ipc_participant_guard_t *participant_guard;
 };
 
 typedef enum {
-    CBM_DAEMON_IPC_PIPE_ROLE_ACCEPTED_SERVER = 1,
-    CBM_DAEMON_IPC_PIPE_ROLE_CONNECTED_CLIENT = 2,
-} cbm_daemon_ipc_pipe_role_t;
+    ANI_DAEMON_IPC_PIPE_ROLE_ACCEPTED_SERVER = 1,
+    ANI_DAEMON_IPC_PIPE_ROLE_CONNECTED_CLIENT = 2,
+} ani_daemon_ipc_pipe_role_t;
 
-struct cbm_daemon_ipc_connection {
+struct ani_daemon_ipc_connection {
     HANDLE handle;
     atomic_bool poisoned;
-    cbm_daemon_ipc_pipe_role_t role;
+    ani_daemon_ipc_pipe_role_t role;
 };
 
-struct cbm_daemon_ipc_startup_lock {
-    const cbm_daemon_ipc_endpoint_t *endpoint;
-    cbm_private_lock_directory_t *directory;
-    cbm_private_file_lock_t *startup_v2_lock;
+struct ani_daemon_ipc_startup_lock {
+    const ani_daemon_ipc_endpoint_t *endpoint;
+    ani_private_lock_directory_t *directory;
+    ani_private_file_lock_t *startup_v2_lock;
     win_legacy_mutex_guard_t *legacy_guard;
-    cbm_private_file_lock_t *group_lock;
+    ani_private_file_lock_t *group_lock;
     HANDLE legacy_sentinel;
     bool prepared;
 };
 
-struct cbm_daemon_ipc_local_transition {
-    const cbm_daemon_ipc_endpoint_t *endpoint;
-    cbm_private_lock_directory_t *directory;
-    cbm_private_file_lock_t *startup_v2_lock;
-    cbm_private_file_lock_t *group_lock;
+struct ani_daemon_ipc_local_transition {
+    const ani_daemon_ipc_endpoint_t *endpoint;
+    ani_private_lock_directory_t *directory;
+    ani_private_file_lock_t *startup_v2_lock;
+    ani_private_file_lock_t *group_lock;
     HANDLE legacy_sentinel;
     win_legacy_mutex_guard_t *teardown_legacy_guard;
     bool sealed;
     bool work_begun;
 };
 
-struct cbm_daemon_ipc_participant_guard {
-    const cbm_daemon_ipc_endpoint_t *endpoint;
-    cbm_private_lock_directory_t *directory;
-    cbm_private_file_lock_t *group_lock;
+struct ani_daemon_ipc_participant_guard {
+    const ani_daemon_ipc_endpoint_t *endpoint;
+    ani_private_lock_directory_t *directory;
+    ani_private_file_lock_t *group_lock;
     HANDLE legacy_sentinel;
-    cbm_private_file_lock_t *teardown_startup_v2_lock;
+    ani_private_file_lock_t *teardown_startup_v2_lock;
     win_legacy_mutex_guard_t *teardown_legacy_guard;
 };
 
@@ -3512,14 +3512,14 @@ static uint64_t ipc_now_ms(void) {
 }
 
 static uint64_t ipc_deadline_after(uint32_t timeout_ms) {
-    if (timeout_ms == CBM_DAEMON_IPC_WAIT_FOREVER) {
+    if (timeout_ms == ANI_DAEMON_IPC_WAIT_FOREVER) {
         return UINT64_MAX;
     }
     return ipc_now_ms() + (uint64_t)timeout_ms;
 }
 
 static _Noreturn void ipc_coordination_cleanup_fail_stop(const char *component) {
-    cbm_log_error("daemon.forced_shutdown", "component", component, "action",
+    ani_log_error("daemon.forced_shutdown", "component", component, "action",
                   "coordination_cleanup");
     (void)fflush(stdout);
     (void)fflush(stderr);
@@ -3527,10 +3527,10 @@ static _Noreturn void ipc_coordination_cleanup_fail_stop(const char *component) 
     abort();
 }
 
-static void ipc_startup_lock_release_complete(cbm_daemon_ipc_startup_lock_t **lock_io) {
-    uint64_t deadline = ipc_deadline_after(CBM_DAEMON_IPC_COORDINATION_CLEANUP_MS);
+static void ipc_startup_lock_release_complete(ani_daemon_ipc_startup_lock_t **lock_io) {
+    uint64_t deadline = ipc_deadline_after(ANI_DAEMON_IPC_COORDINATION_CLEANUP_MS);
     while (lock_io && *lock_io) {
-        (void)cbm_daemon_ipc_startup_lock_release(lock_io);
+        (void)ani_daemon_ipc_startup_lock_release(lock_io);
         if (!*lock_io) {
             return;
         }
@@ -3541,10 +3541,10 @@ static void ipc_startup_lock_release_complete(cbm_daemon_ipc_startup_lock_t **lo
     }
 }
 
-static void ipc_participant_guard_release_complete(cbm_daemon_ipc_participant_guard_t **guard_io) {
-    uint64_t deadline = ipc_deadline_after(CBM_DAEMON_IPC_COORDINATION_CLEANUP_MS);
+static void ipc_participant_guard_release_complete(ani_daemon_ipc_participant_guard_t **guard_io) {
+    uint64_t deadline = ipc_deadline_after(ANI_DAEMON_IPC_COORDINATION_CLEANUP_MS);
     while (guard_io && *guard_io) {
-        (void)cbm_daemon_ipc_participant_guard_release(guard_io);
+        (void)ani_daemon_ipc_participant_guard_release(guard_io);
         if (!*guard_io) {
             return;
         }
@@ -3572,9 +3572,9 @@ static bool win_retry_pause(uint64_t deadline_ms) {
     if (remaining_ms == 0) {
         return false;
     }
-    DWORD pause_ms = remaining_ms < CBM_DAEMON_IPC_RETRY_INTERVAL_MS
+    DWORD pause_ms = remaining_ms < ANI_DAEMON_IPC_RETRY_INTERVAL_MS
                          ? remaining_ms
-                         : CBM_DAEMON_IPC_RETRY_INTERVAL_MS;
+                         : ANI_DAEMON_IPC_RETRY_INTERVAL_MS;
     Sleep(pause_ms);
     return true;
 }
@@ -3832,7 +3832,7 @@ struct win_legacy_mutex_guard {
     HANDLE mutex;
     HANDLE ready_event;
     HANDLE stop_event;
-    cbm_thread_t owner_thread;
+    ani_thread_t owner_thread;
     bool owner_started;
     atomic_bool release_ok;
     atomic_int acquire_result;
@@ -3876,7 +3876,7 @@ static bool win_legacy_mutex_guard_release(win_legacy_mutex_guard_t **guard_io) 
         }
     }
     bool stopped = !guard->owner_started || SetEvent(guard->stop_event) != 0;
-    bool joined = !guard->owner_started || cbm_thread_join(&guard->owner_thread) == 0;
+    bool joined = !guard->owner_started || ani_thread_join(&guard->owner_thread) == 0;
     bool released =
         stopped && joined && atomic_load_explicit(&guard->release_ok, memory_order_acquire);
     if (!joined) {
@@ -3897,7 +3897,7 @@ static bool win_legacy_mutex_guard_release(win_legacy_mutex_guard_t **guard_io) 
 }
 
 static void win_legacy_mutex_guard_release_complete(win_legacy_mutex_guard_t **guard_io) {
-    uint64_t deadline = ipc_deadline_after(CBM_DAEMON_IPC_COORDINATION_CLEANUP_MS);
+    uint64_t deadline = ipc_deadline_after(ANI_DAEMON_IPC_COORDINATION_CLEANUP_MS);
     while (guard_io && *guard_io) {
         (void)win_legacy_mutex_guard_release(guard_io);
         if (!*guard_io) {
@@ -3910,7 +3910,7 @@ static void win_legacy_mutex_guard_release_complete(win_legacy_mutex_guard_t **g
     }
 }
 
-static int win_legacy_mutex_guard_try_acquire(const cbm_daemon_ipc_endpoint_t *endpoint,
+static int win_legacy_mutex_guard_try_acquire(const ani_daemon_ipc_endpoint_t *endpoint,
                                               win_legacy_mutex_guard_t **guard_out) {
     if (guard_out) {
         *guard_out = NULL;
@@ -3951,7 +3951,7 @@ static int win_legacy_mutex_guard_try_acquire(const cbm_daemon_ipc_endpoint_t *e
         atomic_init(&guard->acquire_result, -1);
     }
     if (!guard || !guard->ready_event || !guard->stop_event ||
-        cbm_thread_create(&guard->owner_thread, 0, win_legacy_mutex_owner, guard) != 0) {
+        ani_thread_create(&guard->owner_thread, 0, win_legacy_mutex_owner, guard) != 0) {
         if (guard) {
             win_legacy_mutex_guard_release_complete(&guard);
         } else {
@@ -3981,10 +3981,10 @@ typedef enum {
 } win_rendezvous_status_t;
 
 static win_rendezvous_status_t win_endpoint_refresh_rendezvous(
-    const cbm_daemon_ipc_endpoint_t *endpoint);
+    const ani_daemon_ipc_endpoint_t *endpoint);
 static win_generation_address_t *win_endpoint_generation_snapshot(
-    const cbm_daemon_ipc_endpoint_t *endpoint);
-static int win_legacy_pipe_probe(const cbm_daemon_ipc_endpoint_t *endpoint);
+    const ani_daemon_ipc_endpoint_t *endpoint);
+static int win_legacy_pipe_probe(const ani_daemon_ipc_endpoint_t *endpoint);
 
 static uint32_t win_sid_read_u32_le(const uint8_t *bytes) {
     return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8U) | ((uint32_t)bytes[2] << 16U) |
@@ -4290,7 +4290,7 @@ static bool win_file_dacl_is_empty(win_security_t *security, HANDLE file) {
  *  - failures are counted and reported, never fatal. This runs inside daemon
  *    startup and must not be able to prevent it.
  *
- * Scope note: this only ever runs on cbm's own runtime/cache directory, which
+ * Scope note: this only ever runs on ani's own runtime/cache directory, which
  * we created and own. It does not reach into user directories. */
 static void win_repair_runtime_children(win_security_t *security, const wchar_t *runtime_dir) {
     enum { WIN_CHILD_REPAIR_MAX = 4096 };
@@ -4365,7 +4365,7 @@ static void win_repair_runtime_children(win_security_t *security, const wchar_t 
         char failed_text[16];
         (void)snprintf(repaired_text, sizeof(repaired_text), "%u", repaired);
         (void)snprintf(failed_text, sizeof(failed_text), "%u", failed);
-        cbm_log_warn("daemon.runtime_child_acl_repaired", "repaired", repaired_text, "failed",
+        ani_log_warn("daemon.runtime_child_acl_repaired", "repaired", repaired_text, "failed",
                      failed_text);
     }
 }
@@ -4567,7 +4567,7 @@ static bool win_private_directory_tree_secure(const wchar_t *directory_path) {
     return ok;
 }
 
-bool cbm_daemon_ipc_private_directory_secure(const char *directory_path) {
+bool ani_daemon_ipc_private_directory_secure(const char *directory_path) {
     ipc_validation_detail_set("%s", "");
     if (!directory_path || !directory_path[0]) {
         return false;
@@ -4622,7 +4622,7 @@ static HANDLE win_private_log_file_open(const wchar_t *path, DWORD creation_disp
     return file;
 }
 
-FILE *cbm_daemon_ipc_private_log_open(const char *directory_path, const char *base_name,
+FILE *ani_daemon_ipc_private_log_open(const char *directory_path, const char *base_name,
                                       size_t rotate_cap_bytes) {
     if (!directory_path || !directory_path[0] || !private_log_base_name_valid(base_name) ||
         rotate_cap_bytes == 0) {
@@ -4719,7 +4719,7 @@ static wchar_t *win_default_runtime_parent(void) {
     return SUCCEEDED(result) ? wide_copy(path) : NULL;
 }
 
-cbm_daemon_ipc_endpoint_t *cbm_daemon_ipc_endpoint_new(const char *instance_key,
+ani_daemon_ipc_endpoint_t *ani_daemon_ipc_endpoint_new(const char *instance_key,
                                                        const char *runtime_parent) {
     if (!instance_key_valid(instance_key)) {
         return NULL;
@@ -4740,8 +4740,8 @@ cbm_daemon_ipc_endpoint_t *cbm_daemon_ipc_endpoint_new(const char *instance_key,
     }
     free(parent_wide);
 
-    char canonical_parent[CBM_DAEMON_IPC_PATH_CAP];
-    if (!cbm_canonical_path(parent_utf8, canonical_parent, sizeof(canonical_parent))) {
+    char canonical_parent[ANI_DAEMON_IPC_PATH_CAP];
+    if (!ani_canonical_path(parent_utf8, canonical_parent, sizeof(canonical_parent))) {
         free(parent_utf8);
         return NULL;
     }
@@ -4758,7 +4758,7 @@ cbm_daemon_ipc_endpoint_t *cbm_daemon_ipc_endpoint_new(const char *instance_key,
     size_t parent_length = strlen(parent_utf8);
     bool has_separator = parent_length > 0 && (parent_utf8[parent_length - 1] == '/' ||
                                                parent_utf8[parent_length - 1] == '\\');
-    cbm_daemon_ipc_endpoint_t *endpoint = calloc(1, sizeof(*endpoint));
+    ani_daemon_ipc_endpoint_t *endpoint = calloc(1, sizeof(*endpoint));
     if (!endpoint) {
         free(parent_utf8);
         return NULL;
@@ -4783,16 +4783,16 @@ cbm_daemon_ipc_endpoint_t *cbm_daemon_ipc_endpoint_new(const char *instance_key,
         free(endpoint);
         return NULL;
     }
-    char legacy_pipe[CBM_DAEMON_IPC_WINDOWS_NAME_CAP];
-    char legacy_startup[CBM_DAEMON_IPC_WINDOWS_NAME_CAP];
+    char legacy_pipe[ANI_DAEMON_IPC_WINDOWS_NAME_CAP];
+    char legacy_startup[ANI_DAEMON_IPC_WINDOWS_NAME_CAP];
     bool legacy_names_ok =
-        cbm_daemon_ipc_windows_legacy_names(parent_utf8, instance_key, legacy_pipe, legacy_startup);
+        ani_daemon_ipc_windows_legacy_names(parent_utf8, instance_key, legacy_pipe, legacy_startup);
     endpoint->runtime_dir =
-        string_format("%s%scbm-daemon-%s", parent_utf8, has_separator ? "" : "/", instance_key);
+        string_format("%s%sani-daemon-%s", parent_utf8, has_separator ? "" : "/", instance_key);
     endpoint->legacy_pipe_name = legacy_names_ok ? utf8_to_wide(legacy_pipe) : NULL;
     endpoint->legacy_startup_mutex_name = legacy_names_ok ? utf8_to_wide(legacy_startup) : NULL;
     (void)memcpy(endpoint->instance_key, instance_key, sizeof(endpoint->instance_key));
-    cbm_mutex_init(&endpoint->generations_lock);
+    ani_mutex_init(&endpoint->generations_lock);
     atomic_init(&endpoint->current_generation, NULL);
     free(parent_utf8);
     wchar_t *runtime_wide = utf8_to_wide(endpoint->runtime_dir);
@@ -4800,7 +4800,7 @@ cbm_daemon_ipc_endpoint_t *cbm_daemon_ipc_endpoint_new(const char *instance_key,
         !endpoint->legacy_pipe_name || !endpoint->legacy_startup_mutex_name ||
         !win_private_directory_tree_secure(runtime_wide)) {
         free(runtime_wide);
-        cbm_daemon_ipc_endpoint_free(endpoint);
+        ani_daemon_ipc_endpoint_free(endpoint);
         return NULL;
     }
     free(runtime_wide);
@@ -4811,7 +4811,7 @@ cbm_daemon_ipc_endpoint_t *cbm_daemon_ipc_endpoint_new(const char *instance_key,
     return endpoint;
 }
 
-void cbm_daemon_ipc_endpoint_free(cbm_daemon_ipc_endpoint_t *endpoint) {
+void ani_daemon_ipc_endpoint_free(ani_daemon_ipc_endpoint_t *endpoint) {
     if (!endpoint) {
         return;
     }
@@ -4822,7 +4822,7 @@ void cbm_daemon_ipc_endpoint_free(cbm_daemon_ipc_endpoint_t *endpoint) {
         free(generation);
         generation = next;
     }
-    cbm_mutex_destroy(&endpoint->generations_lock);
+    ani_mutex_destroy(&endpoint->generations_lock);
     free(endpoint->runtime_dir);
     free(endpoint->legacy_pipe_name);
     free(endpoint->legacy_startup_mutex_name);
@@ -4830,7 +4830,7 @@ void cbm_daemon_ipc_endpoint_free(cbm_daemon_ipc_endpoint_t *endpoint) {
     free(endpoint);
 }
 
-const char *cbm_daemon_ipc_endpoint_address(const cbm_daemon_ipc_endpoint_t *endpoint) {
+const char *ani_daemon_ipc_endpoint_address(const ani_daemon_ipc_endpoint_t *endpoint) {
     if (!endpoint || win_endpoint_refresh_rendezvous(endpoint) != WIN_RENDEZVOUS_VALID) {
         return NULL;
     }
@@ -4838,21 +4838,21 @@ const char *cbm_daemon_ipc_endpoint_address(const cbm_daemon_ipc_endpoint_t *end
     return generation ? generation->address : NULL;
 }
 
-const char *cbm_daemon_ipc_endpoint_runtime_dir(const cbm_daemon_ipc_endpoint_t *endpoint) {
+const char *ani_daemon_ipc_endpoint_runtime_dir(const ani_daemon_ipc_endpoint_t *endpoint) {
     return endpoint ? endpoint->runtime_dir : NULL;
 }
 
-cbm_private_file_lock_status_t cbm_daemon_ipc_private_lock_directory_new(
-    const cbm_daemon_ipc_endpoint_t *endpoint, cbm_private_lock_directory_t **directory_out) {
+ani_private_file_lock_status_t ani_daemon_ipc_private_lock_directory_new(
+    const ani_daemon_ipc_endpoint_t *endpoint, ani_private_lock_directory_t **directory_out) {
     if (directory_out) {
         *directory_out = NULL;
     }
     if (!directory_out || !endpoint || !endpoint->runtime_dir) {
-        return CBM_PRIVATE_FILE_LOCK_UNSAFE;
+        return ANI_PRIVATE_FILE_LOCK_UNSAFE;
     }
     wchar_t *runtime_wide = utf8_to_wide(endpoint->runtime_dir);
     if (!runtime_wide) {
-        return CBM_PRIVATE_FILE_LOCK_IO;
+        return ANI_PRIVATE_FILE_LOCK_IO;
     }
     HANDLE directory =
         CreateFileW(runtime_wide, FILE_READ_ATTRIBUTES | READ_CONTROL,
@@ -4860,25 +4860,25 @@ cbm_private_file_lock_status_t cbm_daemon_ipc_private_lock_directory_new(
                     FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
     free(runtime_wide);
     if (directory == INVALID_HANDLE_VALUE) {
-        return CBM_PRIVATE_FILE_LOCK_IO;
+        return ANI_PRIVATE_FILE_LOCK_IO;
     }
     (void)SetHandleInformation(directory, HANDLE_FLAG_INHERIT, 0);
-    cbm_private_file_lock_status_t status =
-        cbm_private_lock_directory_adopt_windows(directory, endpoint->runtime_dir, directory_out);
-    if (status != CBM_PRIVATE_FILE_LOCK_OK) {
+    ani_private_file_lock_status_t status =
+        ani_private_lock_directory_adopt_windows(directory, endpoint->runtime_dir, directory_out);
+    if (status != ANI_PRIVATE_FILE_LOCK_OK) {
         (void)CloseHandle(directory);
     }
     return status;
 }
 
-static const char WIN_STARTUP_V2_LOCK_NAME[] = "cbm-startup-v2.lock";
-static const char WIN_PARTICIPANT_GROUP_LOCK_NAME[] = "cbm-participant-group-v1.lock";
-static const char WIN_LIFETIME_LOCK_NAME[] = "cbm-lifetime.lock";
+static const char WIN_STARTUP_V2_LOCK_NAME[] = "ani-startup-v2.lock";
+static const char WIN_PARTICIPANT_GROUP_LOCK_NAME[] = "ani-participant-group-v1.lock";
+static const char WIN_LIFETIME_LOCK_NAME[] = "ani-lifetime.lock";
 
-static void win_private_lock_release_complete(cbm_private_file_lock_t **lock_io) {
-    uint64_t deadline = ipc_deadline_after(CBM_DAEMON_IPC_COORDINATION_CLEANUP_MS);
+static void win_private_lock_release_complete(ani_private_file_lock_t **lock_io) {
+    uint64_t deadline = ipc_deadline_after(ANI_DAEMON_IPC_COORDINATION_CLEANUP_MS);
     while (lock_io && *lock_io) {
-        (void)cbm_private_file_lock_release(lock_io);
+        (void)ani_private_file_lock_release(lock_io);
         if (!*lock_io) {
             return;
         }
@@ -4890,19 +4890,19 @@ static void win_private_lock_release_complete(cbm_private_file_lock_t **lock_io)
 }
 
 static win_generation_address_t *win_endpoint_generation_snapshot(
-    const cbm_daemon_ipc_endpoint_t *endpoint) {
+    const ani_daemon_ipc_endpoint_t *endpoint) {
     return endpoint ? atomic_load_explicit(&endpoint->current_generation, memory_order_acquire)
                     : NULL;
 }
 
-static void win_endpoint_generation_invalidate(const cbm_daemon_ipc_endpoint_t *endpoint) {
+static void win_endpoint_generation_invalidate(const ani_daemon_ipc_endpoint_t *endpoint) {
     if (endpoint) {
-        atomic_store_explicit(&((cbm_daemon_ipc_endpoint_t *)endpoint)->current_generation, NULL,
+        atomic_store_explicit(&((ani_daemon_ipc_endpoint_t *)endpoint)->current_generation, NULL,
                               memory_order_release);
     }
 }
 
-static bool win_endpoint_generation_install(const cbm_daemon_ipc_endpoint_t *endpoint,
+static bool win_endpoint_generation_install(const ani_daemon_ipc_endpoint_t *endpoint,
                                             const char *address) {
     if (!endpoint || !windows_pipe_address_valid(address)) {
         return false;
@@ -4922,12 +4922,12 @@ static bool win_endpoint_generation_install(const cbm_daemon_ipc_endpoint_t *end
         return false;
     }
 
-    cbm_daemon_ipc_endpoint_t *mutable_endpoint = (cbm_daemon_ipc_endpoint_t *)endpoint;
-    cbm_mutex_lock(&mutable_endpoint->generations_lock);
+    ani_daemon_ipc_endpoint_t *mutable_endpoint = (ani_daemon_ipc_endpoint_t *)endpoint;
+    ani_mutex_lock(&mutable_endpoint->generations_lock);
     win_generation_address_t *current =
         atomic_load_explicit(&mutable_endpoint->current_generation, memory_order_acquire);
     if (current && strcmp(current->address, address) == 0) {
-        cbm_mutex_unlock(&mutable_endpoint->generations_lock);
+        ani_mutex_unlock(&mutable_endpoint->generations_lock);
         free(candidate->pipe_name);
         free(candidate);
         return true;
@@ -4935,50 +4935,50 @@ static bool win_endpoint_generation_install(const cbm_daemon_ipc_endpoint_t *end
     candidate->next = mutable_endpoint->generations;
     mutable_endpoint->generations = candidate;
     atomic_store_explicit(&mutable_endpoint->current_generation, candidate, memory_order_release);
-    cbm_mutex_unlock(&mutable_endpoint->generations_lock);
+    ani_mutex_unlock(&mutable_endpoint->generations_lock);
     return true;
 }
 
 static win_rendezvous_status_t win_endpoint_refresh_rendezvous(
-    const cbm_daemon_ipc_endpoint_t *endpoint) {
+    const ani_daemon_ipc_endpoint_t *endpoint) {
     if (!endpoint || !endpoint->user_sid || endpoint->user_sid_length == 0) {
         return WIN_RENDEZVOUS_ERROR;
     }
-    cbm_private_lock_directory_t *directory = NULL;
-    cbm_private_file_lock_t *record_lock = NULL;
-    cbm_private_file_lock_status_t directory_status =
-        cbm_daemon_ipc_private_lock_directory_new(endpoint, &directory);
-    if (directory_status != CBM_PRIVATE_FILE_LOCK_OK) {
+    ani_private_lock_directory_t *directory = NULL;
+    ani_private_file_lock_t *record_lock = NULL;
+    ani_private_file_lock_status_t directory_status =
+        ani_daemon_ipc_private_lock_directory_new(endpoint, &directory);
+    if (directory_status != ANI_PRIVATE_FILE_LOCK_OK) {
         win_endpoint_generation_invalidate(endpoint);
         return WIN_RENDEZVOUS_ERROR;
     }
-    cbm_private_file_lock_status_t lock_status = cbm_private_file_lock_try_acquire(
-        directory, CBM_DAEMON_IPC_WINDOWS_RENDEZVOUS_FILE, CBM_PRIVATE_FILE_LOCK_SH, &record_lock);
-    if (lock_status != CBM_PRIVATE_FILE_LOCK_OK) {
+    ani_private_file_lock_status_t lock_status = ani_private_file_lock_try_acquire(
+        directory, ANI_DAEMON_IPC_WINDOWS_RENDEZVOUS_FILE, ANI_PRIVATE_FILE_LOCK_SH, &record_lock);
+    if (lock_status != ANI_PRIVATE_FILE_LOCK_OK) {
         win_private_lock_release_complete(&record_lock);
-        cbm_private_lock_directory_close(directory);
+        ani_private_lock_directory_close(directory);
         win_endpoint_generation_invalidate(endpoint);
-        return lock_status == CBM_PRIVATE_FILE_LOCK_BUSY ? WIN_RENDEZVOUS_BUSY
+        return lock_status == ANI_PRIVATE_FILE_LOCK_BUSY ? WIN_RENDEZVOUS_BUSY
                                                          : WIN_RENDEZVOUS_ERROR;
     }
 
-    uint8_t record[CBM_DAEMON_IPC_WINDOWS_RENDEZVOUS_RECORD_SIZE];
+    uint8_t record[ANI_DAEMON_IPC_WINDOWS_RENDEZVOUS_RECORD_SIZE];
     size_t record_length = 0;
-    cbm_private_file_lock_status_t read_status =
-        cbm_private_file_lock_payload_read(record_lock, record, sizeof(record), &record_length);
-    uint8_t nonce[CBM_DAEMON_IPC_WINDOWS_NONCE_SIZE];
-    char address[CBM_DAEMON_IPC_WINDOWS_NAME_CAP];
+    ani_private_file_lock_status_t read_status =
+        ani_private_file_lock_payload_read(record_lock, record, sizeof(record), &record_length);
+    uint8_t nonce[ANI_DAEMON_IPC_WINDOWS_NONCE_SIZE];
+    char address[ANI_DAEMON_IPC_WINDOWS_NAME_CAP];
     bool decoded =
-        read_status == CBM_PRIVATE_FILE_LOCK_OK &&
-        cbm_daemon_ipc_windows_rendezvous_record_decode(record, record_length, nonce, address);
-    char expected[CBM_DAEMON_IPC_WINDOWS_NAME_CAP];
+        read_status == ANI_PRIVATE_FILE_LOCK_OK &&
+        ani_daemon_ipc_windows_rendezvous_record_decode(record, record_length, nonce, address);
+    char expected[ANI_DAEMON_IPC_WINDOWS_NAME_CAP];
     bool bound =
         decoded &&
-        cbm_daemon_ipc_windows_generation_address(endpoint->user_sid, endpoint->user_sid_length,
+        ani_daemon_ipc_windows_generation_address(endpoint->user_sid, endpoint->user_sid_length,
                                                   endpoint->instance_key, nonce, expected) &&
         strcmp(expected, address) == 0;
     win_rendezvous_status_t result;
-    if (read_status != CBM_PRIVATE_FILE_LOCK_OK) {
+    if (read_status != ANI_PRIVATE_FILE_LOCK_OK) {
         win_endpoint_generation_invalidate(endpoint);
         result = WIN_RENDEZVOUS_ERROR;
     } else if (record_length == 0) {
@@ -4997,22 +4997,22 @@ static win_rendezvous_status_t win_endpoint_refresh_rendezvous(
      * a reader of generation N could install/invalidate after a startup owner
      * has published generation N+1, regressing this endpoint to stale state. */
     win_private_lock_release_complete(&record_lock);
-    cbm_private_lock_directory_close(directory);
+    ani_private_lock_directory_close(directory);
     return result;
 }
 
-static bool win_generation_nonce(uint8_t nonce[CBM_DAEMON_IPC_WINDOWS_NONCE_SIZE]) {
-    return cbm_secure_random(nonce, CBM_DAEMON_IPC_WINDOWS_NONCE_SIZE);
+static bool win_generation_nonce(uint8_t nonce[ANI_DAEMON_IPC_WINDOWS_NONCE_SIZE]) {
+    return ani_secure_random(nonce, ANI_DAEMON_IPC_WINDOWS_NONCE_SIZE);
 }
 
-static int win_private_lock_probe(cbm_private_lock_directory_t *directory, const char *base_name) {
-    cbm_private_file_lock_t *probe = NULL;
-    cbm_private_file_lock_status_t status =
-        cbm_private_file_lock_try_acquire(directory, base_name, CBM_PRIVATE_FILE_LOCK_SH, &probe);
-    if (status == CBM_PRIVATE_FILE_LOCK_BUSY) {
+static int win_private_lock_probe(ani_private_lock_directory_t *directory, const char *base_name) {
+    ani_private_file_lock_t *probe = NULL;
+    ani_private_file_lock_status_t status =
+        ani_private_file_lock_try_acquire(directory, base_name, ANI_PRIVATE_FILE_LOCK_SH, &probe);
+    if (status == ANI_PRIVATE_FILE_LOCK_BUSY) {
         return 1;
     }
-    if (status != CBM_PRIVATE_FILE_LOCK_OK) {
+    if (status != ANI_PRIVATE_FILE_LOCK_OK) {
         win_private_lock_release_complete(&probe);
         return -1;
     }
@@ -5020,19 +5020,19 @@ static int win_private_lock_probe(cbm_private_lock_directory_t *directory, const
     return 0;
 }
 
-static bool win_startup_publish_generation_locked(const cbm_daemon_ipc_endpoint_t *endpoint,
-                                                  cbm_private_file_lock_t *record_lock) {
-    uint8_t nonce[CBM_DAEMON_IPC_WINDOWS_NONCE_SIZE];
-    char address[CBM_DAEMON_IPC_WINDOWS_NAME_CAP];
-    uint8_t record[CBM_DAEMON_IPC_WINDOWS_RENDEZVOUS_RECORD_SIZE];
+static bool win_startup_publish_generation_locked(const ani_daemon_ipc_endpoint_t *endpoint,
+                                                  ani_private_file_lock_t *record_lock) {
+    uint8_t nonce[ANI_DAEMON_IPC_WINDOWS_NONCE_SIZE];
+    char address[ANI_DAEMON_IPC_WINDOWS_NAME_CAP];
+    uint8_t record[ANI_DAEMON_IPC_WINDOWS_RENDEZVOUS_RECORD_SIZE];
     if (!record_lock || !win_generation_nonce(nonce) ||
-        !cbm_daemon_ipc_windows_generation_address(endpoint->user_sid, endpoint->user_sid_length,
+        !ani_daemon_ipc_windows_generation_address(endpoint->user_sid, endpoint->user_sid_length,
                                                    endpoint->instance_key, nonce, address) ||
-        !cbm_daemon_ipc_windows_rendezvous_record_encode(nonce, address, record)) {
+        !ani_daemon_ipc_windows_rendezvous_record_encode(nonce, address, record)) {
         return false;
     }
-    bool written = cbm_private_file_lock_payload_write(record_lock, record, sizeof(record)) ==
-                   CBM_PRIVATE_FILE_LOCK_OK;
+    bool written = ani_private_file_lock_payload_write(record_lock, record, sizeof(record)) ==
+                   ANI_PRIVATE_FILE_LOCK_OK;
     return written && win_endpoint_generation_install(endpoint, address);
 }
 
@@ -5041,18 +5041,18 @@ static bool win_startup_publish_generation_locked(const cbm_daemon_ipc_endpoint_
  * rendezvous SH refresh before this probe can declare lifetime free. If it
  * acquires lifetime after the probe, its final refresh waits for this publish
  * and therefore binds the newly advertised generation. */
-static int win_startup_prepare_generation(const cbm_daemon_ipc_endpoint_t *endpoint,
-                                          cbm_private_lock_directory_t *directory) {
+static int win_startup_prepare_generation(const ani_daemon_ipc_endpoint_t *endpoint,
+                                          ani_private_lock_directory_t *directory) {
     uint64_t now = ipc_now_ms();
-    uint64_t deadline = now > UINT64_MAX - CBM_DAEMON_IPC_WINDOWS_RENDEZVOUS_RETRY_MS
+    uint64_t deadline = now > UINT64_MAX - ANI_DAEMON_IPC_WINDOWS_RENDEZVOUS_RETRY_MS
                             ? UINT64_MAX
-                            : now + CBM_DAEMON_IPC_WINDOWS_RENDEZVOUS_RETRY_MS;
+                            : now + ANI_DAEMON_IPC_WINDOWS_RENDEZVOUS_RETRY_MS;
     for (;;) {
-        cbm_private_file_lock_t *record_lock = NULL;
-        cbm_private_file_lock_status_t status =
-            cbm_private_file_lock_try_acquire(directory, CBM_DAEMON_IPC_WINDOWS_RENDEZVOUS_FILE,
-                                              CBM_PRIVATE_FILE_LOCK_EX, &record_lock);
-        if (status == CBM_PRIVATE_FILE_LOCK_OK) {
+        ani_private_file_lock_t *record_lock = NULL;
+        ani_private_file_lock_status_t status =
+            ani_private_file_lock_try_acquire(directory, ANI_DAEMON_IPC_WINDOWS_RENDEZVOUS_FILE,
+                                              ANI_PRIVATE_FILE_LOCK_EX, &record_lock);
+        if (status == ANI_PRIVATE_FILE_LOCK_OK) {
             int lifetime = win_private_lock_probe(directory, WIN_LIFETIME_LOCK_NAME);
             bool published =
                 lifetime == 0 && win_startup_publish_generation_locked(endpoint, record_lock);
@@ -5063,7 +5063,7 @@ static int win_startup_prepare_generation(const cbm_daemon_ipc_endpoint_t *endpo
             return published ? 1 : -1;
         }
         win_private_lock_release_complete(&record_lock);
-        if (status != CBM_PRIVATE_FILE_LOCK_BUSY) {
+        if (status != ANI_PRIVATE_FILE_LOCK_BUSY) {
             return -1;
         }
         if (ipc_now_ms() >= deadline) {
@@ -5073,9 +5073,9 @@ static int win_startup_prepare_generation(const cbm_daemon_ipc_endpoint_t *endpo
     }
 }
 
-int cbm_daemon_ipc_lifetime_reservation_try_acquire(
-    const cbm_daemon_ipc_endpoint_t *endpoint,
-    cbm_daemon_ipc_lifetime_reservation_t **reservation_out) {
+int ani_daemon_ipc_lifetime_reservation_try_acquire(
+    const ani_daemon_ipc_endpoint_t *endpoint,
+    ani_daemon_ipc_lifetime_reservation_t **reservation_out) {
     if (reservation_out) {
         *reservation_out = NULL;
     }
@@ -5085,9 +5085,9 @@ int cbm_daemon_ipc_lifetime_reservation_try_acquire(
 
     win_rendezvous_status_t rendezvous = win_endpoint_refresh_rendezvous(endpoint);
     if (rendezvous == WIN_RENDEZVOUS_ABSENT || rendezvous == WIN_RENDEZVOUS_CORRUPT) {
-        cbm_daemon_ipc_startup_lock_t *startup = NULL;
-        int startup_status = cbm_daemon_ipc_startup_lock_try_acquire(endpoint, &startup);
-        bool prepared = startup_status == 1 && cbm_daemon_ipc_startup_lock_prepare_handoff(startup);
+        ani_daemon_ipc_startup_lock_t *startup = NULL;
+        int startup_status = ani_daemon_ipc_startup_lock_try_acquire(endpoint, &startup);
+        bool prepared = startup_status == 1 && ani_daemon_ipc_startup_lock_prepare_handoff(startup);
         ipc_startup_lock_release_complete(&startup);
         if (!prepared) {
             return startup_status == 0 ? 0 : -1;
@@ -5098,18 +5098,18 @@ int cbm_daemon_ipc_lifetime_reservation_try_acquire(
         return rendezvous == WIN_RENDEZVOUS_ABSENT || rendezvous == WIN_RENDEZVOUS_BUSY ? 0 : -1;
     }
 
-    cbm_private_lock_directory_t *directory = NULL;
-    cbm_private_file_lock_t *lock = NULL;
-    if (cbm_daemon_ipc_private_lock_directory_new(endpoint, &directory) !=
-        CBM_PRIVATE_FILE_LOCK_OK) {
+    ani_private_lock_directory_t *directory = NULL;
+    ani_private_file_lock_t *lock = NULL;
+    if (ani_daemon_ipc_private_lock_directory_new(endpoint, &directory) !=
+        ANI_PRIVATE_FILE_LOCK_OK) {
         return -1;
     }
-    cbm_private_file_lock_status_t status = cbm_private_file_lock_try_acquire(
-        directory, WIN_LIFETIME_LOCK_NAME, CBM_PRIVATE_FILE_LOCK_EX, &lock);
-    if (status != CBM_PRIVATE_FILE_LOCK_OK) {
+    ani_private_file_lock_status_t status = ani_private_file_lock_try_acquire(
+        directory, WIN_LIFETIME_LOCK_NAME, ANI_PRIVATE_FILE_LOCK_EX, &lock);
+    if (status != ANI_PRIVATE_FILE_LOCK_OK) {
         win_private_lock_release_complete(&lock);
-        cbm_private_lock_directory_close(directory);
-        return status == CBM_PRIVATE_FILE_LOCK_BUSY ? 0 : -1;
+        ani_private_lock_directory_close(directory);
+        return status == ANI_PRIVATE_FILE_LOCK_BUSY ? 0 : -1;
     }
 
     /* A starter may have won immediately before this lifetime lock. Its
@@ -5117,13 +5117,13 @@ int cbm_daemon_ipc_lifetime_reservation_try_acquire(
      * otherwise release rather than binding a stale generation address. */
     if (win_endpoint_refresh_rendezvous(endpoint) != WIN_RENDEZVOUS_VALID) {
         win_private_lock_release_complete(&lock);
-        cbm_private_lock_directory_close(directory);
+        ani_private_lock_directory_close(directory);
         return 0;
     }
-    cbm_daemon_ipc_lifetime_reservation_t *reservation = calloc(1, sizeof(*reservation));
+    ani_daemon_ipc_lifetime_reservation_t *reservation = calloc(1, sizeof(*reservation));
     if (!reservation) {
         win_private_lock_release_complete(&lock);
-        cbm_private_lock_directory_close(directory);
+        ani_private_lock_directory_close(directory);
         return -1;
     }
     reservation->endpoint = endpoint;
@@ -5133,34 +5133,34 @@ int cbm_daemon_ipc_lifetime_reservation_try_acquire(
     return 1;
 }
 
-void cbm_daemon_ipc_lifetime_reservation_release(
-    cbm_daemon_ipc_lifetime_reservation_t *reservation) {
+void ani_daemon_ipc_lifetime_reservation_release(
+    ani_daemon_ipc_lifetime_reservation_t *reservation) {
     if (!reservation) {
         return;
     }
     win_private_lock_release_complete(&reservation->lock);
-    cbm_private_lock_directory_close(reservation->directory);
+    ani_private_lock_directory_close(reservation->directory);
     free(reservation);
 }
 
 static bool lifetime_reservation_matches_endpoint(
-    const cbm_daemon_ipc_endpoint_t *endpoint,
-    const cbm_daemon_ipc_lifetime_reservation_t *reservation) {
+    const ani_daemon_ipc_endpoint_t *endpoint,
+    const ani_daemon_ipc_lifetime_reservation_t *reservation) {
     return endpoint && reservation && reservation->endpoint == endpoint && reservation->lock;
 }
 
-int cbm_daemon_ipc_lifetime_reservation_probe(const cbm_daemon_ipc_endpoint_t *endpoint) {
-    cbm_private_lock_directory_t *directory = NULL;
-    if (!endpoint || cbm_daemon_ipc_private_lock_directory_new(endpoint, &directory) !=
-                         CBM_PRIVATE_FILE_LOCK_OK) {
+int ani_daemon_ipc_lifetime_reservation_probe(const ani_daemon_ipc_endpoint_t *endpoint) {
+    ani_private_lock_directory_t *directory = NULL;
+    if (!endpoint || ani_daemon_ipc_private_lock_directory_new(endpoint, &directory) !=
+                         ANI_PRIVATE_FILE_LOCK_OK) {
         return -1;
     }
     int result = win_private_lock_probe(directory, WIN_LIFETIME_LOCK_NAME);
-    cbm_private_lock_directory_close(directory);
+    ani_private_lock_directory_close(directory);
     return result;
 }
 
-static int win_legacy_pipe_probe(const cbm_daemon_ipc_endpoint_t *endpoint) {
+static int win_legacy_pipe_probe(const ani_daemon_ipc_endpoint_t *endpoint) {
     if (!endpoint || !endpoint->legacy_pipe_name || !endpoint->legacy_startup_mutex_name) {
         return -1;
     }
@@ -5178,7 +5178,7 @@ static int win_legacy_pipe_probe(const cbm_daemon_ipc_endpoint_t *endpoint) {
     return 0;
 }
 
-int cbm_daemon_ipc_legacy_generation_probe(const cbm_daemon_ipc_endpoint_t *endpoint) {
+int ani_daemon_ipc_legacy_generation_probe(const ani_daemon_ipc_endpoint_t *endpoint) {
     int pipe = win_legacy_pipe_probe(endpoint);
     if (pipe != 0) {
         return pipe;
@@ -5227,7 +5227,7 @@ static HANDLE win_pipe_instance_new(const wchar_t *pipe_name, bool first_instanc
  * FILE_FLAG_FIRST_PIPE_INSTANCE; later participants use the same exact pipe
  * parameters without that flag. Never calling ConnectNamedPipe means no
  * sentinel thread or cancellable I/O survives a participant. */
-static HANDLE win_legacy_sentinel_new(const cbm_daemon_ipc_endpoint_t *endpoint, bool first,
+static HANDLE win_legacy_sentinel_new(const ani_daemon_ipc_endpoint_t *endpoint, bool first,
                                       DWORD *error_out) {
     if (error_out) {
         *error_out = ERROR_INVALID_PARAMETER;
@@ -5261,21 +5261,21 @@ static HANDLE win_legacy_sentinel_new(const cbm_daemon_ipc_endpoint_t *endpoint,
     return sentinel;
 }
 
-static int win_startup_v2_try_acquire(cbm_private_lock_directory_t *directory,
-                                      cbm_private_file_lock_t **lock_out) {
+static int win_startup_v2_try_acquire(ani_private_lock_directory_t *directory,
+                                      ani_private_file_lock_t **lock_out) {
     if (lock_out) {
         *lock_out = NULL;
     }
     if (!directory || !lock_out) {
         return -1;
     }
-    cbm_private_file_lock_status_t status = cbm_private_file_lock_try_acquire(
-        directory, WIN_STARTUP_V2_LOCK_NAME, CBM_PRIVATE_FILE_LOCK_EX, lock_out);
-    if (status == CBM_PRIVATE_FILE_LOCK_OK) {
+    ani_private_file_lock_status_t status = ani_private_file_lock_try_acquire(
+        directory, WIN_STARTUP_V2_LOCK_NAME, ANI_PRIVATE_FILE_LOCK_EX, lock_out);
+    if (status == ANI_PRIVATE_FILE_LOCK_OK) {
         return 1;
     }
     win_private_lock_release_complete(lock_out);
-    return status == CBM_PRIVATE_FILE_LOCK_BUSY ? 0 : -1;
+    return status == ANI_PRIVATE_FILE_LOCK_BUSY ? 0 : -1;
 }
 
 static bool win_legacy_sentinel_conflict(DWORD error) {
@@ -5287,9 +5287,9 @@ static bool win_legacy_sentinel_conflict(DWORD error) {
  * observations. startup-v2 is retained by this process, or by the bootstrap
  * parent when a child joins. The SH lock is acquired before the mutex is
  * released, so group existence and at least one sentinel have no gap. */
-static int win_participant_group_join_locked(const cbm_daemon_ipc_endpoint_t *endpoint,
-                                             cbm_private_lock_directory_t *directory,
-                                             bool allow_first, cbm_private_file_lock_t **group_out,
+static int win_participant_group_join_locked(const ani_daemon_ipc_endpoint_t *endpoint,
+                                             ani_private_lock_directory_t *directory,
+                                             bool allow_first, ani_private_file_lock_t **group_out,
                                              HANDLE *sentinel_out) {
     if (group_out) {
         *group_out = NULL;
@@ -5301,11 +5301,11 @@ static int win_participant_group_join_locked(const cbm_daemon_ipc_endpoint_t *en
         return -1;
     }
 
-    cbm_private_file_lock_t *exclusive_probe = NULL;
-    cbm_private_file_lock_status_t group_status = cbm_private_file_lock_try_acquire(
-        directory, WIN_PARTICIPANT_GROUP_LOCK_NAME, CBM_PRIVATE_FILE_LOCK_EX, &exclusive_probe);
-    bool first = group_status == CBM_PRIVATE_FILE_LOCK_OK;
-    if (!first && group_status != CBM_PRIVATE_FILE_LOCK_BUSY) {
+    ani_private_file_lock_t *exclusive_probe = NULL;
+    ani_private_file_lock_status_t group_status = ani_private_file_lock_try_acquire(
+        directory, WIN_PARTICIPANT_GROUP_LOCK_NAME, ANI_PRIVATE_FILE_LOCK_EX, &exclusive_probe);
+    bool first = group_status == ANI_PRIVATE_FILE_LOCK_OK;
+    if (!first && group_status != ANI_PRIVATE_FILE_LOCK_BUSY) {
         win_private_lock_release_complete(&exclusive_probe);
         return -1;
     }
@@ -5333,13 +5333,13 @@ static int win_participant_group_join_locked(const cbm_daemon_ipc_endpoint_t *en
         }
     }
 
-    cbm_private_file_lock_t *group = NULL;
-    group_status = cbm_private_file_lock_try_acquire(directory, WIN_PARTICIPANT_GROUP_LOCK_NAME,
-                                                     CBM_PRIVATE_FILE_LOCK_SH, &group);
-    if (group_status != CBM_PRIVATE_FILE_LOCK_OK) {
+    ani_private_file_lock_t *group = NULL;
+    group_status = ani_private_file_lock_try_acquire(directory, WIN_PARTICIPANT_GROUP_LOCK_NAME,
+                                                     ANI_PRIVATE_FILE_LOCK_SH, &group);
+    if (group_status != ANI_PRIVATE_FILE_LOCK_OK) {
         win_private_lock_release_complete(&group);
         (void)CloseHandle(sentinel);
-        return group_status == CBM_PRIVATE_FILE_LOCK_BUSY ? 0 : -1;
+        return group_status == ANI_PRIVATE_FILE_LOCK_BUSY ? 0 : -1;
     }
     *group_out = group;
     *sentinel_out = sentinel;
@@ -5349,12 +5349,12 @@ static int win_participant_group_join_locked(const cbm_daemon_ipc_endpoint_t *en
 /* Called only while startup-v2 and the validated legacy mutex are retained.
  * Group SH disappears before this participant's sentinel; both gates exclude
  * joiners from observing that required teardown intermediate state. */
-static bool win_participant_group_release_locked(cbm_private_file_lock_t **group_io,
+static bool win_participant_group_release_locked(ani_private_file_lock_t **group_io,
                                                  HANDLE *sentinel_io) {
     if (!group_io || !sentinel_io) {
         return false;
     }
-    if (*group_io && cbm_private_file_lock_release(group_io) != CBM_PRIVATE_FILE_LOCK_OK) {
+    if (*group_io && ani_private_file_lock_release(group_io) != ANI_PRIVATE_FILE_LOCK_OK) {
         return false;
     }
     if (*sentinel_io != INVALID_HANDLE_VALUE) {
@@ -5366,9 +5366,9 @@ static bool win_participant_group_release_locked(cbm_private_file_lock_t **group
     return true;
 }
 
-static void win_participant_group_release_complete(cbm_private_file_lock_t **group_io,
+static void win_participant_group_release_complete(ani_private_file_lock_t **group_io,
                                                    HANDLE *sentinel_io) {
-    uint64_t deadline = ipc_deadline_after(CBM_DAEMON_IPC_COORDINATION_CLEANUP_MS);
+    uint64_t deadline = ipc_deadline_after(ANI_DAEMON_IPC_COORDINATION_CLEANUP_MS);
     while ((group_io && *group_io) || (sentinel_io && *sentinel_io != INVALID_HANDLE_VALUE)) {
         (void)win_participant_group_release_locked(group_io, sentinel_io);
         if ((!group_io || !*group_io) && (!sentinel_io || *sentinel_io == INVALID_HANDLE_VALUE)) {
@@ -5381,11 +5381,11 @@ static void win_participant_group_release_complete(cbm_private_file_lock_t **gro
     }
 }
 
-static bool win_participant_state_release(const cbm_daemon_ipc_endpoint_t *endpoint,
-                                          cbm_private_lock_directory_t *directory,
-                                          cbm_private_file_lock_t **startup_v2_io,
+static bool win_participant_state_release(const ani_daemon_ipc_endpoint_t *endpoint,
+                                          ani_private_lock_directory_t *directory,
+                                          ani_private_file_lock_t **startup_v2_io,
                                           win_legacy_mutex_guard_t **legacy_guard_io,
-                                          cbm_private_file_lock_t **group_io, HANDLE *sentinel_io) {
+                                          ani_private_file_lock_t **group_io, HANDLE *sentinel_io) {
     if (!endpoint || !directory || !startup_v2_io || !legacy_guard_io || !group_io ||
         !sentinel_io) {
         return false;
@@ -5399,7 +5399,7 @@ static bool win_participant_state_release(const cbm_daemon_ipc_endpoint_t *endpo
     if (!*legacy_guard_io) {
         int legacy = win_legacy_mutex_guard_try_acquire(endpoint, legacy_guard_io);
         if (legacy != 1) {
-            (void)cbm_private_file_lock_release(startup_v2_io);
+            (void)ani_private_file_lock_release(startup_v2_io);
             return false;
         }
     }
@@ -5409,13 +5409,13 @@ static bool win_participant_state_release(const cbm_daemon_ipc_endpoint_t *endpo
     if (!win_legacy_mutex_guard_release(legacy_guard_io)) {
         return false;
     }
-    return cbm_private_file_lock_release(startup_v2_io) == CBM_PRIVATE_FILE_LOCK_OK;
+    return ani_private_file_lock_release(startup_v2_io) == ANI_PRIVATE_FILE_LOCK_OK;
 }
 
-cbm_daemon_ipc_listener_t *cbm_daemon_ipc_listen_reserved(
-    const cbm_daemon_ipc_endpoint_t *endpoint,
-    cbm_daemon_ipc_lifetime_reservation_t **reservation_io) {
-    cbm_daemon_ipc_lifetime_reservation_t *lifetime_reservation =
+ani_daemon_ipc_listener_t *ani_daemon_ipc_listen_reserved(
+    const ani_daemon_ipc_endpoint_t *endpoint,
+    ani_daemon_ipc_lifetime_reservation_t **reservation_io) {
+    ani_daemon_ipc_lifetime_reservation_t *lifetime_reservation =
         reservation_io ? *reservation_io : NULL;
     if (!lifetime_reservation_matches_endpoint(endpoint, lifetime_reservation) ||
         win_endpoint_refresh_rendezvous(endpoint) != WIN_RENDEZVOUS_VALID) {
@@ -5425,7 +5425,7 @@ cbm_daemon_ipc_listener_t *cbm_daemon_ipc_listen_reserved(
     if (!generation || !generation->pipe_name) {
         return NULL;
     }
-    cbm_daemon_ipc_listener_t *listener = calloc(1, sizeof(*listener));
+    ani_daemon_ipc_listener_t *listener = calloc(1, sizeof(*listener));
     if (!listener) {
         return NULL;
     }
@@ -5435,13 +5435,13 @@ cbm_daemon_ipc_listener_t *cbm_daemon_ipc_listen_reserved(
     listener->lifetime_reservation = lifetime_reservation;
     if (!listener->pipe_name) {
         listener->lifetime_reservation = NULL;
-        cbm_daemon_ipc_listener_close(listener);
+        ani_daemon_ipc_listener_close(listener);
         return NULL;
     }
     listener->pipe = win_pipe_instance_new(listener->pipe_name, true);
     if (listener->pipe == INVALID_HANDLE_VALUE) {
         listener->lifetime_reservation = NULL;
-        cbm_daemon_ipc_listener_close(listener);
+        ani_daemon_ipc_listener_close(listener);
         return NULL;
     }
     listener->first_instance = false;
@@ -5449,31 +5449,31 @@ cbm_daemon_ipc_listener_t *cbm_daemon_ipc_listen_reserved(
     return listener;
 }
 
-cbm_daemon_ipc_listener_t *cbm_daemon_ipc_listen(const cbm_daemon_ipc_endpoint_t *endpoint) {
-    cbm_daemon_ipc_startup_lock_t *startup = NULL;
-    cbm_daemon_ipc_participant_guard_t *participant_guard = NULL;
-    cbm_daemon_ipc_lifetime_reservation_t *reservation = NULL;
-    if (cbm_daemon_ipc_startup_lock_try_acquire(endpoint, &startup) != 1 ||
-        !cbm_daemon_ipc_startup_lock_prepare_handoff(startup) ||
-        cbm_daemon_ipc_participant_guard_try_join(endpoint, &participant_guard) != 1 ||
-        cbm_daemon_ipc_lifetime_reservation_try_acquire(endpoint, &reservation) != 1) {
-        cbm_daemon_ipc_lifetime_reservation_release(reservation);
+ani_daemon_ipc_listener_t *ani_daemon_ipc_listen(const ani_daemon_ipc_endpoint_t *endpoint) {
+    ani_daemon_ipc_startup_lock_t *startup = NULL;
+    ani_daemon_ipc_participant_guard_t *participant_guard = NULL;
+    ani_daemon_ipc_lifetime_reservation_t *reservation = NULL;
+    if (ani_daemon_ipc_startup_lock_try_acquire(endpoint, &startup) != 1 ||
+        !ani_daemon_ipc_startup_lock_prepare_handoff(startup) ||
+        ani_daemon_ipc_participant_guard_try_join(endpoint, &participant_guard) != 1 ||
+        ani_daemon_ipc_lifetime_reservation_try_acquire(endpoint, &reservation) != 1) {
+        ani_daemon_ipc_lifetime_reservation_release(reservation);
         ipc_participant_guard_release_complete(&participant_guard);
         ipc_startup_lock_release_complete(&startup);
         return NULL;
     }
-    cbm_daemon_ipc_listener_t *listener = cbm_daemon_ipc_listen_reserved(endpoint, &reservation);
+    ani_daemon_ipc_listener_t *listener = ani_daemon_ipc_listen_reserved(endpoint, &reservation);
     if (listener) {
         listener->participant_guard = participant_guard;
         participant_guard = NULL;
     }
-    cbm_daemon_ipc_lifetime_reservation_release(reservation);
+    ani_daemon_ipc_lifetime_reservation_release(reservation);
     ipc_participant_guard_release_complete(&participant_guard);
     ipc_startup_lock_release_complete(&startup);
     return listener;
 }
 
-void cbm_daemon_ipc_listener_close(cbm_daemon_ipc_listener_t *listener) {
+void ani_daemon_ipc_listener_close(ani_daemon_ipc_listener_t *listener) {
     if (!listener) {
         return;
     }
@@ -5485,7 +5485,7 @@ void cbm_daemon_ipc_listener_close(cbm_daemon_ipc_listener_t *listener) {
     if (listener->connect_event) {
         (void)CloseHandle(listener->connect_event);
     }
-    cbm_daemon_ipc_lifetime_reservation_release(listener->lifetime_reservation);
+    ani_daemon_ipc_lifetime_reservation_release(listener->lifetime_reservation);
     ipc_participant_guard_release_complete(&listener->participant_guard);
     free(listener->pipe_name);
     free(listener);
@@ -5496,13 +5496,13 @@ typedef struct {
     OVERLAPPED *overlapped;
 } win_pending_io_t;
 
-static cbm_ipc_pending_wait_status_t win_pending_wait(void *opaque, uint32_t timeout_ms) {
+static ani_ipc_pending_wait_status_t win_pending_wait(void *opaque, uint32_t timeout_ms) {
     win_pending_io_t *pending = (win_pending_io_t *)opaque;
     DWORD result = WaitForSingleObject(pending->overlapped->hEvent, timeout_ms);
     if (result == WAIT_OBJECT_0) {
-        return CBM_IPC_PENDING_WAIT_SIGNALED;
+        return ANI_IPC_PENDING_WAIT_SIGNALED;
     }
-    return result == WAIT_TIMEOUT ? CBM_IPC_PENDING_WAIT_TIMEOUT : CBM_IPC_PENDING_WAIT_FAILED;
+    return result == WAIT_TIMEOUT ? ANI_IPC_PENDING_WAIT_TIMEOUT : ANI_IPC_PENDING_WAIT_FAILED;
 }
 
 static void win_pending_cancel(void *opaque) {
@@ -5510,30 +5510,30 @@ static void win_pending_cancel(void *opaque) {
     (void)CancelIoEx(pending->handle, pending->overlapped);
 }
 
-static cbm_ipc_pending_finish_status_t win_pending_finish(void *opaque, bool blocking,
+static ani_ipc_pending_finish_status_t win_pending_finish(void *opaque, bool blocking,
                                                           uint32_t *transferred_out) {
     win_pending_io_t *pending = (win_pending_io_t *)opaque;
     DWORD transferred = 0;
     if (GetOverlappedResult(pending->handle, pending->overlapped, &transferred,
                             blocking ? TRUE : FALSE)) {
         *transferred_out = transferred;
-        return CBM_IPC_PENDING_FINISH_COMPLETED;
+        return ANI_IPC_PENDING_FINISH_COMPLETED;
     }
-    return GetLastError() == ERROR_OPERATION_ABORTED ? CBM_IPC_PENDING_FINISH_CANCELLED
-                                                     : CBM_IPC_PENDING_FINISH_FAILED;
+    return GetLastError() == ERROR_OPERATION_ABORTED ? ANI_IPC_PENDING_FINISH_CANCELLED
+                                                     : ANI_IPC_PENDING_FINISH_FAILED;
 }
 
 static int win_overlapped_wait(HANDLE handle, OVERLAPPED *overlapped, DWORD timeout_ms,
                                DWORD *transferred_out) {
     win_pending_io_t pending = {.handle = handle, .overlapped = overlapped};
-    cbm_ipc_pending_ops_t ops = {
+    ani_ipc_pending_ops_t ops = {
         .context = &pending,
         .wait = win_pending_wait,
         .cancel = win_pending_cancel,
         .finish = win_pending_finish,
     };
     uint32_t transferred = 0;
-    int result = cbm_daemon_ipc_wait_pending(&ops, timeout_ms, &transferred);
+    int result = ani_daemon_ipc_wait_pending(&ops, timeout_ms, &transferred);
     if (result == 1) {
         *transferred_out = (DWORD)transferred;
     }
@@ -5554,14 +5554,14 @@ static bool win_pipe_client_is_current_user(HANDLE pipe) {
                      kernel, "GetNamedPipeClientProcessId")
                : NULL;
     if (!get_client_pid) {
-        cbm_log_warn("daemon.accept.client_identity", "step", "pid_fn_missing");
+        ani_log_warn("daemon.accept.client_identity", "step", "pid_fn_missing");
         return false;
     }
     ULONG process_id = 0;
     if (!get_client_pid(pipe, &process_id) || process_id == 0) {
         char error_text[16];
         (void)snprintf(error_text, sizeof(error_text), "%lu", (unsigned long)GetLastError());
-        cbm_log_warn("daemon.accept.client_identity", "step", "client_pid_query", "error",
+        ani_log_warn("daemon.accept.client_identity", "step", "client_pid_query", "error",
                      error_text);
         return false;
     }
@@ -5574,7 +5574,7 @@ static bool win_pipe_client_is_current_user(HANDLE pipe) {
         char error_text[16];
         (void)snprintf(pid_text, sizeof(pid_text), "%lu", (unsigned long)process_id);
         (void)snprintf(error_text, sizeof(error_text), "%lu", (unsigned long)GetLastError());
-        cbm_log_warn("daemon.accept.client_identity", "step", "process_open", "pid", pid_text,
+        ani_log_warn("daemon.accept.client_identity", "step", "process_open", "pid", pid_text,
                      "error", error_text);
         return false;
     }
@@ -5591,7 +5591,7 @@ static bool win_pipe_client_is_current_user(HANDLE pipe) {
                            : !opened    ? "token_open"
                            : !token_sid ? "token_query"
                                         : "sid_mismatch";
-        cbm_log_warn("daemon.accept.client_identity", "step", step);
+        ani_log_warn("daemon.accept.client_identity", "step", step);
     }
     free(token_user);
     if (token) {
@@ -5604,8 +5604,8 @@ static bool win_pipe_client_is_current_user(HANDLE pipe) {
     return same_user;
 }
 
-int cbm_daemon_ipc_accept(cbm_daemon_ipc_listener_t *listener, uint32_t timeout_ms,
-                          cbm_daemon_ipc_connection_t **connection_out) {
+int ani_daemon_ipc_accept(ani_daemon_ipc_listener_t *listener, uint32_t timeout_ms,
+                          ani_daemon_ipc_connection_t **connection_out) {
     if (connection_out) {
         *connection_out = NULL;
     }
@@ -5667,7 +5667,7 @@ int cbm_daemon_ipc_accept(cbm_daemon_ipc_listener_t *listener, uint32_t timeout_
         }
         listener->connect_pending = false;
     }
-    cbm_daemon_ipc_connection_t *connection = malloc(sizeof(*connection));
+    ani_daemon_ipc_connection_t *connection = malloc(sizeof(*connection));
     if (!connection) {
         (void)DisconnectNamedPipe(listener->pipe);
         (void)CloseHandle(listener->pipe);
@@ -5676,11 +5676,11 @@ int cbm_daemon_ipc_accept(cbm_daemon_ipc_listener_t *listener, uint32_t timeout_
     }
     connection->handle = listener->pipe;
     atomic_init(&connection->poisoned, false);
-    connection->role = CBM_DAEMON_IPC_PIPE_ROLE_ACCEPTED_SERVER;
+    connection->role = ANI_DAEMON_IPC_PIPE_ROLE_ACCEPTED_SERVER;
     /* Validate the client's identity by its process token (no impersonation,
      * no read) so accept keeps its immediate-return contract. */
     if (!win_pipe_client_is_current_user(listener->pipe)) {
-        cbm_log_warn("daemon.accept.client_rejected", "stage", "client_identity");
+        ani_log_warn("daemon.accept.client_rejected", "stage", "client_identity");
         free(connection);
         (void)DisconnectNamedPipe(listener->pipe);
         (void)CloseHandle(listener->pipe);
@@ -5700,7 +5700,7 @@ static bool win_pipe_server_is_current_user(HANDLE pipe) {
                : NULL;
     ULONG process_id = 0;
     if (!get_server_pid) {
-        cbm_log_warn("daemon.client.server_identity", "step", "pid_fn_missing");
+        ani_log_warn("daemon.client.server_identity", "step", "pid_fn_missing");
         return false;
     }
     if (!get_server_pid(pipe, &process_id) || process_id == 0) {
@@ -5708,7 +5708,7 @@ static bool win_pipe_server_is_current_user(HANDLE pipe) {
         (void)snprintf(error_text, sizeof(error_text), "%lu", (unsigned long)GetLastError());
         char pid_text[16];
         (void)snprintf(pid_text, sizeof(pid_text), "%lu", (unsigned long)process_id);
-        cbm_log_warn("daemon.client.server_identity", "step", "server_pid_query", "error",
+        ani_log_warn("daemon.client.server_identity", "step", "server_pid_query", "error",
                      error_text, "pid", pid_text);
         return false;
     }
@@ -5723,7 +5723,7 @@ static bool win_pipe_server_is_current_user(HANDLE pipe) {
         (void)snprintf(pid_text, sizeof(pid_text), "%lu", (unsigned long)process_id);
         char error_text[16];
         (void)snprintf(error_text, sizeof(error_text), "%lu", (unsigned long)GetLastError());
-        cbm_log_warn("daemon.client.server_identity", "step", "process_open", "pid", pid_text,
+        ani_log_warn("daemon.client.server_identity", "step", "process_open", "pid", pid_text,
                      "error", error_text);
         return false;
     }
@@ -5749,7 +5749,7 @@ static bool win_pipe_server_is_current_user(HANDLE pipe) {
                                : "server_other_account";
         char pid_text[16];
         (void)snprintf(pid_text, sizeof(pid_text), "%lu", (unsigned long)process_id);
-        cbm_log_warn("daemon.client.server_identity", "step", step, "pid", pid_text);
+        ani_log_warn("daemon.client.server_identity", "step", step, "pid", pid_text);
     }
     free(token_user);
     if (token) {
@@ -5762,7 +5762,7 @@ static bool win_pipe_server_is_current_user(HANDLE pipe) {
     return same_user;
 }
 
-static int win_current_generation_transport_probe(const cbm_daemon_ipc_endpoint_t *endpoint) {
+static int win_current_generation_transport_probe(const ani_daemon_ipc_endpoint_t *endpoint) {
     win_rendezvous_status_t rendezvous = win_endpoint_refresh_rendezvous(endpoint);
     if (rendezvous == WIN_RENDEZVOUS_ABSENT) {
         return 0;
@@ -5791,7 +5791,7 @@ static int win_current_generation_transport_probe(const cbm_daemon_ipc_endpoint_
     return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND ? 0 : -1;
 }
 
-int cbm_daemon_ipc_endpoint_probe(const cbm_daemon_ipc_endpoint_t *endpoint, uint32_t timeout_ms) {
+int ani_daemon_ipc_endpoint_probe(const ani_daemon_ipc_endpoint_t *endpoint, uint32_t timeout_ms) {
     (void)timeout_ms;
     if (!endpoint) {
         return -1;
@@ -5801,13 +5801,13 @@ int cbm_daemon_ipc_endpoint_probe(const cbm_daemon_ipc_endpoint_t *endpoint, uin
         if (rendezvous == WIN_RENDEZVOUS_CORRUPT || rendezvous == WIN_RENDEZVOUS_ERROR) {
             return -1;
         }
-        cbm_private_lock_directory_t *directory = NULL;
-        if (cbm_daemon_ipc_private_lock_directory_new(endpoint, &directory) !=
-            CBM_PRIVATE_FILE_LOCK_OK) {
+        ani_private_lock_directory_t *directory = NULL;
+        if (ani_daemon_ipc_private_lock_directory_new(endpoint, &directory) !=
+            ANI_PRIVATE_FILE_LOCK_OK) {
             return -1;
         }
         int startup = win_private_lock_probe(directory, WIN_STARTUP_V2_LOCK_NAME);
-        cbm_private_lock_directory_close(directory);
+        ani_private_lock_directory_close(directory);
         return startup;
     }
     win_generation_address_t *generation = win_endpoint_generation_snapshot(endpoint);
@@ -5831,23 +5831,23 @@ int cbm_daemon_ipc_endpoint_probe(const cbm_daemon_ipc_endpoint_t *endpoint, uin
         return 1;
     }
     if (open_error == ERROR_FILE_NOT_FOUND || open_error == ERROR_PATH_NOT_FOUND) {
-        int lifetime = cbm_daemon_ipc_lifetime_reservation_probe(endpoint);
+        int lifetime = ani_daemon_ipc_lifetime_reservation_probe(endpoint);
         if (lifetime != 0) {
             return lifetime;
         }
-        cbm_private_lock_directory_t *directory = NULL;
-        if (cbm_daemon_ipc_private_lock_directory_new(endpoint, &directory) !=
-            CBM_PRIVATE_FILE_LOCK_OK) {
+        ani_private_lock_directory_t *directory = NULL;
+        if (ani_daemon_ipc_private_lock_directory_new(endpoint, &directory) !=
+            ANI_PRIVATE_FILE_LOCK_OK) {
             return -1;
         }
         int startup = win_private_lock_probe(directory, WIN_STARTUP_V2_LOCK_NAME);
-        cbm_private_lock_directory_close(directory);
+        ani_private_lock_directory_close(directory);
         return startup;
     }
     return -1;
 }
 
-cbm_daemon_ipc_connection_t *cbm_daemon_ipc_connect(const cbm_daemon_ipc_endpoint_t *endpoint,
+ani_daemon_ipc_connection_t *ani_daemon_ipc_connect(const ani_daemon_ipc_endpoint_t *endpoint,
                                                     uint32_t timeout_ms) {
     if (!endpoint) {
         return NULL;
@@ -5861,7 +5861,7 @@ cbm_daemon_ipc_connection_t *cbm_daemon_ipc_connect(const cbm_daemon_ipc_endpoin
             /* Terminal refusal: without a reason here the caller can only
              * report a generic connect timeout, which made owner-policy
              * failures on the rendezvous namespace undiagnosable. */
-            cbm_log_warn("daemon.client.rendezvous_unreadable", "status",
+            ani_log_warn("daemon.client.rendezvous_unreadable", "status",
                          rendezvous == WIN_RENDEZVOUS_CORRUPT ? "corrupt" : "unsafe_or_io");
             return NULL;
         }
@@ -5871,7 +5871,7 @@ cbm_daemon_ipc_connection_t *cbm_daemon_ipc_connect(const cbm_daemon_ipc_endpoin
             if (win_retry_pause(deadline_ms)) {
                 if (!wait_logged) {
                     wait_logged = true;
-                    cbm_log_warn("daemon.client.rendezvous_wait", "status",
+                    ani_log_warn("daemon.client.rendezvous_wait", "status",
                                  rendezvous == WIN_RENDEZVOUS_ABSENT  ? "absent"
                                  : rendezvous == WIN_RENDEZVOUS_BUSY  ? "busy"
                                  : rendezvous == WIN_RENDEZVOUS_VALID ? "no_generation"
@@ -5879,7 +5879,7 @@ cbm_daemon_ipc_connection_t *cbm_daemon_ipc_connect(const cbm_daemon_ipc_endpoin
                 }
                 continue;
             }
-            cbm_log_warn("daemon.client.connect_deadline", "status",
+            ani_log_warn("daemon.client.connect_deadline", "status",
                          rendezvous == WIN_RENDEZVOUS_ABSENT  ? "absent"
                          : rendezvous == WIN_RENDEZVOUS_BUSY  ? "busy"
                          : rendezvous == WIN_RENDEZVOUS_VALID ? "no_generation"
@@ -5916,22 +5916,22 @@ cbm_daemon_ipc_connection_t *cbm_daemon_ipc_connect(const cbm_daemon_ipc_endpoin
     DWORD mode = PIPE_READMODE_BYTE;
     if (!SetNamedPipeHandleState(pipe, &mode, NULL, NULL) ||
         !win_pipe_server_is_current_user(pipe)) {
-        cbm_log_warn("daemon.client.pipe_rejected", "stage", "server_identity");
+        ani_log_warn("daemon.client.pipe_rejected", "stage", "server_identity");
         (void)CloseHandle(pipe);
         return NULL;
     }
-    cbm_daemon_ipc_connection_t *connection = malloc(sizeof(*connection));
+    ani_daemon_ipc_connection_t *connection = malloc(sizeof(*connection));
     if (!connection) {
         (void)CloseHandle(pipe);
         return NULL;
     }
     connection->handle = pipe;
     atomic_init(&connection->poisoned, false);
-    connection->role = CBM_DAEMON_IPC_PIPE_ROLE_CONNECTED_CLIENT;
+    connection->role = ANI_DAEMON_IPC_PIPE_ROLE_CONNECTED_CLIENT;
     return connection;
 }
 
-void cbm_daemon_ipc_connection_close(cbm_daemon_ipc_connection_t *connection) {
+void ani_daemon_ipc_connection_close(ani_daemon_ipc_connection_t *connection) {
     if (!connection) {
         return;
     }
@@ -5942,12 +5942,12 @@ void cbm_daemon_ipc_connection_close(cbm_daemon_ipc_connection_t *connection) {
     free(connection);
 }
 
-static int win_io_once(cbm_daemon_ipc_connection_t *connection, void *buffer, DWORD length,
+static int win_io_once(ani_daemon_ipc_connection_t *connection, void *buffer, DWORD length,
                        bool writing, uint64_t deadline_ms, DWORD *transferred_out);
 
-void cbm_daemon_ipc_connection_drain(cbm_daemon_ipc_connection_t *connection, uint32_t timeout_ms) {
+void ani_daemon_ipc_connection_drain(ani_daemon_ipc_connection_t *connection, uint32_t timeout_ms) {
     if (!connection || connection->handle == INVALID_HANDLE_VALUE ||
-        connection->role != CBM_DAEMON_IPC_PIPE_ROLE_ACCEPTED_SERVER ||
+        connection->role != ANI_DAEMON_IPC_PIPE_ROLE_ACCEPTED_SERVER ||
         atomic_load_explicit(&connection->poisoned, memory_order_acquire)) {
         return;
     }
@@ -5969,24 +5969,24 @@ void cbm_daemon_ipc_connection_drain(cbm_daemon_ipc_connection_t *connection, ui
     }
 }
 
-void cbm_daemon_ipc_connection_interrupt(cbm_daemon_ipc_connection_t *connection) {
+void ani_daemon_ipc_connection_interrupt(ani_daemon_ipc_connection_t *connection) {
     if (!connection || connection->handle == INVALID_HANDLE_VALUE) {
         return;
     }
     (void)CancelIoEx(connection->handle, NULL);
-    if (connection->role == CBM_DAEMON_IPC_PIPE_ROLE_ACCEPTED_SERVER) {
+    if (connection->role == ANI_DAEMON_IPC_PIPE_ROLE_ACCEPTED_SERVER) {
         (void)DisconnectNamedPipe(connection->handle);
     }
 }
 
-uint64_t cbm_daemon_ipc_connection_peer_pid(const cbm_daemon_ipc_connection_t *connection) {
+uint64_t ani_daemon_ipc_connection_peer_pid(const ani_daemon_ipc_connection_t *connection) {
     if (!connection || !connection->handle || connection->handle == INVALID_HANDLE_VALUE) {
         return 0;
     }
 
     HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
     ULONG process_id = 0;
-    if (connection->role == CBM_DAEMON_IPC_PIPE_ROLE_ACCEPTED_SERVER) {
+    if (connection->role == ANI_DAEMON_IPC_PIPE_ROLE_ACCEPTED_SERVER) {
         get_named_pipe_client_process_id_fn get_client_pid =
             kernel ? (get_named_pipe_client_process_id_fn)(void (*)(void))GetProcAddress(
                          kernel, "GetNamedPipeClientProcessId")
@@ -5994,7 +5994,7 @@ uint64_t cbm_daemon_ipc_connection_peer_pid(const cbm_daemon_ipc_connection_t *c
         if (!get_client_pid || !get_client_pid(connection->handle, &process_id)) {
             return 0;
         }
-    } else if (connection->role == CBM_DAEMON_IPC_PIPE_ROLE_CONNECTED_CLIENT) {
+    } else if (connection->role == ANI_DAEMON_IPC_PIPE_ROLE_CONNECTED_CLIENT) {
         get_named_pipe_server_process_id_fn get_server_pid =
             kernel ? (get_named_pipe_server_process_id_fn)(void (*)(void))GetProcAddress(
                          kernel, "GetNamedPipeServerProcessId")
@@ -6008,7 +6008,7 @@ uint64_t cbm_daemon_ipc_connection_peer_pid(const cbm_daemon_ipc_connection_t *c
     return process_id == 0 ? 0 : (uint64_t)process_id;
 }
 
-static int win_io_once(cbm_daemon_ipc_connection_t *connection, void *buffer, DWORD length,
+static int win_io_once(ani_daemon_ipc_connection_t *connection, void *buffer, DWORD length,
                        bool writing, uint64_t deadline_ms, DWORD *transferred_out) {
     OVERLAPPED overlapped;
     memset(&overlapped, 0, sizeof(overlapped));
@@ -6036,7 +6036,7 @@ static int win_io_once(cbm_daemon_ipc_connection_t *connection, void *buffer, DW
     return result;
 }
 
-static int connection_read_full(cbm_daemon_ipc_connection_t *connection, void *buffer,
+static int connection_read_full(ani_daemon_ipc_connection_t *connection, void *buffer,
                                 size_t length, uint64_t deadline_ms) {
     if (!connection || atomic_load_explicit(&connection->poisoned, memory_order_acquire)) {
         return -1;
@@ -6060,7 +6060,7 @@ static int connection_read_full(cbm_daemon_ipc_connection_t *connection, void *b
     return 1;
 }
 
-static int connection_write_full(cbm_daemon_ipc_connection_t *connection, const void *buffer,
+static int connection_write_full(ani_daemon_ipc_connection_t *connection, const void *buffer,
                                  size_t length, uint64_t deadline_ms) {
     if (!connection || atomic_load_explicit(&connection->poisoned, memory_order_acquire)) {
         return -1;
@@ -6084,38 +6084,38 @@ static int connection_write_full(cbm_daemon_ipc_connection_t *connection, const 
     return 1;
 }
 
-int cbm_daemon_ipc_startup_lock_try_acquire(const cbm_daemon_ipc_endpoint_t *endpoint,
-                                            cbm_daemon_ipc_startup_lock_t **lock_out) {
+int ani_daemon_ipc_startup_lock_try_acquire(const ani_daemon_ipc_endpoint_t *endpoint,
+                                            ani_daemon_ipc_startup_lock_t **lock_out) {
     if (lock_out) {
         *lock_out = NULL;
     }
     if (!endpoint || !lock_out) {
         return -1;
     }
-    cbm_private_lock_directory_t *directory = NULL;
-    if (cbm_daemon_ipc_private_lock_directory_new(endpoint, &directory) !=
-        CBM_PRIVATE_FILE_LOCK_OK) {
+    ani_private_lock_directory_t *directory = NULL;
+    if (ani_daemon_ipc_private_lock_directory_new(endpoint, &directory) !=
+        ANI_PRIVATE_FILE_LOCK_OK) {
         return -1;
     }
-    cbm_private_file_lock_t *startup_v2 = NULL;
+    ani_private_file_lock_t *startup_v2 = NULL;
     int startup_status = win_startup_v2_try_acquire(directory, &startup_v2);
     if (startup_status != 1) {
-        cbm_private_lock_directory_close(directory);
+        ani_private_lock_directory_close(directory);
         return startup_status;
     }
     win_legacy_mutex_guard_t *legacy_guard = NULL;
     int legacy_status = win_legacy_mutex_guard_try_acquire(endpoint, &legacy_guard);
     if (legacy_status != 1) {
         win_private_lock_release_complete(&startup_v2);
-        cbm_private_lock_directory_close(directory);
+        ani_private_lock_directory_close(directory);
         return legacy_status;
     }
 
-    cbm_daemon_ipc_startup_lock_t *lock = calloc(1, sizeof(*lock));
+    ani_daemon_ipc_startup_lock_t *lock = calloc(1, sizeof(*lock));
     if (!lock) {
         win_legacy_mutex_guard_release_complete(&legacy_guard);
         win_private_lock_release_complete(&startup_v2);
-        cbm_private_lock_directory_close(directory);
+        ani_private_lock_directory_close(directory);
         return -1;
     }
     lock->endpoint = endpoint;
@@ -6130,15 +6130,15 @@ int cbm_daemon_ipc_startup_lock_try_acquire(const cbm_daemon_ipc_endpoint_t *end
     return 1;
 }
 
-int cbm_daemon_ipc_generation_probe_under_startup_lock(
-    const cbm_daemon_ipc_endpoint_t *endpoint, const cbm_daemon_ipc_startup_lock_t *startup_lock) {
+int ani_daemon_ipc_generation_probe_under_startup_lock(
+    const ani_daemon_ipc_endpoint_t *endpoint, const ani_daemon_ipc_startup_lock_t *startup_lock) {
     if (!endpoint || !startup_lock || startup_lock->endpoint != endpoint ||
         !startup_lock->directory || !startup_lock->startup_v2_lock || !startup_lock->legacy_guard ||
         startup_lock->prepared || startup_lock->group_lock ||
         startup_lock->legacy_sentinel != INVALID_HANDLE_VALUE) {
         return -1;
     }
-    int lifetime = cbm_daemon_ipc_lifetime_reservation_probe(endpoint);
+    int lifetime = ani_daemon_ipc_lifetime_reservation_probe(endpoint);
     if (lifetime != 0) {
         return lifetime;
     }
@@ -6149,7 +6149,7 @@ int cbm_daemon_ipc_generation_probe_under_startup_lock(
     return win_current_generation_transport_probe(endpoint);
 }
 
-bool cbm_daemon_ipc_startup_lock_prepare_handoff(cbm_daemon_ipc_startup_lock_t *lock) {
+bool ani_daemon_ipc_startup_lock_prepare_handoff(ani_daemon_ipc_startup_lock_t *lock) {
     if (!lock || !lock->endpoint || !lock->directory || !lock->startup_v2_lock) {
         return false;
     }
@@ -6177,11 +6177,11 @@ bool cbm_daemon_ipc_startup_lock_prepare_handoff(cbm_daemon_ipc_startup_lock_t *
     return true;
 }
 
-bool cbm_daemon_ipc_startup_lock_release(cbm_daemon_ipc_startup_lock_t **lock_io) {
+bool ani_daemon_ipc_startup_lock_release(ani_daemon_ipc_startup_lock_t **lock_io) {
     if (!lock_io) {
         return false;
     }
-    cbm_daemon_ipc_startup_lock_t *lock = *lock_io;
+    ani_daemon_ipc_startup_lock_t *lock = *lock_io;
     if (!lock) {
         return true;
     }
@@ -6190,38 +6190,38 @@ bool cbm_daemon_ipc_startup_lock_release(cbm_daemon_ipc_startup_lock_t **lock_io
                                        &lock->legacy_sentinel)) {
         return false;
     }
-    cbm_private_lock_directory_close(lock->directory);
+    ani_private_lock_directory_close(lock->directory);
     free(lock);
     *lock_io = NULL;
     return true;
 }
 
-int cbm_daemon_ipc_participant_guard_try_join(const cbm_daemon_ipc_endpoint_t *endpoint,
-                                              cbm_daemon_ipc_participant_guard_t **guard_out) {
+int ani_daemon_ipc_participant_guard_try_join(const ani_daemon_ipc_endpoint_t *endpoint,
+                                              ani_daemon_ipc_participant_guard_t **guard_out) {
     if (guard_out) {
         *guard_out = NULL;
     }
     if (!endpoint || !guard_out) {
         return -1;
     }
-    cbm_daemon_ipc_participant_guard_t *guard = calloc(1, sizeof(*guard));
+    ani_daemon_ipc_participant_guard_t *guard = calloc(1, sizeof(*guard));
     if (!guard) {
         return -1;
     }
-    cbm_private_lock_directory_t *directory = NULL;
-    if (cbm_daemon_ipc_private_lock_directory_new(endpoint, &directory) !=
-        CBM_PRIVATE_FILE_LOCK_OK) {
+    ani_private_lock_directory_t *directory = NULL;
+    if (ani_daemon_ipc_private_lock_directory_new(endpoint, &directory) !=
+        ANI_PRIVATE_FILE_LOCK_OK) {
         free(guard);
         return -1;
     }
     win_legacy_mutex_guard_t *legacy_guard = NULL;
     int legacy = win_legacy_mutex_guard_try_acquire(endpoint, &legacy_guard);
     if (legacy != 1) {
-        cbm_private_lock_directory_close(directory);
+        ani_private_lock_directory_close(directory);
         free(guard);
         return legacy;
     }
-    cbm_private_file_lock_t *group = NULL;
+    ani_private_file_lock_t *group = NULL;
     HANDLE sentinel = INVALID_HANDLE_VALUE;
     int joined = win_participant_group_join_locked(endpoint, directory, false, &group, &sentinel);
     bool mutex_released = win_legacy_mutex_guard_release(&legacy_guard);
@@ -6230,7 +6230,7 @@ int cbm_daemon_ipc_participant_guard_try_join(const cbm_daemon_ipc_endpoint_t *e
             win_participant_group_release_complete(&group, &sentinel);
         }
         win_legacy_mutex_guard_release_complete(&legacy_guard);
-        cbm_private_lock_directory_close(directory);
+        ani_private_lock_directory_close(directory);
         free(guard);
         return joined == 0 && mutex_released ? 0 : -1;
     }
@@ -6242,11 +6242,11 @@ int cbm_daemon_ipc_participant_guard_try_join(const cbm_daemon_ipc_endpoint_t *e
     return 1;
 }
 
-bool cbm_daemon_ipc_participant_guard_release(cbm_daemon_ipc_participant_guard_t **guard_io) {
+bool ani_daemon_ipc_participant_guard_release(ani_daemon_ipc_participant_guard_t **guard_io) {
     if (!guard_io) {
         return false;
     }
-    cbm_daemon_ipc_participant_guard_t *guard = *guard_io;
+    ani_daemon_ipc_participant_guard_t *guard = *guard_io;
     if (!guard) {
         return true;
     }
@@ -6255,35 +6255,35 @@ bool cbm_daemon_ipc_participant_guard_release(cbm_daemon_ipc_participant_guard_t
             &guard->teardown_legacy_guard, &guard->group_lock, &guard->legacy_sentinel)) {
         return false;
     }
-    cbm_private_lock_directory_close(guard->directory);
+    ani_private_lock_directory_close(guard->directory);
     free(guard);
     *guard_io = NULL;
     return true;
 }
 
-int cbm_daemon_ipc_local_transition_try_acquire(
-    const cbm_daemon_ipc_endpoint_t *endpoint, cbm_daemon_ipc_local_transition_t **transition_out) {
+int ani_daemon_ipc_local_transition_try_acquire(
+    const ani_daemon_ipc_endpoint_t *endpoint, ani_daemon_ipc_local_transition_t **transition_out) {
     if (transition_out) {
         *transition_out = NULL;
     }
     if (!endpoint || !transition_out) {
         return -1;
     }
-    cbm_private_lock_directory_t *directory = NULL;
-    if (cbm_daemon_ipc_private_lock_directory_new(endpoint, &directory) !=
-        CBM_PRIVATE_FILE_LOCK_OK) {
+    ani_private_lock_directory_t *directory = NULL;
+    if (ani_daemon_ipc_private_lock_directory_new(endpoint, &directory) !=
+        ANI_PRIVATE_FILE_LOCK_OK) {
         return -1;
     }
-    cbm_private_file_lock_t *startup_v2 = NULL;
+    ani_private_file_lock_t *startup_v2 = NULL;
     int startup = win_startup_v2_try_acquire(directory, &startup_v2);
     if (startup != 1) {
-        cbm_private_lock_directory_close(directory);
+        ani_private_lock_directory_close(directory);
         return startup;
     }
-    cbm_daemon_ipc_local_transition_t *transition = calloc(1, sizeof(*transition));
+    ani_daemon_ipc_local_transition_t *transition = calloc(1, sizeof(*transition));
     if (!transition) {
         win_private_lock_release_complete(&startup_v2);
-        cbm_private_lock_directory_close(directory);
+        ani_private_lock_directory_close(directory);
         return -1;
     }
     transition->endpoint = endpoint;
@@ -6294,7 +6294,7 @@ int cbm_daemon_ipc_local_transition_try_acquire(
     return 1;
 }
 
-int cbm_daemon_ipc_local_transition_seal_legacy(cbm_daemon_ipc_local_transition_t *transition) {
+int ani_daemon_ipc_local_transition_seal_legacy(ani_daemon_ipc_local_transition_t *transition) {
     if (!transition || !transition->endpoint || !transition->directory ||
         !transition->startup_v2_lock || transition->work_begun) {
         return -1;
@@ -6323,35 +6323,35 @@ int cbm_daemon_ipc_local_transition_seal_legacy(cbm_daemon_ipc_local_transition_
     return 1;
 }
 
-int cbm_daemon_ipc_local_transition_lifetime_probe(
-    const cbm_daemon_ipc_endpoint_t *endpoint,
-    const cbm_daemon_ipc_local_transition_t *transition) {
+int ani_daemon_ipc_local_transition_lifetime_probe(
+    const ani_daemon_ipc_endpoint_t *endpoint,
+    const ani_daemon_ipc_local_transition_t *transition) {
     if (!endpoint || !transition || transition->endpoint != endpoint || !transition->directory ||
         !transition->startup_v2_lock || !transition->sealed || transition->work_begun ||
         !transition->group_lock || transition->legacy_sentinel == INVALID_HANDLE_VALUE) {
         return -1;
     }
-    return cbm_daemon_ipc_lifetime_reservation_probe(endpoint);
+    return ani_daemon_ipc_lifetime_reservation_probe(endpoint);
 }
 
-bool cbm_daemon_ipc_local_transition_begin_work(cbm_daemon_ipc_local_transition_t *transition) {
+bool ani_daemon_ipc_local_transition_begin_work(ani_daemon_ipc_local_transition_t *transition) {
     if (!transition || !transition->endpoint || !transition->directory ||
         !transition->startup_v2_lock || !transition->sealed || transition->work_begun ||
         !transition->group_lock || transition->legacy_sentinel == INVALID_HANDLE_VALUE) {
         return false;
     }
-    if (cbm_private_file_lock_release(&transition->startup_v2_lock) != CBM_PRIVATE_FILE_LOCK_OK) {
+    if (ani_private_file_lock_release(&transition->startup_v2_lock) != ANI_PRIVATE_FILE_LOCK_OK) {
         return false;
     }
     transition->work_begun = true;
     return true;
 }
 
-bool cbm_daemon_ipc_local_transition_release(cbm_daemon_ipc_local_transition_t **transition_io) {
+bool ani_daemon_ipc_local_transition_release(ani_daemon_ipc_local_transition_t **transition_io) {
     if (!transition_io) {
         return false;
     }
-    cbm_daemon_ipc_local_transition_t *transition = *transition_io;
+    ani_daemon_ipc_local_transition_t *transition = *transition_io;
     if (!transition) {
         return true;
     }
@@ -6367,11 +6367,11 @@ bool cbm_daemon_ipc_local_transition_release(cbm_daemon_ipc_local_transition_t *
             return false;
         }
     } else if (transition->startup_v2_lock &&
-               cbm_private_file_lock_release(&transition->startup_v2_lock) !=
-                   CBM_PRIVATE_FILE_LOCK_OK) {
+               ani_private_file_lock_release(&transition->startup_v2_lock) !=
+                   ANI_PRIVATE_FILE_LOCK_OK) {
         return false;
     }
-    cbm_private_lock_directory_close(transition->directory);
+    ani_private_lock_directory_close(transition->directory);
     transition->directory = NULL;
     free(transition);
     *transition_io = NULL;
@@ -6380,18 +6380,18 @@ bool cbm_daemon_ipc_local_transition_release(cbm_daemon_ipc_local_transition_t *
 
 #endif /* _WIN32 */
 
-bool cbm_daemon_ipc_send_frame(cbm_daemon_ipc_connection_t *connection,
-                               cbm_daemon_frame_type_t type, uint16_t flags, const void *payload,
+bool ani_daemon_ipc_send_frame(ani_daemon_ipc_connection_t *connection,
+                               ani_daemon_frame_type_t type, uint16_t flags, const void *payload,
                                uint32_t length) {
     if (!connection || atomic_load_explicit(&connection->poisoned, memory_order_acquire) ||
         (length > 0 && !payload)) {
         return false;
     }
-    uint8_t header[CBM_DAEMON_FRAME_HEADER_SIZE];
-    if (!cbm_daemon_frame_header_encode(header, type, flags, length)) {
+    uint8_t header[ANI_DAEMON_FRAME_HEADER_SIZE];
+    if (!ani_daemon_frame_header_encode(header, type, flags, length)) {
         return false;
     }
-    uint64_t deadline_ms = ipc_deadline_after(CBM_DAEMON_IPC_SEND_TIMEOUT_MS);
+    uint64_t deadline_ms = ipc_deadline_after(ANI_DAEMON_IPC_SEND_TIMEOUT_MS);
     if (connection_write_full(connection, header, sizeof(header), deadline_ms) != 1) {
         return false;
     }
@@ -6404,9 +6404,9 @@ bool cbm_daemon_ipc_send_frame(cbm_daemon_ipc_connection_t *connection,
     return true;
 }
 
-int cbm_daemon_ipc_receive_frame_bounded(cbm_daemon_ipc_connection_t *connection,
+int ani_daemon_ipc_receive_frame_bounded(ani_daemon_ipc_connection_t *connection,
                                          uint32_t timeout_ms, uint32_t max_payload_length,
-                                         cbm_daemon_frame_t *frame_out, uint8_t **payload_out) {
+                                         ani_daemon_frame_t *frame_out, uint8_t **payload_out) {
     if (payload_out) {
         *payload_out = NULL;
     }
@@ -6416,13 +6416,13 @@ int cbm_daemon_ipc_receive_frame_bounded(cbm_daemon_ipc_connection_t *connection
     }
     memset(frame_out, 0, sizeof(*frame_out));
     uint64_t deadline_ms = ipc_deadline_after(timeout_ms);
-    uint8_t header[CBM_DAEMON_FRAME_HEADER_SIZE];
+    uint8_t header[ANI_DAEMON_FRAME_HEADER_SIZE];
     int result = connection_read_full(connection, header, sizeof(header), deadline_ms);
     if (result != 1) {
         return result;
     }
-    cbm_daemon_frame_t frame;
-    if (!cbm_daemon_frame_header_decode(header, &frame)) {
+    ani_daemon_frame_t frame;
+    if (!ani_daemon_frame_header_decode(header, &frame)) {
         atomic_store_explicit(&connection->poisoned, true, memory_order_release);
         return -1;
     }
@@ -6452,8 +6452,8 @@ int cbm_daemon_ipc_receive_frame_bounded(cbm_daemon_ipc_connection_t *connection
     return 1;
 }
 
-int cbm_daemon_ipc_receive_frame(cbm_daemon_ipc_connection_t *connection, uint32_t timeout_ms,
-                                 cbm_daemon_frame_t *frame_out, uint8_t **payload_out) {
-    return cbm_daemon_ipc_receive_frame_bounded(connection, timeout_ms, CBM_DAEMON_MAX_FRAME_SIZE,
+int ani_daemon_ipc_receive_frame(ani_daemon_ipc_connection_t *connection, uint32_t timeout_ms,
+                                 ani_daemon_frame_t *frame_out, uint8_t **payload_out) {
+    return ani_daemon_ipc_receive_frame_bounded(connection, timeout_ms, ANI_DAEMON_MAX_FRAME_SIZE,
                                                 frame_out, payload_out);
 }

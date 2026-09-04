@@ -113,7 +113,7 @@ TEST(repro_issue56_cross_crate_calls) {
     static const int nfiles = (int)(sizeof(files) / sizeof(files[0]));
 
     RProj lp;
-    cbm_store_t *store = rh_index_files(&lp, files, nfiles);
+    ani_store_t *store = rh_index_files(&lp, files, nfiles);
     ASSERT_NOT_NULL(store);
 
     /*
@@ -132,22 +132,22 @@ TEST(repro_issue56_cross_crate_calls) {
      * RED if no edge with target QN containing "crate_a" is found.
      * GREEN when cross-crate resolution is correctly implemented.
      */
-    cbm_edge_t *edges = NULL;
+    ani_edge_t *edges = NULL;
     int edge_count = 0;
-    int rc = cbm_store_find_edges_by_type(store, lp.project, "CALLS", &edges, &edge_count);
-    ASSERT_EQ(rc, CBM_STORE_OK);
+    int rc = ani_store_find_edges_by_type(store, lp.project, "CALLS", &edges, &edge_count);
+    ASSERT_EQ(rc, ANI_STORE_OK);
 
     int found_cross_crate = 0;
     for (int i = 0; i < edge_count && !found_cross_crate; i++) {
-        cbm_node_t target_node;
-        if (cbm_store_find_node_by_id(store, edges[i].target_id, &target_node) == CBM_STORE_OK) {
+        ani_node_t target_node;
+        if (ani_store_find_node_by_id(store, edges[i].target_id, &target_node) == ANI_STORE_OK) {
             if (target_node.qualified_name &&
                 strstr(target_node.qualified_name, "crate_a")) {
                 found_cross_crate = 1;
             }
         }
     }
-    cbm_store_free_edges(edges, edge_count);
+    ani_store_free_edges(edges, edge_count);
 
     /*
      * RED: no CALLS edge routes into crate_a's namespace.

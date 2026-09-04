@@ -2,17 +2,17 @@
  * userconfig.c — User-defined extension→language mappings.
  *
  * Reads extra_extensions from:
- *   Global:  $XDG_CONFIG_HOME/codebase-memory-mcp/config.json
- *            (falls back to ~/.config/codebase-memory-mcp/config.json)
- *   Project: {repo_root}/.codebase-memory.json
+ *   Global:  $XDG_CONFIG_HOME/ani/config.json
+ *            (falls back to ~/.config/ani/config.json)
+ *   Project: {repo_root}/.ani.json
  *
  * Project config wins over global. Unknown language values warn and are
  * skipped (fail-open). Missing files are silently ignored.
  */
 #include "discover/userconfig.h"
-#include "cbm.h" /* CBMLanguage, CBM_LANG_* */
+#include "ani.h" /* ANILanguage, ANI_LANG_* */
 #include "foundation/constants.h"
-#include "foundation/platform.h" /* cbm_safe_getenv */
+#include "foundation/platform.h" /* ani_safe_getenv */
 #include "foundation/compat_fs.h"
 #include "foundation/sha256.h"
 
@@ -28,140 +28,140 @@ enum { MAX_CONFIG_SIZE = 65536 };
 
 /* ── Process-global user config pointer ──────────────────────────── */
 
-static const cbm_userconfig_t *g_userconfig = NULL;
+static const ani_userconfig_t *g_userconfig = NULL;
 
 static void userconfig_source_digest(const char *state, const void *bytes, size_t len,
-                                     char out[CBM_SHA256_HEX_LEN + 1]) {
-    static const char domain[] = "cbm-userconfig-source-v1";
-    cbm_sha256_ctx sha;
-    cbm_sha256_init(&sha);
-    cbm_sha256_update(&sha, domain, sizeof(domain));
-    cbm_sha256_update(&sha, state, strlen(state) + 1);
+                                     char out[ANI_SHA256_HEX_LEN + 1]) {
+    static const char domain[] = "ani-userconfig-source-v1";
+    ani_sha256_ctx sha;
+    ani_sha256_init(&sha);
+    ani_sha256_update(&sha, domain, sizeof(domain));
+    ani_sha256_update(&sha, state, strlen(state) + 1);
     if (bytes && len > 0) {
-        cbm_sha256_update(&sha, bytes, len);
+        ani_sha256_update(&sha, bytes, len);
     }
-    uint8_t digest[CBM_SHA256_DIGEST_LEN];
-    cbm_sha256_final(&sha, digest);
+    uint8_t digest[ANI_SHA256_DIGEST_LEN];
+    ani_sha256_final(&sha, digest);
     static const char hex[] = "0123456789abcdef";
-    for (int i = 0; i < CBM_SHA256_DIGEST_LEN; i++) {
+    for (int i = 0; i < ANI_SHA256_DIGEST_LEN; i++) {
         out[i * 2] = hex[digest[i] >> 4];
         out[i * 2 + 1] = hex[digest[i] & 0x0f];
     }
-    out[CBM_SHA256_HEX_LEN] = '\0';
+    out[ANI_SHA256_HEX_LEN] = '\0';
 }
 
-void cbm_set_user_lang_config(const cbm_userconfig_t *cfg) {
+void ani_set_user_lang_config(const ani_userconfig_t *cfg) {
     g_userconfig = cfg;
 }
 
-const cbm_userconfig_t *cbm_get_user_lang_config(void) {
+const ani_userconfig_t *ani_get_user_lang_config(void) {
     return g_userconfig;
 }
 
 /* ── Language name → enum table ──────────────────────────────────── */
 
 /*
- * Reverse-mapping from lowercase language name strings to CBMLanguage.
- * Covers all names exposed by cbm_language_name() plus common aliases.
+ * Reverse-mapping from lowercase language name strings to ANILanguage.
+ * Covers all names exposed by ani_language_name() plus common aliases.
  */
 typedef struct {
     const char *name; /* lowercase */
-    CBMLanguage lang;
+    ANILanguage lang;
 } lang_name_entry_t;
 
 static const lang_name_entry_t LANG_NAME_TABLE[] = {
-    {"go", CBM_LANG_GO},
-    {"python", CBM_LANG_PYTHON},
-    {"javascript", CBM_LANG_JAVASCRIPT},
-    {"typescript", CBM_LANG_TYPESCRIPT},
-    {"tsx", CBM_LANG_TSX},
-    {"arkts", CBM_LANG_ARKTS},
-    {"rust", CBM_LANG_RUST},
-    {"java", CBM_LANG_JAVA},
-    {"c++", CBM_LANG_CPP},
-    {"cpp", CBM_LANG_CPP},
-    {"c#", CBM_LANG_CSHARP},
-    {"csharp", CBM_LANG_CSHARP},
-    {"php", CBM_LANG_PHP},
-    {"lua", CBM_LANG_LUA},
-    {"scala", CBM_LANG_SCALA},
-    {"kotlin", CBM_LANG_KOTLIN},
-    {"ruby", CBM_LANG_RUBY},
-    {"c", CBM_LANG_C},
-    {"bash", CBM_LANG_BASH},
-    {"sh", CBM_LANG_BASH},
-    {"zig", CBM_LANG_ZIG},
-    {"elixir", CBM_LANG_ELIXIR},
-    {"haskell", CBM_LANG_HASKELL},
-    {"ocaml", CBM_LANG_OCAML},
-    {"objective-c", CBM_LANG_OBJC},
-    {"objc", CBM_LANG_OBJC},
-    {"swift", CBM_LANG_SWIFT},
-    {"dart", CBM_LANG_DART},
-    {"perl", CBM_LANG_PERL},
-    {"groovy", CBM_LANG_GROOVY},
-    {"erlang", CBM_LANG_ERLANG},
-    {"r", CBM_LANG_R},
-    {"html", CBM_LANG_HTML},
-    {"css", CBM_LANG_CSS},
-    {"scss", CBM_LANG_SCSS},
-    {"yaml", CBM_LANG_YAML},
-    {"toml", CBM_LANG_TOML},
-    {"hcl", CBM_LANG_HCL},
-    {"terraform", CBM_LANG_HCL},
-    {"sql", CBM_LANG_SQL},
-    {"dockerfile", CBM_LANG_DOCKERFILE},
-    {"clojure", CBM_LANG_CLOJURE},
-    {"f#", CBM_LANG_FSHARP},
-    {"fsharp", CBM_LANG_FSHARP},
-    {"julia", CBM_LANG_JULIA},
-    {"vimscript", CBM_LANG_VIMSCRIPT},
-    {"nix", CBM_LANG_NIX},
-    {"common lisp", CBM_LANG_COMMONLISP},
-    {"commonlisp", CBM_LANG_COMMONLISP},
-    {"lisp", CBM_LANG_COMMONLISP},
-    {"elm", CBM_LANG_ELM},
-    {"fortran", CBM_LANG_FORTRAN},
-    {"cuda", CBM_LANG_CUDA},
-    {"cobol", CBM_LANG_COBOL},
-    {"verilog", CBM_LANG_VERILOG},
-    {"emacs lisp", CBM_LANG_EMACSLISP},
-    {"emacslisp", CBM_LANG_EMACSLISP},
-    {"json", CBM_LANG_JSON},
-    {"xml", CBM_LANG_XML},
-    {"markdown", CBM_LANG_MARKDOWN},
-    {"makefile", CBM_LANG_MAKEFILE},
-    {"cmake", CBM_LANG_CMAKE},
-    {"protobuf", CBM_LANG_PROTOBUF},
-    {"graphql", CBM_LANG_GRAPHQL},
-    {"vue", CBM_LANG_VUE},
-    {"svelte", CBM_LANG_SVELTE},
-    {"meson", CBM_LANG_MESON},
-    {"glsl", CBM_LANG_GLSL},
-    {"ini", CBM_LANG_INI},
-    {"matlab", CBM_LANG_MATLAB},
-    {"mojo", CBM_LANG_MOJO},
-    {"plsql", CBM_LANG_PLSQL},
-    {"chialisp", CBM_LANG_CHIALISP},
-    {"lean", CBM_LANG_LEAN},
-    {"form", CBM_LANG_FORM},
-    {"magma", CBM_LANG_MAGMA},
-    {"wolfram", CBM_LANG_WOLFRAM},
+    {"go", ANI_LANG_GO},
+    {"python", ANI_LANG_PYTHON},
+    {"javascript", ANI_LANG_JAVASCRIPT},
+    {"typescript", ANI_LANG_TYPESCRIPT},
+    {"tsx", ANI_LANG_TSX},
+    {"arkts", ANI_LANG_ARKTS},
+    {"rust", ANI_LANG_RUST},
+    {"java", ANI_LANG_JAVA},
+    {"c++", ANI_LANG_CPP},
+    {"cpp", ANI_LANG_CPP},
+    {"c#", ANI_LANG_CSHARP},
+    {"csharp", ANI_LANG_CSHARP},
+    {"php", ANI_LANG_PHP},
+    {"lua", ANI_LANG_LUA},
+    {"scala", ANI_LANG_SCALA},
+    {"kotlin", ANI_LANG_KOTLIN},
+    {"ruby", ANI_LANG_RUBY},
+    {"c", ANI_LANG_C},
+    {"bash", ANI_LANG_BASH},
+    {"sh", ANI_LANG_BASH},
+    {"zig", ANI_LANG_ZIG},
+    {"elixir", ANI_LANG_ELIXIR},
+    {"haskell", ANI_LANG_HASKELL},
+    {"ocaml", ANI_LANG_OCAML},
+    {"objective-c", ANI_LANG_OBJC},
+    {"objc", ANI_LANG_OBJC},
+    {"swift", ANI_LANG_SWIFT},
+    {"dart", ANI_LANG_DART},
+    {"perl", ANI_LANG_PERL},
+    {"groovy", ANI_LANG_GROOVY},
+    {"erlang", ANI_LANG_ERLANG},
+    {"r", ANI_LANG_R},
+    {"html", ANI_LANG_HTML},
+    {"css", ANI_LANG_CSS},
+    {"scss", ANI_LANG_SCSS},
+    {"yaml", ANI_LANG_YAML},
+    {"toml", ANI_LANG_TOML},
+    {"hcl", ANI_LANG_HCL},
+    {"terraform", ANI_LANG_HCL},
+    {"sql", ANI_LANG_SQL},
+    {"dockerfile", ANI_LANG_DOCKERFILE},
+    {"clojure", ANI_LANG_CLOJURE},
+    {"f#", ANI_LANG_FSHARP},
+    {"fsharp", ANI_LANG_FSHARP},
+    {"julia", ANI_LANG_JULIA},
+    {"vimscript", ANI_LANG_VIMSCRIPT},
+    {"nix", ANI_LANG_NIX},
+    {"common lisp", ANI_LANG_COMMONLISP},
+    {"commonlisp", ANI_LANG_COMMONLISP},
+    {"lisp", ANI_LANG_COMMONLISP},
+    {"elm", ANI_LANG_ELM},
+    {"fortran", ANI_LANG_FORTRAN},
+    {"cuda", ANI_LANG_CUDA},
+    {"cobol", ANI_LANG_COBOL},
+    {"verilog", ANI_LANG_VERILOG},
+    {"emacs lisp", ANI_LANG_EMACSLISP},
+    {"emacslisp", ANI_LANG_EMACSLISP},
+    {"json", ANI_LANG_JSON},
+    {"xml", ANI_LANG_XML},
+    {"markdown", ANI_LANG_MARKDOWN},
+    {"makefile", ANI_LANG_MAKEFILE},
+    {"cmake", ANI_LANG_CMAKE},
+    {"protobuf", ANI_LANG_PROTOBUF},
+    {"graphql", ANI_LANG_GRAPHQL},
+    {"vue", ANI_LANG_VUE},
+    {"svelte", ANI_LANG_SVELTE},
+    {"meson", ANI_LANG_MESON},
+    {"glsl", ANI_LANG_GLSL},
+    {"ini", ANI_LANG_INI},
+    {"matlab", ANI_LANG_MATLAB},
+    {"mojo", ANI_LANG_MOJO},
+    {"plsql", ANI_LANG_PLSQL},
+    {"chialisp", ANI_LANG_CHIALISP},
+    {"lean", ANI_LANG_LEAN},
+    {"form", ANI_LANG_FORM},
+    {"magma", ANI_LANG_MAGMA},
+    {"wolfram", ANI_LANG_WOLFRAM},
 };
 
 #define LANG_NAME_TABLE_SIZE (sizeof(LANG_NAME_TABLE) / sizeof(LANG_NAME_TABLE[0]))
 
 /*
- * Parse a language string (case-insensitive) to a CBMLanguage enum.
- * Returns CBM_LANG_COUNT if the string is not recognized.
+ * Parse a language string (case-insensitive) to a ANILanguage enum.
+ * Returns ANI_LANG_COUNT if the string is not recognized.
  */
-static CBMLanguage lang_from_string(const char *s) {
+static ANILanguage lang_from_string(const char *s) {
     if (!s || !s[0]) {
-        return CBM_LANG_COUNT;
+        return ANI_LANG_COUNT;
     }
 
     /* Build a lowercase copy for comparison */
-    char lower[CBM_SZ_64];
+    char lower[ANI_SZ_64];
     size_t i;
     for (i = 0; i < sizeof(lower) - SKIP_ONE && s[i]; i++) {
         lower[i] = (char)tolower((unsigned char)s[i]);
@@ -173,12 +173,12 @@ static CBMLanguage lang_from_string(const char *s) {
             return LANG_NAME_TABLE[j].lang;
         }
     }
-    return CBM_LANG_COUNT;
+    return ANI_LANG_COUNT;
 }
 
 /* ── Config directory helper ─────────────────────────────────────── */
 
-/* cbm_app_config_dir() is now in platform.c (cross-platform). */
+/* ani_app_config_dir() is now in platform.c (cross-platform). */
 
 /* ── JSON parsing ────────────────────────────────────────────────── */
 
@@ -190,10 +190,10 @@ static CBMLanguage lang_from_string(const char *s) {
  *
  * Returns 0 on success, -1 on alloc failure.
  */
-static int parse_extra_extensions(yyjson_val *root, cbm_userext_t **entries, int *count,
+static int parse_extra_extensions(yyjson_val *root, ani_userext_t **entries, int *count,
                                   const char *source_label) {
     if (!yyjson_is_obj(root)) {
-        cbm_log_warn("userconfig.bad_root", "file", source_label);
+        ani_log_warn("userconfig.bad_root", "file", source_label);
         return 0;
     }
 
@@ -202,7 +202,7 @@ static int parse_extra_extensions(yyjson_val *root, cbm_userext_t **entries, int
         return 0; /* key absent — fine */
     }
     if (!yyjson_is_obj(extra)) {
-        cbm_log_warn("userconfig.bad_extra_extensions", "file", source_label);
+        ani_log_warn("userconfig.bad_extra_extensions", "file", source_label);
         return 0;
     }
 
@@ -216,32 +216,32 @@ static int parse_extra_extensions(yyjson_val *root, cbm_userext_t **entries, int
         const char *lang_str = yyjson_get_str(val);
 
         if (!ext_str || !lang_str) {
-            cbm_log_warn("userconfig.skip_non_string", "file", source_label);
+            ani_log_warn("userconfig.skip_non_string", "file", source_label);
             continue;
         }
 
         /* Extension must start with '.' */
         if (ext_str[0] != '.') {
-            cbm_log_warn("userconfig.skip_bad_ext", "file", source_label, "ext", ext_str);
+            ani_log_warn("userconfig.skip_bad_ext", "file", source_label, "ext", ext_str);
             continue;
         }
 
-        CBMLanguage lang = lang_from_string(lang_str);
-        if (lang == CBM_LANG_COUNT) {
-            cbm_log_warn("userconfig.unknown_lang", "file", source_label, "lang", lang_str);
+        ANILanguage lang = lang_from_string(lang_str);
+        if (lang == ANI_LANG_COUNT) {
+            ani_log_warn("userconfig.unknown_lang", "file", source_label, "lang", lang_str);
             continue; /* fail-open: skip unknown languages */
         }
 
         /* Grow the array */
-        cbm_userext_t *tmp = realloc(*entries, (size_t)(*count + SKIP_ONE) * sizeof(cbm_userext_t));
+        ani_userext_t *tmp = realloc(*entries, (size_t)(*count + SKIP_ONE) * sizeof(ani_userext_t));
         if (!tmp) {
-            return CBM_NOT_FOUND;
+            return ANI_NOT_FOUND;
         }
         *entries = tmp;
 
         char *ext_copy = strdup(ext_str);
         if (!ext_copy) {
-            return CBM_NOT_FOUND;
+            return ANI_NOT_FOUND;
         }
 
         (*entries)[*count].ext = ext_copy;
@@ -256,10 +256,10 @@ static int parse_extra_extensions(yyjson_val *root, cbm_userext_t **entries, int
  * Silently ignores missing files. Logs warnings for corrupt JSON.
  * Returns 0 on success (or absent file), -1 on alloc failure.
  */
-static int load_config_file(const char *path, cbm_userext_t **entries, int *count,
-                            char source_sha256[CBM_SHA256_HEX_LEN + 1]) {
+static int load_config_file(const char *path, ani_userext_t **entries, int *count,
+                            char source_sha256[ANI_SHA256_HEX_LEN + 1]) {
     userconfig_source_digest("missing-or-unreadable", NULL, 0, source_sha256);
-    FILE *f = cbm_fopen(path, "rb");
+    FILE *f = ani_fopen(path, "rb");
     if (!f) {
         return 0; /* file absent — silently ignore */
     }
@@ -279,7 +279,7 @@ static int load_config_file(const char *path, cbm_userext_t **entries, int *coun
     if (len <= 0 || len > MAX_CONFIG_SIZE) {
         (void)fclose(f);
         if (len > MAX_CONFIG_SIZE) {
-            cbm_log_warn("userconfig.file_too_large", "path", path);
+            ani_log_warn("userconfig.file_too_large", "path", path);
             userconfig_source_digest("oversized", NULL, 0, source_sha256);
         } else {
             userconfig_source_digest("empty", NULL, 0, source_sha256);
@@ -290,7 +290,7 @@ static int load_config_file(const char *path, cbm_userext_t **entries, int *coun
     char *buf = malloc((size_t)len + SKIP_ONE);
     if (!buf) {
         (void)fclose(f);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
     size_t nread = fread(buf, SKIP_ONE, (size_t)len, f);
@@ -305,7 +305,7 @@ static int load_config_file(const char *path, cbm_userext_t **entries, int *coun
     free(buf);
 
     if (!doc) {
-        cbm_log_warn("userconfig.corrupt_json", "path", path);
+        ani_log_warn("userconfig.corrupt_json", "path", path);
         return 0; /* corrupt JSON — silently ignore (fail-open) */
     }
 
@@ -317,21 +317,21 @@ static int load_config_file(const char *path, cbm_userext_t **entries, int *coun
 
 /* ── Public API ──────────────────────────────────────────────────── */
 
-cbm_userconfig_t *cbm_userconfig_load(const char *repo_path) {
-    cbm_userconfig_t *cfg = calloc(CBM_ALLOC_ONE, sizeof(cbm_userconfig_t));
+ani_userconfig_t *ani_userconfig_load(const char *repo_path) {
+    ani_userconfig_t *cfg = calloc(ANI_ALLOC_ONE, sizeof(ani_userconfig_t));
     if (!cfg) {
         return NULL;
     }
 
-    cbm_userext_t *entries = NULL;
+    ani_userext_t *entries = NULL;
     int count = 0;
 
     /* ── Step 1: Load global config ── */
     enum { PATH_BUF_SZ = 1280 };
-    const char *cfg_base = cbm_app_config_dir();
+    const char *cfg_base = ani_app_config_dir();
     const char *cfg_fallback = cfg_base ? cfg_base : "/tmp";
     char global_path[PATH_BUF_SZ];
-    snprintf(global_path, sizeof(global_path), "%s/codebase-memory-mcp/config.json", cfg_fallback);
+    snprintf(global_path, sizeof(global_path), "%s/ani/config.json", cfg_fallback);
 
     if (load_config_file(global_path, &entries, &count, cfg->global_source_sha256) != 0) {
         for (int i = 0; i < count; i++) {
@@ -348,7 +348,7 @@ cbm_userconfig_t *cbm_userconfig_load(const char *repo_path) {
     userconfig_source_digest("not-applicable", NULL, 0, cfg->project_source_sha256);
     if (repo_path && repo_path[0]) {
         char project_path[PATH_BUF_SZ];
-        snprintf(project_path, sizeof(project_path), "%s/.codebase-memory.json", repo_path);
+        snprintf(project_path, sizeof(project_path), "%s/.ani.json", repo_path);
 
         if (load_config_file(project_path, &entries, &count, cfg->project_source_sha256) != 0) {
             /* Free already-allocated entries */
@@ -398,19 +398,19 @@ cbm_userconfig_t *cbm_userconfig_load(const char *repo_path) {
     return cfg;
 }
 
-CBMLanguage cbm_userconfig_lookup(const cbm_userconfig_t *cfg, const char *ext) {
+ANILanguage ani_userconfig_lookup(const ani_userconfig_t *cfg, const char *ext) {
     if (!cfg || !ext || !ext[0]) {
-        return CBM_LANG_COUNT;
+        return ANI_LANG_COUNT;
     }
     for (int i = 0; i < cfg->count; i++) {
         if (cfg->entries[i].ext && strcmp(cfg->entries[i].ext, ext) == 0) {
             return cfg->entries[i].lang;
         }
     }
-    return CBM_LANG_COUNT;
+    return ANI_LANG_COUNT;
 }
 
-void cbm_userconfig_free(cbm_userconfig_t *cfg) {
+void ani_userconfig_free(ani_userconfig_t *cfg) {
     if (!cfg) {
         return;
     }

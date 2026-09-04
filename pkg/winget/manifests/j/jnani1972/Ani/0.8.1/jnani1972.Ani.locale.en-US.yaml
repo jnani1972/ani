@@ -1,0 +1,31 @@
+PackageIdentifier: jnani1972.Ani
+PackageVersion: 0.8.1
+PackageLocale: en-US
+Publisher: jnani1972
+PublisherUrl: https://github.com/jnani1972
+PublisherSupportUrl: https://github.com/jnani1972/ani/issues
+PackageName: ani
+PackageUrl: https://github.com/jnani1972/ani
+License: MIT
+LicenseUrl: https://github.com/jnani1972/ani/blob/main/LICENSE
+ShortDescription: Fast code intelligence engine for AI coding agents
+Description: |-
+  ani is a native MCP server distributed as a verified runtime
+  set. The portable archive keeps its authenticated release-owned assets with the
+  executable registered by WinGet. It indexes codebases at extreme speed and
+  exposes 14 MCP tools for AI coding agents. Full indexes an average repository
+  in milliseconds, the Linux kernel (28M LOC) in 3 minutes. Supports 155 languages
+  via vendored tree-sitter grammars. No hosted service or API key. Plug and play
+  across 11 coding agents including Claude Code, Codex CLI, and Zed.
+Moniker: ani
+Tags:
+  - mcp
+  - ai
+  - claude
+  - code-intelligence
+  - codebase
+  - developer-tools
+  - tree-sitter
+ReleaseNotesUrl: https://github.com/jnani1972/ani/releases/tag/v0.8.1
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

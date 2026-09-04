@@ -3,12 +3,12 @@
  *
  * For each discovered file:
  *   1. Read source content from disk
- *   2. Call cbm_extract_file() to get defs, calls, imports
+ *   2. Call ani_extract_file() to get defs, calls, imports
  *   3. Create Function/Class/Method/Variable/Module nodes in graph buffer
  *   4. Register callables in the function registry
  *   5. Store import maps and call sites for later passes
  *
- * Depends on: extraction layer (cbm.h), graph_buffer, pipeline internals
+ * Depends on: extraction layer (ani.h), graph_buffer, pipeline internals
  */
 #include "foundation/constants.h"
 
@@ -25,7 +25,7 @@ enum { PD_JSON_FIELD_OVERHEAD = 6 };
 #include "foundation/compat_fs.h"
 #include "foundation/limits.h"
 #include "foundation/str_util.h"
-#include "cbm.h"
+#include "ani.h"
 #include "arena.h"
 #include "iris_export_xml.h"
 #include "simhash/minhash.h"
@@ -41,17 +41,17 @@ enum { PD_JSON_FIELD_OVERHEAD = 6 };
  * a skip to the right phase/reason (read vs oversized) instead of a silent
  * drop. Both out params may be NULL. */
 static char *read_file(const char *path, int *out_len, long *out_size,
-                       cbm_read_status_t *out_status) {
+                       ani_read_status_t *out_status) {
     if (out_size) {
         *out_size = 0;
     }
     if (out_status) {
-        *out_status = CBM_READ_OK;
+        *out_status = ANI_READ_OK;
     }
-    FILE *f = cbm_fopen(path, "rb");
+    FILE *f = ani_fopen(path, "rb");
     if (!f) {
         if (out_status) {
-            *out_status = CBM_READ_OPEN_FAIL;
+            *out_status = ANI_READ_OPEN_FAIL;
         }
         return NULL;
     }
@@ -66,14 +66,14 @@ static char *read_file(const char *path, int *out_len, long *out_size,
     if (size <= 0) {
         (void)fclose(f);
         if (out_status) {
-            *out_status = CBM_READ_EMPTY;
+            *out_status = ANI_READ_EMPTY;
         }
         return NULL;
     }
-    if (size > cbm_max_file_bytes()) { /* generous, env-configurable cap (B4) */
+    if (size > ani_max_file_bytes()) { /* generous, env-configurable cap (B4) */
         (void)fclose(f);
         if (out_status) {
-            *out_status = CBM_READ_OVERSIZED;
+            *out_status = ANI_READ_OVERSIZED;
         }
         return NULL;
     }
@@ -82,12 +82,12 @@ static char *read_file(const char *path, int *out_len, long *out_size,
      * character when computing lookahead, reading beyond the logical end.
      * Over-allocate and zero the tail so that read stays in-bounds (ASan
      * flags it as a heap-buffer-overflow otherwise; harmless but real UB). */
-    enum { CBM_TS_LOOKAHEAD_PAD = 16 };
-    char *buf = malloc((size_t)size + CBM_TS_LOOKAHEAD_PAD);
+    enum { ANI_TS_LOOKAHEAD_PAD = 16 };
+    char *buf = malloc((size_t)size + ANI_TS_LOOKAHEAD_PAD);
     if (!buf) {
         (void)fclose(f);
         if (out_status) {
-            *out_status = CBM_READ_OOM;
+            *out_status = ANI_READ_OOM;
         }
         return NULL;
     }
@@ -98,15 +98,15 @@ static char *read_file(const char *path, int *out_len, long *out_size,
     if (nread > (size_t)size) {
         nread = (size_t)size;
     }
-    memset(buf + nread, 0, CBM_TS_LOOKAHEAD_PAD);
+    memset(buf + nread, 0, ANI_TS_LOOKAHEAD_PAD);
     *out_len = (int)nread;
     return buf;
 }
 
 /* Format int to string for logging. Thread-safe via TLS. */
 static const char *itoa_log(int val) {
-    static CBM_TLS char bufs[PD_RING][CBM_SZ_32];
-    static CBM_TLS int idx = 0;
+    static ANI_TLS char bufs[PD_RING][ANI_SZ_32];
+    static ANI_TLS int idx = 0;
     int i = idx;
     idx = (idx + SKIP_ONE) & PD_RING_MASK;
     snprintf(bufs[i], sizeof(bufs[i]), "%d", val);
@@ -247,7 +247,7 @@ static void append_json_str_array(char *buf, size_t bufsize, size_t *pos, const 
 }
 
 /* Build properties JSON for a definition node. */
-static void build_def_props(char *buf, size_t bufsize, const CBMDefinition *def) {
+static void build_def_props(char *buf, size_t bufsize, const ANIDefinition *def) {
     /* The complexity/loop/recursion metrics are only meaningful for executable
      * units (Function/Method). Emitting them on the millions of Macro/Field/
      * Variable/Class/Enum nodes — where they are always zero — bloats every
@@ -296,19 +296,19 @@ static void build_def_props(char *buf, size_t bufsize, const CBMDefinition *def)
 
     /* MinHash fingerprint — append if present and buffer has room. */
     if (def->fingerprint && def->fingerprint_k > 0 &&
-        pos + CBM_MINHASH_HEX_LEN + CBM_MINHASH_JSON_OVERHEAD < bufsize) {
-        char fp_hex[CBM_MINHASH_HEX_BUF];
-        cbm_minhash_to_hex((const cbm_minhash_t *)def->fingerprint, fp_hex, sizeof(fp_hex));
+        pos + ANI_MINHASH_HEX_LEN + ANI_MINHASH_JSON_OVERHEAD < bufsize) {
+        char fp_hex[ANI_MINHASH_HEX_BUF];
+        ani_minhash_to_hex((const ani_minhash_t *)def->fingerprint, fp_hex, sizeof(fp_hex));
         append_json_string(buf, bufsize, &pos, "fp", fp_hex);
     }
 
     /* AST structural profile */
-    if (def->structural_profile && pos + CBM_AST_PROFILE_BUF < bufsize) {
+    if (def->structural_profile && pos + ANI_AST_PROFILE_BUF < bufsize) {
         append_json_string(buf, bufsize, &pos, "sp", def->structural_profile);
     }
 
     /* Body tokens */
-    if (def->body_tokens && pos + CBM_SZ_512 < bufsize) {
+    if (def->body_tokens && pos + ANI_SZ_512 < bufsize) {
         append_json_string(buf, bufsize, &pos, "bt", def->body_tokens);
     }
 
@@ -319,77 +319,77 @@ static void build_def_props(char *buf, size_t bufsize, const CBMDefinition *def)
 }
 
 /* Process one definition: create node, register, DEFINES + DEFINES_METHOD edges. */
-static void process_def(cbm_pipeline_ctx_t *ctx, const CBMDefinition *def, const char *rel) {
+static void process_def(ani_pipeline_ctx_t *ctx, const ANIDefinition *def, const char *rel) {
     if (!def->qualified_name || !def->name) {
         return;
     }
-    char props[CBM_SZ_2K];
+    char props[ANI_SZ_2K];
     build_def_props(props, sizeof(props), def);
-    int64_t node_id = cbm_gbuf_upsert_node(
+    int64_t node_id = ani_gbuf_upsert_node(
         ctx->gbuf, def->label ? def->label : "Function", def->name, def->qualified_name,
         def->file_path ? def->file_path : rel, (int)def->start_line, (int)def->end_line, props);
-    /* Registry membership is defined ONCE by cbm_label_is_registry_symbol
+    /* Registry membership is defined ONCE by ani_label_is_registry_symbol
      * (helpers.c): callables + type-like containers (INHERITS/IMPLEMENTS/method/
      * field resolution), Variable/Field (READS/WRITES resolution), and Table/View
      * (SQL FROM/JOIN lineage). pass_parallel.c and pipeline_incremental.c seed
      * through the same predicate, so the three registries cannot diverge. */
-    if (node_id > 0 && cbm_label_is_registry_symbol(def->label)) {
-        cbm_registry_add(ctx->registry, def->name, def->qualified_name, def->label);
+    if (node_id > 0 && ani_label_is_registry_symbol(def->label)) {
+        ani_registry_add(ctx->registry, def->name, def->qualified_name, def->label);
     }
-    char *file_qn = cbm_pipeline_fqn_compute(ctx->project_name, rel, "__file__");
-    const cbm_gbuf_node_t *file_node = cbm_gbuf_find_by_qn(ctx->gbuf, file_qn);
+    char *file_qn = ani_pipeline_fqn_compute(ctx->project_name, rel, "__file__");
+    const ani_gbuf_node_t *file_node = ani_gbuf_find_by_qn(ctx->gbuf, file_qn);
     if (file_node && node_id > 0) {
-        cbm_gbuf_insert_edge(ctx->gbuf, file_node->id, node_id, "DEFINES", "{}");
+        ani_gbuf_insert_edge(ctx->gbuf, file_node->id, node_id, "DEFINES", "{}");
     }
     free(file_qn);
     if (def->parent_class && def->label && strcmp(def->label, "Method") == 0) {
-        const cbm_gbuf_node_t *parent = cbm_gbuf_find_by_qn(ctx->gbuf, def->parent_class);
+        const ani_gbuf_node_t *parent = ani_gbuf_find_by_qn(ctx->gbuf, def->parent_class);
         if (parent && node_id > 0) {
-            cbm_gbuf_insert_edge(ctx->gbuf, parent->id, node_id, "DEFINES_METHOD", "{}");
+            ani_gbuf_insert_edge(ctx->gbuf, parent->id, node_id, "DEFINES_METHOD", "{}");
         }
     }
 }
 
 /* Create Channel nodes + EMITS / LISTENS_ON edges for one file's channels.
- * Mirrors the parallel path in cbm_build_registry_from_cache — keep in sync. */
+ * Mirrors the parallel path in ani_build_registry_from_cache — keep in sync. */
 /* Find the source node for a channel edge: enclosing function or file node. */
-static const cbm_gbuf_node_t *find_channel_source(cbm_pipeline_ctx_t *ctx, const CBMChannel *ch,
+static const ani_gbuf_node_t *find_channel_source(ani_pipeline_ctx_t *ctx, const ANIChannel *ch,
                                                   const char *rel) {
-    const cbm_gbuf_node_t *node = NULL;
+    const ani_gbuf_node_t *node = NULL;
     if (ch->enclosing_func_qn && ch->enclosing_func_qn[0]) {
-        node = cbm_gbuf_find_by_qn(ctx->gbuf, ch->enclosing_func_qn);
+        node = ani_gbuf_find_by_qn(ctx->gbuf, ch->enclosing_func_qn);
     }
     if (!node) {
-        char *file_qn = cbm_pipeline_fqn_compute(ctx->project_name, rel, "__file__");
-        node = cbm_gbuf_find_by_qn(ctx->gbuf, file_qn);
+        char *file_qn = ani_pipeline_fqn_compute(ctx->project_name, rel, "__file__");
+        node = ani_gbuf_find_by_qn(ctx->gbuf, file_qn);
         free(file_qn);
     }
     return node;
 }
 
-static void create_channel_edges_for_file(cbm_pipeline_ctx_t *ctx, const CBMFileResult *result,
+static void create_channel_edges_for_file(ani_pipeline_ctx_t *ctx, const ANIFileResult *result,
                                           const char *rel) {
     for (int j = 0; j < result->channels.count; j++) {
-        const CBMChannel *ch = &result->channels.items[j];
+        const ANIChannel *ch = &result->channels.items[j];
         if (!ch->channel_name || !ch->channel_name[0]) {
             continue;
         }
-        char channel_qn[CBM_SZ_512];
+        char channel_qn[ANI_SZ_512];
         snprintf(channel_qn, sizeof(channel_qn), "__channel__%s__%s",
                  ch->transport ? ch->transport : "unknown", ch->channel_name);
-        char channel_props[CBM_SZ_512];
+        char channel_props[ANI_SZ_512];
         snprintf(channel_props, sizeof(channel_props), "{\"transport\":\"%s\",\"name\":\"%s\"}",
                  ch->transport ? ch->transport : "unknown", ch->channel_name);
-        int64_t channel_id = cbm_gbuf_upsert_node(ctx->gbuf, "Channel", ch->channel_name,
+        int64_t channel_id = ani_gbuf_upsert_node(ctx->gbuf, "Channel", ch->channel_name,
                                                   channel_qn, "", 0, 0, channel_props);
 
-        const cbm_gbuf_node_t *src_node = find_channel_source(ctx, ch, rel);
+        const ani_gbuf_node_t *src_node = find_channel_source(ctx, ch, rel);
         if (src_node && channel_id > 0) {
-            const char *edge_type = ch->direction == CBM_CHANNEL_EMIT ? "EMITS" : "LISTENS_ON";
-            char edge_props[CBM_SZ_128];
+            const char *edge_type = ch->direction == ANI_CHANNEL_EMIT ? "EMITS" : "LISTENS_ON";
+            char edge_props[ANI_SZ_128];
             snprintf(edge_props, sizeof(edge_props), "{\"transport\":\"%s\"}",
                      ch->transport ? ch->transport : "unknown");
-            cbm_gbuf_insert_edge(ctx->gbuf, src_node->id, channel_id, edge_type, edge_props);
+            ani_gbuf_insert_edge(ctx->gbuf, src_node->id, channel_id, edge_type, edge_props);
         }
     }
 }
@@ -400,44 +400,44 @@ static void create_channel_edges_for_file(cbm_pipeline_ctx_t *ctx, const CBMFile
  * env key and link the enclosing function (or the file node) CONFIGURES-> it,
  * so environment-driven configuration is visible even when the accessor is a
  * stdlib symbol that never resolves to an in-graph callee. */
-int cbm_pipeline_create_env_configures_for_file(cbm_pipeline_ctx_t *ctx,
-                                                const CBMFileResult *result, const char *rel) {
+int ani_pipeline_create_env_configures_for_file(ani_pipeline_ctx_t *ctx,
+                                                const ANIFileResult *result, const char *rel) {
     int count = 0;
     char *file_qn = NULL;
-    const cbm_gbuf_node_t *file_node = NULL;
+    const ani_gbuf_node_t *file_node = NULL;
     for (int j = 0; j < result->env_accesses.count; j++) {
-        const CBMEnvAccess *ea = &result->env_accesses.items[j];
+        const ANIEnvAccess *ea = &result->env_accesses.items[j];
         if (!ea->env_key || !ea->env_key[0]) {
             continue;
         }
-        char env_qn[CBM_SZ_512];
+        char env_qn[ANI_SZ_512];
         snprintf(env_qn, sizeof(env_qn), "__env__%s", ea->env_key);
-        char env_props[CBM_SZ_512];
+        char env_props[ANI_SZ_512];
         snprintf(env_props, sizeof(env_props), "{\"env_key\":\"%s\"}", ea->env_key);
         int64_t env_id =
-            cbm_gbuf_upsert_node(ctx->gbuf, "EnvVar", ea->env_key, env_qn, "", 0, 0, env_props);
+            ani_gbuf_upsert_node(ctx->gbuf, "EnvVar", ea->env_key, env_qn, "", 0, 0, env_props);
         if (env_id <= 0) {
             continue;
         }
-        const cbm_gbuf_node_t *src = NULL;
+        const ani_gbuf_node_t *src = NULL;
         if (ea->enclosing_func_qn && ea->enclosing_func_qn[0]) {
-            src = cbm_gbuf_find_by_qn(ctx->gbuf, ea->enclosing_func_qn);
+            src = ani_gbuf_find_by_qn(ctx->gbuf, ea->enclosing_func_qn);
             /* A class-level env access in a directory-module language carries
              * the DIRECTORY module QN, which hits the shared Folder/Project
              * node — attribute to this file's File node instead (#787, #842). */
-            if (cbm_pipeline_node_is_dir_container(src)) {
+            if (ani_pipeline_node_is_dir_container(src)) {
                 src = NULL;
             }
         }
         if (!src) {
             if (!file_qn) {
-                file_qn = cbm_pipeline_fqn_compute(ctx->project_name, rel, "__file__");
-                file_node = cbm_gbuf_find_by_qn(ctx->gbuf, file_qn);
+                file_qn = ani_pipeline_fqn_compute(ctx->project_name, rel, "__file__");
+                file_node = ani_gbuf_find_by_qn(ctx->gbuf, file_qn);
             }
             src = file_node;
         }
         if (src && src->id != env_id) {
-            cbm_gbuf_insert_edge(ctx->gbuf, src->id, env_id, "CONFIGURES",
+            ani_gbuf_insert_edge(ctx->gbuf, src->id, env_id, "CONFIGURES",
                                  "{\"strategy\":\"env_access\"}");
             count++;
         }
@@ -448,28 +448,28 @@ int cbm_pipeline_create_env_configures_for_file(cbm_pipeline_ctx_t *ctx,
 
 /* Create IMPORTS edges for one file's imports.  Mirrors the resolution
  * logic in pass_parallel.c register_and_link_def — keep the two in sync. */
-static int create_import_edges_for_file(cbm_pipeline_ctx_t *ctx, const CBMFileResult *result,
-                                        const char *rel, CBMHashTable *namespace_map) {
+static int create_import_edges_for_file(ani_pipeline_ctx_t *ctx, const ANIFileResult *result,
+                                        const char *rel, ANIHashTable *namespace_map) {
     int count = 0;
-    char *file_qn = cbm_pipeline_fqn_compute(ctx->project_name, rel, "__file__");
-    const cbm_gbuf_node_t *source_node = cbm_gbuf_find_by_qn(ctx->gbuf, file_qn);
+    char *file_qn = ani_pipeline_fqn_compute(ctx->project_name, rel, "__file__");
+    const ani_gbuf_node_t *source_node = ani_gbuf_find_by_qn(ctx->gbuf, file_qn);
     if (!source_node) {
         free(file_qn);
         return 0;
     }
     for (int j = 0; j < result->imports.count; j++) {
-        const CBMImport *imp = &result->imports.items[j];
+        const ANIImport *imp = &result->imports.items[j];
         if (!imp->module_path) {
             continue;
         }
-        const cbm_gbuf_node_t *target =
-            cbm_pipeline_resolve_import_node(ctx, rel, file_qn, imp, namespace_map);
+        const ani_gbuf_node_t *target =
+            ani_pipeline_resolve_import_node(ctx, rel, file_qn, imp, namespace_map);
         if (target && target->id != source_node->id) {
-            char esc_ln[CBM_SZ_128];
-            cbm_json_escape(esc_ln, sizeof(esc_ln), imp->local_name ? imp->local_name : "");
-            char imp_props[CBM_SZ_256];
+            char esc_ln[ANI_SZ_128];
+            ani_json_escape(esc_ln, sizeof(esc_ln), imp->local_name ? imp->local_name : "");
+            char imp_props[ANI_SZ_256];
             snprintf(imp_props, sizeof(imp_props), "{\"local_name\":\"%s\"}", esc_ln);
-            cbm_gbuf_insert_edge(ctx->gbuf, source_node->id, target->id, "IMPORTS", imp_props);
+            ani_gbuf_insert_edge(ctx->gbuf, source_node->id, target->id, "IMPORTS", imp_props);
             count++;
         }
     }
@@ -477,7 +477,7 @@ static int create_import_edges_for_file(cbm_pipeline_ctx_t *ctx, const CBMFileRe
     return count;
 }
 
-static bool objectscript_export_append_strings(CBMArena *arena, const char ***dst,
+static bool objectscript_export_append_strings(ANIArena *arena, const char ***dst,
                                                const char *const *src) {
     if (!src) {
         return true;
@@ -490,7 +490,7 @@ static bool objectscript_export_append_strings(CBMArena *arena, const char ***ds
     while (src[add_count]) {
         add_count++;
     }
-    const char **items = (const char **)cbm_arena_alloc(arena, (size_t)(old_count + add_count + 1) *
+    const char **items = (const char **)ani_arena_alloc(arena, (size_t)(old_count + add_count + 1) *
                                                                    sizeof(const char *));
     if (!items) {
         return false;
@@ -517,35 +517,35 @@ static bool objectscript_export_append_strings(CBMArena *arena, const char ***ds
         }                                                                                   \
     } while (0)
 
-static bool objectscript_export_append_primary_arrays(CBMFileResult *aggregate,
-                                                      const CBMFileResult *part) {
-    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, defs, cbm_defs_push);
-    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, calls, cbm_calls_push);
-    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, imports, cbm_imports_push);
-    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, usages, cbm_usages_push);
-    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, throws, cbm_throws_push);
-    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, rw, cbm_rw_push);
-    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, type_refs, cbm_typerefs_push);
+static bool objectscript_export_append_primary_arrays(ANIFileResult *aggregate,
+                                                      const ANIFileResult *part) {
+    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, defs, ani_defs_push);
+    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, calls, ani_calls_push);
+    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, imports, ani_imports_push);
+    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, usages, ani_usages_push);
+    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, throws, ani_throws_push);
+    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, rw, ani_rw_push);
+    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, type_refs, ani_typerefs_push);
     return true;
 }
 
-static bool objectscript_export_append_secondary_arrays(CBMFileResult *aggregate,
-                                                        const CBMFileResult *part) {
-    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, env_accesses, cbm_envaccess_push);
-    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, type_assigns, cbm_typeassign_push);
-    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, impl_traits, cbm_impltrait_push);
-    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, resolved_calls, cbm_resolvedcall_push);
-    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, string_refs, cbm_stringref_push);
-    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, infra_bindings, cbm_infrabinding_push);
-    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, channels, cbm_channels_push);
+static bool objectscript_export_append_secondary_arrays(ANIFileResult *aggregate,
+                                                        const ANIFileResult *part) {
+    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, env_accesses, ani_envaccess_push);
+    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, type_assigns, ani_typeassign_push);
+    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, impl_traits, ani_impltrait_push);
+    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, resolved_calls, ani_resolvedcall_push);
+    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, string_refs, ani_stringref_push);
+    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, infra_bindings, ani_infrabinding_push);
+    OBJECTSCRIPT_EXPORT_APPEND_ARRAY(aggregate, part, channels, ani_channels_push);
     return true;
 }
 
 /* Preserve every generated class's parse diagnostics. The generated UDL
  * snippets all map back to one physical Studio Export file, so their compact
  * range lists can be concatenated using the ordinary comma separator. */
-static bool objectscript_export_append_error_ranges(CBMFileResult *aggregate,
-                                                    const CBMFileResult *part) {
+static bool objectscript_export_append_error_ranges(ANIFileResult *aggregate,
+                                                    const ANIFileResult *part) {
     aggregate->parse_incomplete = aggregate->parse_incomplete || part->parse_incomplete;
     aggregate->error_region_count += part->error_region_count;
     if (!part->error_ranges || !part->error_ranges[0]) {
@@ -553,10 +553,10 @@ static bool objectscript_export_append_error_ranges(CBMFileResult *aggregate,
     }
     const char *combined = NULL;
     if (aggregate->error_ranges && aggregate->error_ranges[0]) {
-        combined = cbm_arena_sprintf(&aggregate->arena, "%s,%s", aggregate->error_ranges,
+        combined = ani_arena_sprintf(&aggregate->arena, "%s,%s", aggregate->error_ranges,
                                      part->error_ranges);
     } else {
-        combined = cbm_arena_strdup(&aggregate->arena, part->error_ranges);
+        combined = ani_arena_strdup(&aggregate->arena, part->error_ranges);
     }
     if (!combined) {
         return false;
@@ -570,49 +570,49 @@ static bool objectscript_export_append_error_ranges(CBMFileResult *aggregate,
  * class independently (preserving the upstream parser behavior), then compose
  * every extracted carrier into one result for the normal registry/call/usage/
  * semantic passes. */
-CBMFileResult *cbm_pipeline_extract_objectscript_export(
+ANIFileResult *ani_pipeline_extract_objectscript_export(
     const char *source, int source_len, const char *project_name, const char *rel_path,
-    const CBMMacroTable *macro_table, const CBMReturnTypeTable *return_type_table) {
-    CBMArena export_arena;
-    cbm_arena_init(&export_arena);
+    const ANIMacroTable *macro_table, const ANIReturnTypeTable *return_type_table) {
+    ANIArena export_arena;
+    ani_arena_init(&export_arena);
     int class_count = 0;
-    char **udl_strings = cbm_iris_export_to_udl(&export_arena, source, source_len, &class_count);
+    char **udl_strings = ani_iris_export_to_udl(&export_arena, source, source_len, &class_count);
     if (!udl_strings || class_count <= 0) {
-        cbm_arena_destroy(&export_arena);
+        ani_arena_destroy(&export_arena);
         return NULL;
     }
 
-    CBMFileResult *aggregate = (CBMFileResult *)calloc(1, sizeof(CBMFileResult));
+    ANIFileResult *aggregate = (ANIFileResult *)calloc(1, sizeof(ANIFileResult));
     if (!aggregate) {
-        cbm_arena_destroy(&export_arena);
+        ani_arena_destroy(&export_arena);
         return NULL;
     }
-    cbm_arena_init(&aggregate->arena);
+    ani_arena_init(&aggregate->arena);
     if (aggregate->arena.nblocks == 0) {
-        cbm_free_result(aggregate);
-        cbm_arena_destroy(&export_arena);
+        ani_free_result(aggregate);
+        ani_arena_destroy(&export_arena);
         return NULL;
     }
     aggregate->owned_results =
-        (CBMFileResult **)calloc((size_t)class_count, sizeof(CBMFileResult *));
+        (ANIFileResult **)calloc((size_t)class_count, sizeof(ANIFileResult *));
     if (!aggregate->owned_results) {
-        cbm_free_result(aggregate);
-        cbm_arena_destroy(&export_arena);
+        ani_free_result(aggregate);
+        ani_arena_destroy(&export_arena);
         return NULL;
     }
-    aggregate->cached_lang = CBM_LANG_OBJECTSCRIPT_UDL;
+    aggregate->cached_lang = ANI_LANG_OBJECTSCRIPT_UDL;
 
     for (int ci = 0; ci < class_count; ci++) {
-        CBMFileResult *part = cbm_extract_file_ex(
-            udl_strings[ci], (int)strlen(udl_strings[ci]), CBM_LANG_OBJECTSCRIPT_UDL, project_name,
-            rel_path, CBM_EXTRACT_BUDGET, NULL, NULL, macro_table, return_type_table);
+        ANIFileResult *part = ani_extract_file_ex(
+            udl_strings[ci], (int)strlen(udl_strings[ci]), ANI_LANG_OBJECTSCRIPT_UDL, project_name,
+            rel_path, ANI_EXTRACT_BUDGET, NULL, NULL, macro_table, return_type_table);
         if (!part) {
             continue;
         }
 
         /* The aggregate has no single parse tree. Later ObjectScript Export
          * passes consume extracted carriers, not a raw-XML tree. */
-        cbm_free_tree(part);
+        ani_free_tree(part);
         if (!objectscript_export_append_primary_arrays(aggregate, part) ||
             !objectscript_export_append_secondary_arrays(aggregate, part) ||
             !objectscript_export_append_strings(&aggregate->arena, &aggregate->exports,
@@ -644,30 +644,30 @@ CBMFileResult *cbm_pipeline_extract_objectscript_export(
         continue;
 
     merge_failed:
-        cbm_free_result(part);
-        cbm_free_result(aggregate);
-        cbm_arena_destroy(&export_arena);
+        ani_free_result(part);
+        ani_free_result(aggregate);
+        ani_arena_destroy(&export_arena);
         return NULL;
     }
 
     aggregate->imports_count = aggregate->imports.count;
-    cbm_arena_destroy(&export_arena);
+    ani_arena_destroy(&export_arena);
     return aggregate;
 }
 
 #undef OBJECTSCRIPT_EXPORT_APPEND_ARRAY
 
-int cbm_pipeline_pass_definitions(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t *files,
+int ani_pipeline_pass_definitions(ani_pipeline_ctx_t *ctx, const ani_file_info_t *files,
                                   int file_count) {
-    cbm_log_info("pass.start", "pass", "definitions", "files", itoa_log(file_count));
+    ani_log_info("pass.start", "pass", "definitions", "files", itoa_log(file_count));
 
     /* Ensure extraction library is initialized */
-    cbm_init();
+    ani_init();
 
     /* Defensive: a prior pipeline run may have left a thread-local parser whose
      * lexer holds pointers into a slab that has since been reclaimed. Drop it
-     * here so the first cbm_extract_file below recreates a fresh parser. */
-    cbm_destroy_thread_parser();
+     * here so the first ani_extract_file below recreates a fresh parser. */
+    ani_destroy_thread_parser();
 
     int total_defs = 0;
     int total_calls = 0;
@@ -679,10 +679,10 @@ int cbm_pipeline_pass_definitions(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t
      * first file processed can't find the target Module node, because the
      * target file's defs haven't been extracted yet. Result cache is
      * required for this two-phase ordering. */
-    CBMFileResult **local_cache = ctx->result_cache;
+    ANIFileResult **local_cache = ctx->result_cache;
     bool owns_local_cache = false;
     if (!local_cache) {
-        local_cache = (CBMFileResult **)calloc((size_t)file_count, sizeof(CBMFileResult *));
+        local_cache = (ANIFileResult **)calloc((size_t)file_count, sizeof(ANIFileResult *));
         owns_local_cache = (local_cache != NULL);
     }
 
@@ -690,7 +690,7 @@ int cbm_pipeline_pass_definitions(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t
      * Functions, ...) so any file's IMPORTS can resolve against the
      * complete in-memory graph in Phase 2. */
     for (int i = 0; i < file_count; i++) {
-        if (cbm_pipeline_check_cancel(ctx)) {
+        if (ani_pipeline_check_cancel(ctx)) {
             /* Cancellation mid-extraction: release the cache this pass owns,
              * including results already extracted into it (the normal cleanup
              * at the end of the pass does the same) -- clang-analyzer caught
@@ -698,35 +698,35 @@ int cbm_pipeline_pass_definitions(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t
             if (owns_local_cache) {
                 for (int j = 0; j < file_count; j++) {
                     if (local_cache[j]) {
-                        cbm_free_result(local_cache[j]);
+                        ani_free_result(local_cache[j]);
                     }
                 }
                 free(local_cache);
             }
-            return CBM_NOT_FOUND;
+            return ANI_NOT_FOUND;
         }
 
         const char *path = files[i].path;
         const char *rel = files[i].rel_path;
-        CBMLanguage lang = files[i].language;
+        ANILanguage lang = files[i].language;
 
         /* Crash-quarantine skip (Stage 3c): the supervisor's single-threaded
          * recovery re-run always lands on THIS sequential path (worker_count
          * forced to 1). This first sequential pass REPORTS a crasher as a
          * phase="crash" skip (surfacing it in skipped[]) and continues; later
          * sequential passes (calls/usages/semantic) re-extract on a cache miss
-         * but hit the hard guard inside cbm_extract_file, so they no-op without
+         * but hit the hard guard inside ani_extract_file, so they no-op without
          * re-crashing and without duplicating the skip. No-op unless
-         * CBM_INDEX_QUARANTINE_FILE is set. */
-        if (cbm_index_is_quarantined(rel)) {
-            const char *phase = cbm_index_quarantine_phase(rel);
+         * ANI_INDEX_QUARANTINE_FILE is set. */
+        if (ani_index_is_quarantined(rel)) {
+            const char *phase = ani_index_quarantine_phase(rel);
             if (!phase) {
                 phase = "crash";
             }
             const char *reason = (strcmp(phase, "hang") == 0)    ? "quarantined after hang"
                                  : (strcmp(phase, "error") == 0) ? "quarantined after error"
                                                                  : "quarantined after crash";
-            cbm_pipeline_add_file_error(ctx->pipeline, rel, reason, phase);
+            ani_pipeline_add_file_error(ctx->pipeline, rel, reason, phase);
             errors++;
             continue;
         }
@@ -734,43 +734,43 @@ int cbm_pipeline_pass_definitions(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t
         /* Read source file */
         int source_len = 0;
         long file_size = 0;
-        cbm_read_status_t rst = CBM_READ_OK;
+        ani_read_status_t rst = ANI_READ_OK;
         char *source = read_file(path, &source_len, &file_size, &rst);
         if (!source) {
             errors++;
-            if (rst == CBM_READ_OVERSIZED) {
+            if (rst == ANI_READ_OVERSIZED) {
                 /* Never a silent drop: record the oversized skip + WARN so the
                  * file surfaces in the response/logfile with its sizes. */
-                long cap = cbm_max_file_bytes();
+                long cap = ani_max_file_bytes();
                 char reason[96];
                 snprintf(reason, sizeof(reason), "oversized (%lld MB > %lld MB)",
-                         (long long)(file_size / (CBM_SZ_1K * CBM_SZ_1K)),
-                         (long long)(cap / (CBM_SZ_1K * CBM_SZ_1K)));
-                cbm_pipeline_add_file_error(ctx->pipeline, rel, reason, "oversized");
-                cbm_log_warn("index.file_oversized", "path", rel, "size_mb",
-                             itoa_log((int)(file_size / (CBM_SZ_1K * CBM_SZ_1K))), "cap_mb",
-                             itoa_log((int)(cap / (CBM_SZ_1K * CBM_SZ_1K))));
-            } else if (rst == CBM_READ_OPEN_FAIL || rst == CBM_READ_OOM) {
-                cbm_pipeline_add_file_error(ctx->pipeline, rel, "read failed", "read");
+                         (long long)(file_size / (ANI_SZ_1K * ANI_SZ_1K)),
+                         (long long)(cap / (ANI_SZ_1K * ANI_SZ_1K)));
+                ani_pipeline_add_file_error(ctx->pipeline, rel, reason, "oversized");
+                ani_log_warn("index.file_oversized", "path", rel, "size_mb",
+                             itoa_log((int)(file_size / (ANI_SZ_1K * ANI_SZ_1K))), "cap_mb",
+                             itoa_log((int)(cap / (ANI_SZ_1K * ANI_SZ_1K))));
+            } else if (rst == ANI_READ_OPEN_FAIL || rst == ANI_READ_OOM) {
+                ani_pipeline_add_file_error(ctx->pipeline, rel, "read failed", "read");
             }
-            /* CBM_READ_EMPTY: benign 0-byte file — nothing to index, not reported. */
+            /* ANI_READ_EMPTY: benign 0-byte file — nothing to index, not reported. */
             continue;
         }
 
         /* Studio Export XML is transformed to one cacheable aggregate so later
          * passes see the same calls/usages/semantic carriers as native UDL. */
-        CBMFileResult *result =
-            lang == CBM_LANG_OBJECTSCRIPT_EXPORT
-                ? cbm_pipeline_extract_objectscript_export(source, source_len, ctx->project_name,
+        ANIFileResult *result =
+            lang == ANI_LANG_OBJECTSCRIPT_EXPORT
+                ? ani_pipeline_extract_objectscript_export(source, source_len, ctx->project_name,
                                                            rel, ctx->macro_table, NULL)
-                : cbm_extract_file_ex(
-                      source, source_len, lang, ctx->project_name, rel, CBM_EXTRACT_BUDGET, NULL,
+                : ani_extract_file_ex(
+                      source, source_len, lang, ctx->project_name, rel, ANI_EXTRACT_BUDGET, NULL,
                       NULL /* no extra defines or include paths */, ctx->macro_table, NULL);
         free(source);
 
         if (!result) {
             errors++;
-            cbm_pipeline_add_file_error(ctx->pipeline, rel, "extract failed", "extract");
+            ani_pipeline_add_file_error(ctx->pipeline, rel, "extract failed", "extract");
             continue;
         }
         /* Consume the previously-ignored has_error flag: a parse timeout /
@@ -778,14 +778,14 @@ int cbm_pipeline_pass_definitions(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t
          * still be reported (phase "extract", reason = the extractor's message).
          * The empty result flows through unchanged (the defs loop is a no-op). */
         if (result->has_error) {
-            cbm_pipeline_add_file_error(ctx->pipeline, rel,
+            ani_pipeline_add_file_error(ctx->pipeline, rel,
                                         result->error_msg ? result->error_msg : "extract failed",
                                         "extract");
             errors++;
         } else if (result->parse_incomplete) {
             /* Best-effort parse-coverage signal (#963): indexed, but with
              * ERROR/MISSING regions — see pass_parallel.c (keep in sync). */
-            cbm_pipeline_add_file_error(ctx->pipeline, rel,
+            ani_pipeline_add_file_error(ctx->pipeline, rel,
                                         result->error_ranges ? result->error_ranges : "unknown",
                                         "parse_partial");
         }
@@ -809,8 +809,8 @@ int cbm_pipeline_pass_definitions(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t
              * map is available without the cache (single-file scope). */
             total_imports += create_import_edges_for_file(ctx, result, rel, NULL);
             create_channel_edges_for_file(ctx, result, rel);
-            cbm_pipeline_create_env_configures_for_file(ctx, result, rel);
-            cbm_free_result(result);
+            ani_pipeline_create_env_configures_for_file(ctx, result, rel);
+            ani_free_result(result);
         }
     }
 
@@ -828,34 +828,34 @@ int cbm_pipeline_pass_definitions(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t
                 rels[i] = files[i].rel_path;
             }
         }
-        CBMHashTable *namespace_map =
-            cbm_pipeline_namespace_map_build(ctx->project_name, local_cache, rels, file_count);
+        ANIHashTable *namespace_map =
+            ani_pipeline_namespace_map_build(ctx->project_name, local_cache, rels, file_count);
         free(rels);
         for (int i = 0; i < file_count; i++) {
-            if (cbm_pipeline_check_cancel(ctx)) {
+            if (ani_pipeline_check_cancel(ctx)) {
                 break;
             }
-            CBMFileResult *result = local_cache[i];
+            ANIFileResult *result = local_cache[i];
             if (!result) {
                 continue;
             }
             total_imports +=
                 create_import_edges_for_file(ctx, result, files[i].rel_path, namespace_map);
             create_channel_edges_for_file(ctx, result, files[i].rel_path);
-            cbm_pipeline_create_env_configures_for_file(ctx, result, files[i].rel_path);
+            ani_pipeline_create_env_configures_for_file(ctx, result, files[i].rel_path);
         }
-        cbm_pipeline_namespace_map_free(namespace_map);
+        ani_pipeline_namespace_map_free(namespace_map);
         if (owns_local_cache) {
             for (int i = 0; i < file_count; i++) {
                 if (local_cache[i]) {
-                    cbm_free_result(local_cache[i]);
+                    ani_free_result(local_cache[i]);
                 }
             }
             free(local_cache);
         }
     }
 
-    cbm_log_info("pass.done", "pass", "definitions", "defs", itoa_log(total_defs), "calls",
+    ani_log_info("pass.done", "pass", "definitions", "defs", itoa_log(total_defs), "calls",
                  itoa_log(total_calls), "imports", itoa_log(total_imports), "errors",
                  itoa_log(errors));
     return 0;

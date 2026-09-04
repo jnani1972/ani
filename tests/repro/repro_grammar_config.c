@@ -8,28 +8,28 @@
  * The battery dimensions applied per language are documented in the per-TEST
  * comment.
  *
- * Languages covered (16) and the CBM_LANG_* enum each uses (all verified in
- * internal/cbm/cbm.h):
- *   JSON       -> CBM_LANG_JSON
- *   JSON5      -> CBM_LANG_JSON5
- *   YAML       -> CBM_LANG_YAML
- *   TOML       -> CBM_LANG_TOML
- *   INI        -> CBM_LANG_INI
- *   HCL        -> CBM_LANG_HCL
- *   XML        -> CBM_LANG_XML
- *   CSV        -> CBM_LANG_CSV
- *   PROPERTIES -> CBM_LANG_PROPERTIES
- *   DOTENV     -> CBM_LANG_DOTENV
- *   KDL        -> CBM_LANG_KDL
- *   RON        -> CBM_LANG_RON
- *   PKL        -> CBM_LANG_PKL
- *   NICKEL     -> CBM_LANG_NICKEL
- *   JSONNET    -> CBM_LANG_JSONNET
- *   STARLARK   -> CBM_LANG_STARLARK
+ * Languages covered (16) and the ANI_LANG_* enum each uses (all verified in
+ * internal/ani/ani.h):
+ *   JSON       -> ANI_LANG_JSON
+ *   JSON5      -> ANI_LANG_JSON5
+ *   YAML       -> ANI_LANG_YAML
+ *   TOML       -> ANI_LANG_TOML
+ *   INI        -> ANI_LANG_INI
+ *   HCL        -> ANI_LANG_HCL
+ *   XML        -> ANI_LANG_XML
+ *   CSV        -> ANI_LANG_CSV
+ *   PROPERTIES -> ANI_LANG_PROPERTIES
+ *   DOTENV     -> ANI_LANG_DOTENV
+ *   KDL        -> ANI_LANG_KDL
+ *   RON        -> ANI_LANG_RON
+ *   PKL        -> ANI_LANG_PKL
+ *   NICKEL     -> ANI_LANG_NICKEL
+ *   JSONNET    -> ANI_LANG_JSONNET
+ *   STARLARK   -> ANI_LANG_STARLARK
  *
  * BATTERY DIMENSIONS
  * ------------------
- * SINGLE-FILE (cbm_extract_file, via inv_rx + inv_count_* helpers):
+ * SINGLE-FILE (ani_extract_file, via inv_rx + inv_count_* helpers):
  *   1. extract-clean    : inv_extract_clean(src,lang,file) == 1
  *                         (parser returned a result and did not set has_error).
  *   2. labels-valid     : inv_count_bad_labels(r) == 0
@@ -48,7 +48,7 @@
  *                         JSONNET (functioncall), STARLARK (call),
  *                         PKL (unqualified/qualifiedAccessExpr, newExpr).
  *
- * FULL-PIPELINE (rh_index_files -> cbm_store_t*, via inv_count_* store helpers):
+ * FULL-PIPELINE (rh_index_files -> ani_store_t*, via inv_count_* store helpers):
  *   7. callable-sourcing : inv_count_calls_by_source(store,project,&mod,&call).
  *                          Only asserted for languages where both func_types AND
  *                          call_types are non-empty: NICKEL, JSONNET, STARLARK, PKL.
@@ -59,7 +59,7 @@
  *   R. extract-on-malformed: the extractor must RETURN (not crash/hang) on a
  *      deliberately truncated/broken version of the fixture. inv_extract_clean
  *      may return 0 (has_error is fine) but must not return NULL.
- *      Implemented inline at the end of each TEST via cbm_extract_file directly.
+ *      Implemented inline at the end of each TEST via ani_extract_file directly.
  *
  * STRUCTURAL-ONLY LANGUAGES (dims 1-4 + R, no calls/pipeline dims):
  *   JSON       -- var_types = pair -> "Variable"; no func/class types.
@@ -129,7 +129,7 @@
  * Returns 0 on PASS, 1 on FAIL.
  */
 static int config_base_battery(const char *lang_tag, const char *src,
-                               CBMLanguage lang, const char *file) {
+                               ANILanguage lang, const char *file) {
     const char *RED = tf_red();
     const char *RST = tf_reset();
 
@@ -140,7 +140,7 @@ static int config_base_battery(const char *lang_tag, const char *src,
         return 1;
     }
 
-    CBMFileResult *r = inv_rx(src, lang, file);
+    ANIFileResult *r = inv_rx(src, lang, file);
     if (!r) {
         printf("  %sFAIL%s  [%s] inv_rx returned NULL after clean extract\n",
                RED, RST, lang_tag);
@@ -173,7 +173,7 @@ static int config_base_battery(const char *lang_tag, const char *src,
         fails++;
     }
 
-    cbm_free_result(r);
+    ani_free_result(r);
     return fails ? 1 : 0;
 }
 
@@ -185,7 +185,7 @@ static int config_base_battery(const char *lang_tag, const char *src,
  * Returns 0 on PASS, 1 on FAIL.
  */
 static int config_struct_battery(const char *lang_tag, const char *src,
-                                 CBMLanguage lang, const char *file,
+                                 ANILanguage lang, const char *file,
                                  const char *expect_label,
                                  const char *expect_label2) {
     const char *RED = tf_red();
@@ -198,7 +198,7 @@ static int config_struct_battery(const char *lang_tag, const char *src,
         return 1;
     }
 
-    CBMFileResult *r = inv_rx(src, lang, file);
+    ANIFileResult *r = inv_rx(src, lang, file);
     if (!r) {
         printf("  %sFAIL%s  [%s] inv_rx returned NULL after clean extract\n",
                RED, RST, lang_tag);
@@ -245,7 +245,7 @@ static int config_struct_battery(const char *lang_tag, const char *src,
         fails++;
     }
 
-    cbm_free_result(r);
+    ani_free_result(r);
     return fails ? 1 : 0;
 }
 
@@ -258,7 +258,7 @@ static int config_struct_battery(const char *lang_tag, const char *src,
  * Returns 0 on PASS, 1 on FAIL.
  */
 static int config_callable_battery(const char *lang_tag, const char *src,
-                                   CBMLanguage lang, const char *file,
+                                   ANILanguage lang, const char *file,
                                    const char *expect_label,
                                    const char *callee) {
     const char *RED = tf_red();
@@ -271,7 +271,7 @@ static int config_callable_battery(const char *lang_tag, const char *src,
         return 1;
     }
 
-    CBMFileResult *r = inv_rx(src, lang, file);
+    ANIFileResult *r = inv_rx(src, lang, file);
     if (!r) {
         printf("  %sFAIL%s  [%s] inv_rx returned NULL after clean extract\n",
                RED, RST, lang_tag);
@@ -318,7 +318,7 @@ static int config_callable_battery(const char *lang_tag, const char *src,
         fails++;
     }
 
-    cbm_free_result(r);
+    ani_free_result(r);
     return fails ? 1 : 0;
 }
 
@@ -347,7 +347,7 @@ static int config_pipeline_battery(const char *lang_tag, const char *filename,
     files[0].content = src;
 
     RProj lp;
-    cbm_store_t *store = rh_index_files(&lp, files, 1);
+    ani_store_t *store = rh_index_files(&lp, files, 1);
     if (!store) {
         printf("  %sFAIL%s  [%s] pipeline: rh_index_files returned NULL\n",
                RED, RST, lang_tag);
@@ -387,24 +387,24 @@ static int config_pipeline_battery(const char *lang_tag, const char *filename,
 
 /* ── Robustness helper: assert call RETURNS on malformed input ───────────────
  *
- * A truncated version of the fixture is passed through cbm_extract_file.
+ * A truncated version of the fixture is passed through ani_extract_file.
  * has_error may be set (1) but the call must return non-NULL. If it returns NULL
  * the extractor crashed or aborted on bad input -- that is a RED robustness bug.
  * Returns 0 on PASS, 1 on FAIL.
  */
 static int config_robustness(const char *lang_tag, const char *bad_src,
-                             CBMLanguage lang, const char *file) {
+                             ANILanguage lang, const char *file) {
     const char *RED = tf_red();
     const char *RST = tf_reset();
 
-    CBMFileResult *r = cbm_extract_file(bad_src, (int)strlen(bad_src),
+    ANIFileResult *r = ani_extract_file(bad_src, (int)strlen(bad_src),
                                         lang, "t", file, 0, NULL, NULL);
     if (!r) {
         printf("  %sFAIL%s  [%s] robustness: extractor returned NULL on malformed input\n",
                RED, RST, lang_tag);
         return 1;
     }
-    cbm_free_result(r);
+    ani_free_result(r);
     return 0;
 }
 
@@ -423,7 +423,7 @@ static int config_robustness(const char *lang_tag, const char *bad_src,
 TEST(repro_grammar_config_json) {
     static const char src[] =
         "{\n"
-        "  \"name\": \"cbm\",\n"
+        "  \"name\": \"ani\",\n"
         "  \"version\": \"0.8.1\",\n"
         "  \"description\": \"Codebase memory MCP server\",\n"
         "  \"config\": {\n"
@@ -433,9 +433,9 @@ TEST(repro_grammar_config_json) {
         "  }\n"
         "}\n";
     static const char bad[] = "{ \"key\": ";
-    if (config_base_battery("JSON", src, CBM_LANG_JSON, "config.json") != 0)
+    if (config_base_battery("JSON", src, ANI_LANG_JSON, "config.json") != 0)
         return 1;
-    return config_robustness("JSON", bad, CBM_LANG_JSON, "config.json");
+    return config_robustness("JSON", bad, ANI_LANG_JSON, "config.json");
 }
 
 /* ── JSON5 ───────────────────────────────────────────────────────────────────
@@ -452,7 +452,7 @@ TEST(repro_grammar_config_json5) {
     static const char src[] =
         "// JSON5 config with comments\n"
         "{\n"
-        "  name: 'cbm',       // unquoted keys + single-quoted values\n"
+        "  name: 'ani',       // unquoted keys + single-quoted values\n"
         "  version: '0.8.1',\n"
         "  features: [\n"
         "    'graph',\n"
@@ -463,9 +463,9 @@ TEST(repro_grammar_config_json5) {
         "  },\n"
         "}\n";
     static const char bad[] = "{ name: ";
-    if (config_base_battery("JSON5", src, CBM_LANG_JSON5, "config.json5") != 0)
+    if (config_base_battery("JSON5", src, ANI_LANG_JSON5, "config.json5") != 0)
         return 1;
-    return config_robustness("JSON5", bad, CBM_LANG_JSON5, "config.json5");
+    return config_robustness("JSON5", bad, ANI_LANG_JSON5, "config.json5");
 }
 
 /* ── YAML ─────────────────────────────────────────────────────────────────────
@@ -481,7 +481,7 @@ TEST(repro_grammar_config_json5) {
  */
 TEST(repro_grammar_config_yaml) {
     static const char src[] =
-        "name: cbm\n"
+        "name: ani\n"
         "version: 0.8.1\n"
         "server:\n"
         "  host: localhost\n"
@@ -491,10 +491,10 @@ TEST(repro_grammar_config_yaml) {
         "  - go\n"
         "  - python\n"
         "  - typescript\n";
-    static const char bad[] = "name: cbm\n  - broken: [";
-    if (config_base_battery("YAML", src, CBM_LANG_YAML, "config.yaml") != 0)
+    static const char bad[] = "name: ani\n  - broken: [";
+    if (config_base_battery("YAML", src, ANI_LANG_YAML, "config.yaml") != 0)
         return 1;
-    return config_robustness("YAML", bad, CBM_LANG_YAML, "config.yaml");
+    return config_robustness("YAML", bad, ANI_LANG_YAML, "config.yaml");
 }
 
 /* ── TOML ─────────────────────────────────────────────────────────────────────
@@ -510,7 +510,7 @@ TEST(repro_grammar_config_yaml) {
  */
 TEST(repro_grammar_config_toml) {
     static const char src[] =
-        "name = \"cbm\"\n"
+        "name = \"ani\"\n"
         "version = \"0.8.1\"\n"
         "\n"
         "[server]\n"
@@ -525,11 +525,11 @@ TEST(repro_grammar_config_toml) {
         "[[language]]\n"
         "name = \"python\"\n"
         "enabled = true\n";
-    static const char bad[] = "name = \"cbm\"\n[[language\n";
-    if (config_struct_battery("TOML", src, CBM_LANG_TOML, "config.toml",
+    static const char bad[] = "name = \"ani\"\n[[language\n";
+    if (config_struct_battery("TOML", src, ANI_LANG_TOML, "config.toml",
                               "Class", NULL) != 0)
         return 1;
-    return config_robustness("TOML", bad, CBM_LANG_TOML, "config.toml");
+    return config_robustness("TOML", bad, ANI_LANG_TOML, "config.toml");
 }
 
 /* ── INI ──────────────────────────────────────────────────────────────────────
@@ -547,7 +547,7 @@ TEST(repro_grammar_config_ini) {
         "[database]\n"
         "host = localhost\n"
         "port = 5432\n"
-        "name = cbm_db\n"
+        "name = ani_db\n"
         "user = admin\n"
         "\n"
         "[cache]\n"
@@ -555,10 +555,10 @@ TEST(repro_grammar_config_ini) {
         "ttl = 300\n"
         "max_size = 1024\n";
     static const char bad[] = "[database\nhost = x\n";
-    if (config_struct_battery("INI", src, CBM_LANG_INI, "config.ini",
+    if (config_struct_battery("INI", src, ANI_LANG_INI, "config.ini",
                               "Class", NULL) != 0)
         return 1;
-    return config_robustness("INI", bad, CBM_LANG_INI, "config.ini");
+    return config_robustness("INI", bad, ANI_LANG_INI, "config.ini");
 }
 
 /* ── HCL ──────────────────────────────────────────────────────────────────────
@@ -585,7 +585,7 @@ TEST(repro_grammar_config_hcl) {
         "  instance_type = \"t2.micro\"\n"
         "\n"
         "  tags = tomap({\n"
-        "    Name = \"cbm-server\"\n"
+        "    Name = \"ani-server\"\n"
         "    Env  = \"prod\"\n"
         "  })\n"
         "}\n"
@@ -594,10 +594,10 @@ TEST(repro_grammar_config_hcl) {
         "  default = \"us-east-1\"\n"
         "}\n";
     static const char bad[] = "resource \"aws_instance\" \"main\" {\n  ami = ";
-    if (config_callable_battery("HCL", src, CBM_LANG_HCL, "main.tf",
+    if (config_callable_battery("HCL", src, ANI_LANG_HCL, "main.tf",
                                 NULL, "tomap") != 0)
         return 1;
-    return config_robustness("HCL", bad, CBM_LANG_HCL, "main.tf");
+    return config_robustness("HCL", bad, ANI_LANG_HCL, "main.tf");
 }
 
 /* ── XML ──────────────────────────────────────────────────────────────────────
@@ -619,15 +619,15 @@ TEST(repro_grammar_config_xml) {
         "    <port>8080</port>\n"
         "  </server>\n"
         "  <database>\n"
-        "    <url>postgres://localhost/cbm</url>\n"
+        "    <url>postgres://localhost/ani</url>\n"
         "    <maxConns>10</maxConns>\n"
         "  </database>\n"
         "</config>\n";
     static const char bad[] = "<config>\n  <server>\n    <host>";
-    if (config_struct_battery("XML", src, CBM_LANG_XML, "config.xml",
+    if (config_struct_battery("XML", src, ANI_LANG_XML, "config.xml",
                               "Class", NULL) != 0)
         return 1;
-    return config_robustness("XML", bad, CBM_LANG_XML, "config.xml");
+    return config_robustness("XML", bad, ANI_LANG_XML, "config.xml");
 }
 
 /* ── CSV ──────────────────────────────────────────────────────────────────────
@@ -643,13 +643,13 @@ TEST(repro_grammar_config_xml) {
 TEST(repro_grammar_config_csv) {
     static const char src[] =
         "id,name,language,enabled\n"
-        "1,cbm-go,go,true\n"
-        "2,cbm-py,python,true\n"
-        "3,cbm-ts,typescript,false\n";
+        "1,ani-go,go,true\n"
+        "2,ani-py,python,true\n"
+        "3,ani-ts,typescript,false\n";
     static const char bad[] = "id,name\n1,\"unclosed";
-    if (config_base_battery("CSV", src, CBM_LANG_CSV, "data.csv") != 0)
+    if (config_base_battery("CSV", src, ANI_LANG_CSV, "data.csv") != 0)
         return 1;
-    return config_robustness("CSV", bad, CBM_LANG_CSV, "data.csv");
+    return config_robustness("CSV", bad, ANI_LANG_CSV, "data.csv");
 }
 
 /* ── PROPERTIES ───────────────────────────────────────────────────────────────
@@ -665,17 +665,17 @@ TEST(repro_grammar_config_csv) {
 TEST(repro_grammar_config_properties) {
     static const char src[] =
         "# Application configuration\n"
-        "app.name=cbm\n"
+        "app.name=ani\n"
         "app.version=0.8.1\n"
         "server.host=localhost\n"
         "server.port=8080\n"
-        "db.url=jdbc:postgresql://localhost/cbm\n"
+        "db.url=jdbc:postgresql://localhost/ani\n"
         "db.pool.size=10\n";
-    static const char bad[] = "app.name=cbm\nbroken";
-    if (config_struct_battery("PROPERTIES", src, CBM_LANG_PROPERTIES,
+    static const char bad[] = "app.name=ani\nbroken";
+    if (config_struct_battery("PROPERTIES", src, ANI_LANG_PROPERTIES,
                               "app.properties", "Variable", NULL) != 0)
         return 1;
-    return config_robustness("PROPERTIES", bad, CBM_LANG_PROPERTIES,
+    return config_robustness("PROPERTIES", bad, ANI_LANG_PROPERTIES,
                              "app.properties");
 }
 
@@ -694,7 +694,7 @@ TEST(repro_grammar_config_properties) {
 TEST(repro_grammar_config_dotenv) {
     static const char src[] =
         "# Database\n"
-        "DATABASE_URL=postgres://localhost:5432/cbm\n"
+        "DATABASE_URL=postgres://localhost:5432/ani\n"
         "DATABASE_POOL_SIZE=10\n"
         "\n"
         "# Server\n"
@@ -703,9 +703,9 @@ TEST(repro_grammar_config_dotenv) {
         "DEBUG=false\n"
         "SECRET_KEY=supersecret\n";
     static const char bad[] = "KEY=value\nBROKEN=\"unclosed";
-    if (config_base_battery("DOTENV", src, CBM_LANG_DOTENV, ".env") != 0)
+    if (config_base_battery("DOTENV", src, ANI_LANG_DOTENV, ".env") != 0)
         return 1;
-    return config_robustness("DOTENV", bad, CBM_LANG_DOTENV, ".env");
+    return config_robustness("DOTENV", bad, ANI_LANG_DOTENV, ".env");
 }
 
 /* ── KDL ──────────────────────────────────────────────────────────────────────
@@ -722,7 +722,7 @@ TEST(repro_grammar_config_dotenv) {
 TEST(repro_grammar_config_kdl) {
     static const char src[] =
         "package {\n"
-        "  name \"cbm\"\n"
+        "  name \"ani\"\n"
         "  version \"0.8.1\"\n"
         "  description \"Codebase memory MCP server\"\n"
         "}\n"
@@ -735,9 +735,9 @@ TEST(repro_grammar_config_kdl) {
         "language \"go\" enabled=true\n"
         "language \"python\" enabled=true\n";
     static const char bad[] = "server host=\"localhost\" {\n  tls";
-    if (config_base_battery("KDL", src, CBM_LANG_KDL, "config.kdl") != 0)
+    if (config_base_battery("KDL", src, ANI_LANG_KDL, "config.kdl") != 0)
         return 1;
-    return config_robustness("KDL", bad, CBM_LANG_KDL, "config.kdl");
+    return config_robustness("KDL", bad, ANI_LANG_KDL, "config.kdl");
 }
 
 /* ── RON ──────────────────────────────────────────────────────────────────────
@@ -755,7 +755,7 @@ TEST(repro_grammar_config_kdl) {
 TEST(repro_grammar_config_ron) {
     static const char src[] =
         "Config(\n"
-        "  name: \"cbm\",\n"
+        "  name: \"ani\",\n"
         "  version: (major: 0, minor: 8, patch: 1),\n"
         "  languages: [\n"
         "    Language(name: \"go\", enabled: true),\n"
@@ -763,10 +763,10 @@ TEST(repro_grammar_config_ron) {
         "  ],\n"
         "  debug: false,\n"
         ")\n";
-    static const char bad[] = "Config(\n  name: \"cbm\",\n  broken: [";
-    if (config_base_battery("RON", src, CBM_LANG_RON, "config.ron") != 0)
+    static const char bad[] = "Config(\n  name: \"ani\",\n  broken: [";
+    if (config_base_battery("RON", src, ANI_LANG_RON, "config.ron") != 0)
         return 1;
-    return config_robustness("RON", bad, CBM_LANG_RON, "config.ron");
+    return config_robustness("RON", bad, ANI_LANG_RON, "config.ron");
 }
 
 /* ── PKL ──────────────────────────────────────────────────────────────────────
@@ -793,7 +793,7 @@ TEST(repro_grammar_config_ron) {
  */
 TEST(repro_grammar_config_pkl) {
     static const char src[] =
-        "module cbm.Config\n"
+        "module ani.Config\n"
         "\n"
         "typealias Port = Int\n"
         "\n"
@@ -808,13 +808,13 @@ TEST(repro_grammar_config_pkl) {
         "\n"
         "  function clone(): Server = new Server { host = host }\n"
         "}\n";
-    static const char bad[] = "module cbm.Config\nclass Server {\n  host:";
-    if (config_callable_battery("PKL", src, CBM_LANG_PKL, "config.pkl",
+    static const char bad[] = "module ani.Config\nclass Server {\n  host:";
+    if (config_callable_battery("PKL", src, ANI_LANG_PKL, "config.pkl",
                                 "Function", "makeUrl") != 0)
         return 1;
 
     /* Bare property reads must not be calls (see PKL-SPECIFIC REGRESSION above). */
-    CBMFileResult *pr = inv_rx(src, CBM_LANG_PKL, "config.pkl");
+    ANIFileResult *pr = inv_rx(src, ANI_LANG_PKL, "config.pkl");
     if (!pr) {
         printf("  %sFAIL%s  [PKL] inv_rx returned NULL\n", tf_red(), tf_reset());
         return 1;
@@ -827,14 +827,14 @@ TEST(repro_grammar_config_pkl) {
             bogus++;
         }
     }
-    cbm_free_result(pr);
+    ani_free_result(pr);
     if (bogus != 0) {
         printf("  %sFAIL%s  [PKL] property-read-not-call: %d bare property read(s) "
                "emitted as a CALLS edge\n", tf_red(), tf_reset(), bogus);
         return 1;
     }
 
-    if (config_robustness("PKL", bad, CBM_LANG_PKL, "config.pkl") != 0)
+    if (config_robustness("PKL", bad, ANI_LANG_PKL, "config.pkl") != 0)
         return 1;
     return config_pipeline_battery("PKL", "config.pkl", src);
 }
@@ -876,10 +876,10 @@ TEST(repro_grammar_config_nickel) {
         "  debug = false,\n"
         "}\n";
     static const char bad[] = "let addPort = fun base offset =>";
-    if (config_callable_battery("Nickel", src, CBM_LANG_NICKEL, "config.ncl",
+    if (config_callable_battery("Nickel", src, ANI_LANG_NICKEL, "config.ncl",
                                 "Function", "addPort") != 0)
         return 1;
-    if (config_robustness("Nickel", bad, CBM_LANG_NICKEL, "config.ncl") != 0)
+    if (config_robustness("Nickel", bad, ANI_LANG_NICKEL, "config.ncl") != 0)
         return 1;
     return config_pipeline_battery("Nickel", "config.ncl", src);
 }
@@ -920,10 +920,10 @@ TEST(repro_grammar_config_jsonnet) {
         "  debug: false,\n"
         "}\n";
     static const char bad[] = "local makeServer(host, port) = {";
-    if (config_callable_battery("Jsonnet", src, CBM_LANG_JSONNET, "config.jsonnet",
+    if (config_callable_battery("Jsonnet", src, ANI_LANG_JSONNET, "config.jsonnet",
                                 "Function", "makeServer") != 0)
         return 1;
-    if (config_robustness("Jsonnet", bad, CBM_LANG_JSONNET, "config.jsonnet") != 0)
+    if (config_robustness("Jsonnet", bad, ANI_LANG_JSONNET, "config.jsonnet") != 0)
         return 1;
     return config_pipeline_battery("Jsonnet", "config.jsonnet", src);
 }
@@ -963,7 +963,7 @@ TEST(repro_grammar_config_starlark) {
      * dim 7 a Function-sourced edge to attribute. */
     static const char src[] =
         "def _base_deps():\n"
-        "    return [\"//internal/cbm\"]\n"
+        "    return [\"//internal/ani\"]\n"
         "\n"
         "def make_binary(name, srcs, deps = []):\n"
         "    \"\"\"Wrapper around go_binary for internal defaults.\"\"\"\n"
@@ -975,10 +975,10 @@ TEST(repro_grammar_config_starlark) {
         "\n"
         "default_rule = make_binary\n";
     static const char bad[] = "def make_binary(name, srcs";
-    if (config_callable_battery("Starlark", src, CBM_LANG_STARLARK, "BUILD",
+    if (config_callable_battery("Starlark", src, ANI_LANG_STARLARK, "BUILD",
                                 "Function", "go_binary") != 0)
         return 1;
-    if (config_robustness("Starlark", bad, CBM_LANG_STARLARK, "BUILD") != 0)
+    if (config_robustness("Starlark", bad, ANI_LANG_STARLARK, "BUILD") != 0)
         return 1;
     return config_pipeline_battery("Starlark", "BUILD", src);
 }

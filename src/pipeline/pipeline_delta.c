@@ -21,7 +21,7 @@
  * deleted individually on existing databases; their rowids can never alias
  * a live node again (AUTOINCREMENT), so dead entries simply drop out of the
  * rowid join at query time. The patch inserts rows for exactly the new
- * nodes through cbm_store_fts_rebuild() — the SAME writer the wholesale
+ * nodes through ani_store_fts_rebuild() — the SAME writer the wholesale
  * rebuild uses, so the two paths cannot index different column sets. This
  * path is the one most users actually hit: a hand-written INSERT here that
  * named only the identifier columns would leave nodes_fts.body NULL for
@@ -74,16 +74,16 @@ static void delta_placeholders(char *buf, int count) {
     buf[pos] = '\0';
 }
 
-int cbm_delta_stage_clone(const char *final_db_path, char **out_stage_path) {
+int ani_delta_stage_clone(const char *final_db_path, char **out_stage_path) {
     *out_stage_path = NULL;
-    char *stage = cbm_pipeline_create_staging_path(final_db_path);
+    char *stage = ani_pipeline_create_staging_path(final_db_path);
     if (!stage) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
-    if (cbm_clone_or_copy_file(final_db_path, stage) != 0) {
-        cbm_pipeline_discard_stage(stage);
+    if (ani_clone_or_copy_file(final_db_path, stage) != 0) {
+        ani_pipeline_discard_stage(stage);
         free(stage);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     *out_stage_path = stage;
     return 0;
@@ -99,18 +99,18 @@ static bool delta_edge_type_is_recomputed(const char *type) {
                     strcmp(type, "FILE_CHANGES_WITH") == 0 || strcmp(type, "DATA_FLOWS") == 0);
 }
 
-int cbm_delta_snapshot_inbound(cbm_store_t *store, const char *project, const char *const *paths,
-                               int path_count, cbm_delta_saved_edge_t **out, int *out_count) {
+int ani_delta_snapshot_inbound(ani_store_t *store, const char *project, const char *const *paths,
+                               int path_count, ani_delta_saved_edge_t **out, int *out_count) {
     *out = NULL;
     *out_count = 0;
     if (path_count <= 0) {
         return 0;
     }
-    sqlite3 *db = cbm_store_get_db(store);
+    sqlite3 *db = ani_store_get_db(store);
     if (!db) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
-    cbm_delta_saved_edge_t *items = NULL;
+    ani_delta_saved_edge_t *items = NULL;
     int count = 0;
     int cap = 0;
     for (int off = 0; off < path_count; off += DELTA_IN_CHUNK) {
@@ -120,7 +120,7 @@ int cbm_delta_snapshot_inbound(cbm_store_t *store, const char *project, const ch
         }
         char ph[2 * DELTA_IN_CHUNK + 1];
         delta_placeholders(ph, chunk);
-        char sql[CBM_SZ_4K];
+        char sql[ANI_SZ_4K];
         int n = snprintf(sql, sizeof(sql),
                          /* CROSS JOIN pins nodes-first: the planner otherwise walks
                           * EVERY project edge through the url_path index prefix
@@ -134,18 +134,18 @@ int cbm_delta_snapshot_inbound(cbm_store_t *store, const char *project, const ch
                          " AND src.file_path <> '' AND src.file_path IS NOT NULL",
                          ph, ph);
         if (n < 0 || (size_t)n >= sizeof(sql)) {
-            cbm_delta_free_snapshot(items, count);
-            return CBM_NOT_FOUND;
+            ani_delta_free_snapshot(items, count);
+            return ANI_NOT_FOUND;
         }
         sqlite3_stmt *stmt = NULL;
-        if (sqlite3_prepare_v2(db, sql, CBM_NOT_FOUND, &stmt, NULL) != SQLITE_OK) {
-            cbm_delta_free_snapshot(items, count);
-            return CBM_NOT_FOUND;
+        if (sqlite3_prepare_v2(db, sql, ANI_NOT_FOUND, &stmt, NULL) != SQLITE_OK) {
+            ani_delta_free_snapshot(items, count);
+            return ANI_NOT_FOUND;
         }
-        sqlite3_bind_text(stmt, 1, project, CBM_NOT_FOUND, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 1, project, ANI_NOT_FOUND, SQLITE_TRANSIENT);
         for (int i = 0; i < chunk; i++) {
-            sqlite3_bind_text(stmt, 2 + i, paths[off + i], CBM_NOT_FOUND, SQLITE_TRANSIENT);
-            sqlite3_bind_text(stmt, 2 + chunk + i, paths[off + i], CBM_NOT_FOUND, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 2 + i, paths[off + i], ANI_NOT_FOUND, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 2 + chunk + i, paths[off + i], ANI_NOT_FOUND, SQLITE_TRANSIENT);
         }
         int step_rc;
         while ((step_rc = sqlite3_step(stmt)) == SQLITE_ROW) {
@@ -155,11 +155,11 @@ int cbm_delta_snapshot_inbound(cbm_store_t *store, const char *project, const ch
             }
             if (count >= cap) {
                 int ncap = cap ? cap * 2 : 64;
-                cbm_delta_saved_edge_t *grown = realloc(items, (size_t)ncap * sizeof(*items));
+                ani_delta_saved_edge_t *grown = realloc(items, (size_t)ncap * sizeof(*items));
                 if (!grown) {
                     sqlite3_finalize(stmt);
-                    cbm_delta_free_snapshot(items, count);
-                    return CBM_NOT_FOUND;
+                    ani_delta_free_snapshot(items, count);
+                    return ANI_NOT_FOUND;
                 }
                 items = grown;
                 cap = ncap;
@@ -167,7 +167,7 @@ int cbm_delta_snapshot_inbound(cbm_store_t *store, const char *project, const ch
             const char *sq = (const char *)sqlite3_column_text(stmt, 0);
             const char *tq = (const char *)sqlite3_column_text(stmt, 1);
             const char *props = (const char *)sqlite3_column_text(stmt, 3);
-            cbm_delta_saved_edge_t *e = &items[count];
+            ani_delta_saved_edge_t *e = &items[count];
             e->source_qn = strdup(sq ? sq : "");
             e->target_qn = strdup(tq ? tq : "");
             e->type = strdup(type ? type : "");
@@ -178,15 +178,15 @@ int cbm_delta_snapshot_inbound(cbm_store_t *store, const char *project, const ch
                 free(e->type);
                 free(e->props);
                 sqlite3_finalize(stmt);
-                cbm_delta_free_snapshot(items, count);
-                return CBM_NOT_FOUND;
+                ani_delta_free_snapshot(items, count);
+                return ANI_NOT_FOUND;
             }
             count++;
         }
         sqlite3_finalize(stmt);
         if (step_rc != SQLITE_DONE) {
-            cbm_delta_free_snapshot(items, count);
-            return CBM_NOT_FOUND;
+            ani_delta_free_snapshot(items, count);
+            return ANI_NOT_FOUND;
         }
     }
     *out = items;
@@ -194,7 +194,7 @@ int cbm_delta_snapshot_inbound(cbm_store_t *store, const char *project, const ch
     return 0;
 }
 
-void cbm_delta_free_snapshot(cbm_delta_saved_edge_t *items, int count) {
+void ani_delta_free_snapshot(ani_delta_saved_edge_t *items, int count) {
     if (!items) {
         return;
     }
@@ -207,14 +207,14 @@ void cbm_delta_free_snapshot(cbm_delta_saved_edge_t *items, int count) {
     free(items);
 }
 
-int cbm_delta_purge(cbm_store_t *store, const char *project, const char *const *paths,
+int ani_delta_purge(ani_store_t *store, const char *project, const char *const *paths,
                     int path_count) {
     if (path_count <= 0) {
         return 0;
     }
-    sqlite3 *db = cbm_store_get_db(store);
+    sqlite3 *db = ani_store_get_db(store);
     if (!db) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     for (int off = 0; off < path_count; off += DELTA_IN_CHUNK) {
         int chunk = path_count - off;
@@ -223,24 +223,24 @@ int cbm_delta_purge(cbm_store_t *store, const char *project, const char *const *
         }
         char ph[2 * DELTA_IN_CHUNK + 1];
         delta_placeholders(ph, chunk);
-        char sql[CBM_SZ_1K];
+        char sql[ANI_SZ_1K];
         int n = snprintf(sql, sizeof(sql),
                          "DELETE FROM nodes WHERE project = ?1 AND file_path IN (%s)", ph);
         if (n < 0 || (size_t)n >= sizeof(sql)) {
-            return CBM_NOT_FOUND;
+            return ANI_NOT_FOUND;
         }
         sqlite3_stmt *stmt = NULL;
-        if (sqlite3_prepare_v2(db, sql, CBM_NOT_FOUND, &stmt, NULL) != SQLITE_OK) {
-            return CBM_NOT_FOUND;
+        if (sqlite3_prepare_v2(db, sql, ANI_NOT_FOUND, &stmt, NULL) != SQLITE_OK) {
+            return ANI_NOT_FOUND;
         }
-        sqlite3_bind_text(stmt, 1, project, CBM_NOT_FOUND, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 1, project, ANI_NOT_FOUND, SQLITE_TRANSIENT);
         for (int i = 0; i < chunk; i++) {
-            sqlite3_bind_text(stmt, 2 + i, paths[off + i], CBM_NOT_FOUND, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 2 + i, paths[off + i], ANI_NOT_FOUND, SQLITE_TRANSIENT);
         }
         int rc = sqlite3_step(stmt);
         sqlite3_finalize(stmt);
         if (rc != SQLITE_DONE) {
-            return CBM_NOT_FOUND;
+            return ANI_NOT_FOUND;
         }
     }
     return 0;
@@ -254,8 +254,8 @@ int cbm_delta_purge(cbm_store_t *store, const char *project, const char *const *
  * guessing. The proxy load stays edge-free and property-free, which is
  * where the old full load actually spent its time. */
 
-int64_t cbm_delta_preseed(cbm_store_t *store, const char *project, cbm_gbuf_t *gbuf) {
-    sqlite3 *db = cbm_store_get_db(store);
+int64_t ani_delta_preseed(ani_store_t *store, const char *project, ani_gbuf_t *gbuf) {
+    sqlite3 *db = ani_store_get_db(store);
     if (!db) {
         return -1;
     }
@@ -264,7 +264,7 @@ int64_t cbm_delta_preseed(cbm_store_t *store, const char *project, cbm_gbuf_t *g
         sqlite3_stmt *stmt = NULL;
         /* Global MAX, not project-scoped: node ids are one keyspace for the
          * whole database, and the watermark must clear every row in it. */
-        if (sqlite3_prepare_v2(db, "SELECT COALESCE(MAX(id), 0) FROM nodes", CBM_NOT_FOUND, &stmt,
+        if (sqlite3_prepare_v2(db, "SELECT COALESCE(MAX(id), 0) FROM nodes", ANI_NOT_FOUND, &stmt,
                                NULL) != SQLITE_OK) {
             return -1;
         }
@@ -275,7 +275,7 @@ int64_t cbm_delta_preseed(cbm_store_t *store, const char *project, cbm_gbuf_t *g
     }
 
     /* Proxy only what resolution can reach by NAME or QN: the registry
-     * symbols (cbm_label_is_type_like + Function/Method/Variable/Field, the
+     * symbols (ani_label_is_type_like + Function/Method/Variable/Field, the
      * exact set incr_label_is_registry_symbol admits) plus the structural
      * nodes edges attach to. Everything else -- overwhelmingly Macro, six of
      * the kernel's 8.5M nodes -- is never a lookup target, and a proxy for it
@@ -293,10 +293,10 @@ int64_t cbm_delta_preseed(cbm_store_t *store, const char *project, cbm_gbuf_t *g
                            " WHERE project = ?1 AND label NOT IN"
                            " ('Macro','Comment','Section','Branch','Commit','Tag')"
                            " ORDER BY id",
-                           CBM_NOT_FOUND, &stmt, NULL) != SQLITE_OK) {
+                           ANI_NOT_FOUND, &stmt, NULL) != SQLITE_OK) {
         return -1;
     }
-    sqlite3_bind_text(stmt, 1, project, CBM_NOT_FOUND, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, project, ANI_NOT_FOUND, SQLITE_TRANSIENT);
     int step_rc;
     int64_t seeded = 0;
     while ((step_rc = sqlite3_step(stmt)) == SQLITE_ROW) {
@@ -306,13 +306,13 @@ int64_t cbm_delta_preseed(cbm_store_t *store, const char *project, cbm_gbuf_t *g
         const char *qn = (const char *)sqlite3_column_text(stmt, 3);
         const char *fp = (const char *)sqlite3_column_text(stmt, 4);
         /* Pin the gbuf id to the database id: proxies ARE their rows. */
-        cbm_gbuf_set_next_id(gbuf, id);
-        int64_t got = cbm_gbuf_upsert_node(gbuf, label, name, qn, fp ? fp : "", 0, 0, "{}");
+        ani_gbuf_set_next_id(gbuf, id);
+        int64_t got = ani_gbuf_upsert_node(gbuf, label, name, qn, fp ? fp : "", 0, 0, "{}");
         if (got != id) {
             /* A QN collision inside the preseed set would silently split
              * identity between RAM and disk; the run cannot be trusted. */
             sqlite3_finalize(stmt);
-            cbm_log_error("delta.preseed_id_mismatch", "qn", qn ? qn : "");
+            ani_log_error("delta.preseed_id_mismatch", "qn", qn ? qn : "");
             return -1;
         }
         seeded++;
@@ -321,10 +321,10 @@ int64_t cbm_delta_preseed(cbm_store_t *store, const char *project, cbm_gbuf_t *g
     if (step_rc != SQLITE_DONE) {
         return -1;
     }
-    cbm_gbuf_set_next_id(gbuf, max_id + 1);
+    ani_gbuf_set_next_id(gbuf, max_id + 1);
     char seeded_buf[32];
     snprintf(seeded_buf, sizeof(seeded_buf), "%lld", (long long)seeded);
-    cbm_log_info("delta.preseed", "proxies", seeded_buf);
+    ani_log_info("delta.preseed", "proxies", seeded_buf);
     return max_id;
 }
 
@@ -342,7 +342,7 @@ typedef struct {
      * a stand-in. Mapping it back keeps the existing row authoritative
      * and every edge endpoint database-valid. Appended in ascending
      * gbuf-id order (nodes are visited that way), so lookups binary
-     * search -- CBMHashTable stores key POINTERS without copying,
+     * search -- ANIHashTable stores key POINTERS without copying,
      * which a stack-formatted integer key cannot satisfy. */
     struct {
         int64_t from;
@@ -392,15 +392,15 @@ static int64_t delta_remap_get(const delta_patch_ctx_t *ctx, int64_t id) {
     return id;
 }
 
-static void delta_patch_node(const cbm_gbuf_node_t *node, void *userdata) {
+static void delta_patch_node(const ani_gbuf_node_t *node, void *userdata) {
     delta_patch_ctx_t *ctx = (delta_patch_ctx_t *)userdata;
     if (ctx->failed || node->id <= ctx->max_db_id) {
         return;
     }
     if (node->qualified_name) {
         sqlite3_reset(ctx->qn_lookup);
-        sqlite3_bind_text(ctx->qn_lookup, 1, ctx->project, CBM_NOT_FOUND, SQLITE_TRANSIENT);
-        sqlite3_bind_text(ctx->qn_lookup, 2, node->qualified_name, CBM_NOT_FOUND, SQLITE_TRANSIENT);
+        sqlite3_bind_text(ctx->qn_lookup, 1, ctx->project, ANI_NOT_FOUND, SQLITE_TRANSIENT);
+        sqlite3_bind_text(ctx->qn_lookup, 2, node->qualified_name, ANI_NOT_FOUND, SQLITE_TRANSIENT);
         if (sqlite3_step(ctx->qn_lookup) == SQLITE_ROW) {
             /* Already on disk: an unchanged file's symbol. A node from a
              * CHANGED file cannot appear here -- the purge removed it --
@@ -412,30 +412,30 @@ static void delta_patch_node(const cbm_gbuf_node_t *node, void *userdata) {
     }
     sqlite3_reset(ctx->node_stmt);
     sqlite3_bind_int64(ctx->node_stmt, 1, node->id);
-    sqlite3_bind_text(ctx->node_stmt, 2, ctx->project, CBM_NOT_FOUND, SQLITE_TRANSIENT);
-    sqlite3_bind_text(ctx->node_stmt, 3, node->label, CBM_NOT_FOUND, SQLITE_TRANSIENT);
-    sqlite3_bind_text(ctx->node_stmt, 4, node->name, CBM_NOT_FOUND, SQLITE_TRANSIENT);
-    sqlite3_bind_text(ctx->node_stmt, 5, node->qualified_name, CBM_NOT_FOUND, SQLITE_TRANSIENT);
-    sqlite3_bind_text(ctx->node_stmt, 6, node->file_path ? node->file_path : "", CBM_NOT_FOUND,
+    sqlite3_bind_text(ctx->node_stmt, 2, ctx->project, ANI_NOT_FOUND, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ctx->node_stmt, 3, node->label, ANI_NOT_FOUND, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ctx->node_stmt, 4, node->name, ANI_NOT_FOUND, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ctx->node_stmt, 5, node->qualified_name, ANI_NOT_FOUND, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ctx->node_stmt, 6, node->file_path ? node->file_path : "", ANI_NOT_FOUND,
                       SQLITE_TRANSIENT);
     sqlite3_bind_int(ctx->node_stmt, 7, node->start_line);
     sqlite3_bind_int(ctx->node_stmt, 8, node->end_line);
     sqlite3_bind_text(ctx->node_stmt, 9, node->properties_json ? node->properties_json : "{}",
-                      CBM_NOT_FOUND, SQLITE_TRANSIENT);
+                      ANI_NOT_FOUND, SQLITE_TRANSIENT);
     if (sqlite3_step(ctx->node_stmt) != SQLITE_DONE) {
         ctx->failed = true;
         char id_buf[32];
         snprintf(id_buf, sizeof(id_buf), "%lld", (long long)node->id);
-        cbm_log_error("delta.patch_node_failed", "qn",
+        ani_log_error("delta.patch_node_failed", "qn",
                       node->qualified_name ? node->qualified_name : "", "err",
                       sqlite3_errmsg(ctx->db));
-        cbm_log_error("delta.patch_node_id", "id", id_buf);
+        ani_log_error("delta.patch_node_id", "id", id_buf);
         sqlite3_stmt *who = NULL;
         if (sqlite3_prepare_v2(ctx->db, "SELECT label, qualified_name FROM nodes WHERE id = ?1",
-                               CBM_NOT_FOUND, &who, NULL) == SQLITE_OK) {
+                               ANI_NOT_FOUND, &who, NULL) == SQLITE_OK) {
             sqlite3_bind_int64(who, 1, node->id);
             if (sqlite3_step(who) == SQLITE_ROW) {
-                cbm_log_error("delta.patch_id_owner", "label",
+                ani_log_error("delta.patch_id_owner", "label",
                               (const char *)sqlite3_column_text(who, 0), "qn",
                               (const char *)sqlite3_column_text(who, 1));
             }
@@ -446,7 +446,7 @@ static void delta_patch_node(const cbm_gbuf_node_t *node, void *userdata) {
     ctx->nodes++;
 }
 
-static void delta_patch_edge(const cbm_gbuf_edge_t *edge, void *userdata) {
+static void delta_patch_edge(const ani_gbuf_edge_t *edge, void *userdata) {
     delta_patch_ctx_t *ctx = (delta_patch_ctx_t *)userdata;
     if (ctx->failed) {
         return;
@@ -458,15 +458,15 @@ static void delta_patch_edge(const cbm_gbuf_edge_t *edge, void *userdata) {
         return; /* both endpoints pre-existed unremapped: already recorded */
     }
     sqlite3_reset(ctx->edge_stmt);
-    sqlite3_bind_text(ctx->edge_stmt, 1, ctx->project, CBM_NOT_FOUND, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ctx->edge_stmt, 1, ctx->project, ANI_NOT_FOUND, SQLITE_TRANSIENT);
     sqlite3_bind_int64(ctx->edge_stmt, 2, src);
     sqlite3_bind_int64(ctx->edge_stmt, 3, tgt);
-    sqlite3_bind_text(ctx->edge_stmt, 4, edge->type, CBM_NOT_FOUND, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ctx->edge_stmt, 4, edge->type, ANI_NOT_FOUND, SQLITE_TRANSIENT);
     sqlite3_bind_text(ctx->edge_stmt, 5, edge->properties_json ? edge->properties_json : "{}",
-                      CBM_NOT_FOUND, SQLITE_TRANSIENT);
+                      ANI_NOT_FOUND, SQLITE_TRANSIENT);
     if (sqlite3_step(ctx->edge_stmt) != SQLITE_DONE) {
         ctx->failed = true;
-        cbm_log_error("delta.patch_edge_failed", "type", edge->type ? edge->type : "");
+        ani_log_error("delta.patch_edge_failed", "type", edge->type ? edge->type : "");
         return;
     }
     ctx->edges++;
@@ -476,10 +476,10 @@ static void delta_patch_edge(const cbm_gbuf_edge_t *edge, void *userdata) {
  * no longer exists simply matches no row — full-reindex semantics for deleted
  * symbols, dedup by the UNIQUE edge constraint. Returns false on failure.
  *
- * Extracted from cbm_delta_patch to keep that function inside the
+ * Extracted from ani_delta_patch to keep that function inside the
  * cognitive-complexity budget; behaviour is unchanged. */
 static bool delta_relink_snapshot(sqlite3 *db, const char *project,
-                                  const cbm_delta_saved_edge_t *snapshot, int snapshot_count) {
+                                  const ani_delta_saved_edge_t *snapshot, int snapshot_count) {
     sqlite3_stmt *relink = NULL;
     if (sqlite3_prepare_v2(db,
                            "INSERT OR IGNORE INTO edges (project, source_id, target_id,"
@@ -487,20 +487,20 @@ static bool delta_relink_snapshot(sqlite3 *db, const char *project,
                            " SELECT ?1, s.id, t.id, ?2, ?3 FROM nodes s, nodes t"
                            " WHERE s.project = ?1 AND s.qualified_name = ?4"
                            " AND t.project = ?1 AND t.qualified_name = ?5",
-                           CBM_NOT_FOUND, &relink, NULL) != SQLITE_OK) {
+                           ANI_NOT_FOUND, &relink, NULL) != SQLITE_OK) {
         return false;
     }
     bool ok = true;
     for (int i = 0; i < snapshot_count && ok; i++) {
         sqlite3_reset(relink);
-        sqlite3_bind_text(relink, DELTA_BIND_1, project, CBM_NOT_FOUND, DELTA_SQLITE_TRANSIENT);
-        sqlite3_bind_text(relink, DELTA_BIND_2, snapshot[i].type, CBM_NOT_FOUND,
+        sqlite3_bind_text(relink, DELTA_BIND_1, project, ANI_NOT_FOUND, DELTA_SQLITE_TRANSIENT);
+        sqlite3_bind_text(relink, DELTA_BIND_2, snapshot[i].type, ANI_NOT_FOUND,
                           DELTA_SQLITE_TRANSIENT);
-        sqlite3_bind_text(relink, DELTA_BIND_3, snapshot[i].props, CBM_NOT_FOUND,
+        sqlite3_bind_text(relink, DELTA_BIND_3, snapshot[i].props, ANI_NOT_FOUND,
                           DELTA_SQLITE_TRANSIENT);
-        sqlite3_bind_text(relink, DELTA_BIND_4, snapshot[i].source_qn, CBM_NOT_FOUND,
+        sqlite3_bind_text(relink, DELTA_BIND_4, snapshot[i].source_qn, ANI_NOT_FOUND,
                           DELTA_SQLITE_TRANSIENT);
-        sqlite3_bind_text(relink, DELTA_BIND_5, snapshot[i].target_qn, CBM_NOT_FOUND,
+        sqlite3_bind_text(relink, DELTA_BIND_5, snapshot[i].target_qn, ANI_NOT_FOUND,
                           DELTA_SQLITE_TRANSIENT);
         ok = sqlite3_step(relink) == SQLITE_DONE;
     }
@@ -508,42 +508,42 @@ static bool delta_relink_snapshot(sqlite3 *db, const char *project,
     return ok;
 }
 
-int cbm_delta_patch(cbm_store_t *store, const char *project, cbm_gbuf_t *gbuf, int64_t max_db_id,
-                    const cbm_delta_saved_edge_t *snapshot, int snapshot_count) {
-    sqlite3 *db = cbm_store_get_db(store);
+int ani_delta_patch(ani_store_t *store, const char *project, ani_gbuf_t *gbuf, int64_t max_db_id,
+                    const ani_delta_saved_edge_t *snapshot, int snapshot_count) {
+    sqlite3 *db = ani_store_get_db(store);
     if (!db) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
-    if (cbm_store_begin(store) != CBM_STORE_OK) {
-        return CBM_NOT_FOUND;
+    if (ani_store_begin(store) != ANI_STORE_OK) {
+        return ANI_NOT_FOUND;
     }
     delta_patch_ctx_t ctx = {.db = db, .project = project, .max_db_id = max_db_id};
     if (sqlite3_prepare_v2(db,
                            "SELECT id FROM nodes WHERE project = ?1"
                            " AND qualified_name = ?2",
-                           CBM_NOT_FOUND, &ctx.qn_lookup, NULL) != SQLITE_OK) {
-        cbm_store_rollback(store);
-        return CBM_NOT_FOUND;
+                           ANI_NOT_FOUND, &ctx.qn_lookup, NULL) != SQLITE_OK) {
+        ani_store_rollback(store);
+        return ANI_NOT_FOUND;
     }
     if (sqlite3_prepare_v2(db,
                            "INSERT INTO nodes (id, project, label, name, qualified_name,"
                            " file_path, start_line, end_line, properties)"
                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
-                           CBM_NOT_FOUND, &ctx.node_stmt, NULL) != SQLITE_OK ||
+                           ANI_NOT_FOUND, &ctx.node_stmt, NULL) != SQLITE_OK ||
         sqlite3_prepare_v2(db,
                            "INSERT OR IGNORE INTO edges (project, source_id, target_id, type,"
                            " properties) VALUES (?1,?2,?3,?4,?5)",
-                           CBM_NOT_FOUND, &ctx.edge_stmt, NULL) != SQLITE_OK) {
+                           ANI_NOT_FOUND, &ctx.edge_stmt, NULL) != SQLITE_OK) {
         sqlite3_finalize(ctx.node_stmt);
         sqlite3_finalize(ctx.edge_stmt);
         sqlite3_finalize(ctx.qn_lookup);
         free(ctx.remap);
-        cbm_store_rollback(store);
-        return CBM_NOT_FOUND;
+        ani_store_rollback(store);
+        return ANI_NOT_FOUND;
     }
-    cbm_gbuf_foreach_node(gbuf, delta_patch_node, &ctx);
+    ani_gbuf_foreach_node(gbuf, delta_patch_node, &ctx);
     if (!ctx.failed) {
-        cbm_gbuf_foreach_edge(gbuf, delta_patch_edge, &ctx);
+        ani_gbuf_foreach_edge(gbuf, delta_patch_edge, &ctx);
     }
     sqlite3_finalize(ctx.node_stmt);
     sqlite3_finalize(ctx.edge_stmt);
@@ -559,22 +559,22 @@ int cbm_delta_patch(cbm_store_t *store, const char *project, cbm_gbuf_t *gbuf, i
      * rebuild. NOT_FOUND means the index could not be written at all (FTS5
      * compiled out); search then runs without it, matching the dump path. */
     if (!ctx.failed) {
-        int fts_rc = cbm_store_fts_rebuild(store, project, max_db_id);
-        if (fts_rc == CBM_STORE_NOT_FOUND) {
-            cbm_log_warn("delta.fts_insert_unavailable", "project", project);
-        } else if (fts_rc != CBM_STORE_OK) {
+        int fts_rc = ani_store_fts_rebuild(store, project, max_db_id);
+        if (fts_rc == ANI_STORE_NOT_FOUND) {
+            ani_log_warn("delta.fts_insert_unavailable", "project", project);
+        } else if (fts_rc != ANI_STORE_OK) {
             ctx.failed = true;
         }
     }
 
     if (ctx.failed) {
         free(ctx.remap);
-        cbm_store_rollback(store);
-        return CBM_NOT_FOUND;
+        ani_store_rollback(store);
+        return ANI_NOT_FOUND;
     }
     free(ctx.remap);
-    if (cbm_store_commit(store) != CBM_STORE_OK) {
-        return CBM_NOT_FOUND;
+    if (ani_store_commit(store) != ANI_STORE_OK) {
+        return ANI_NOT_FOUND;
     }
     char nodes_buf[32];
     char edges_buf[32];
@@ -582,6 +582,6 @@ int cbm_delta_patch(cbm_store_t *store, const char *project, cbm_gbuf_t *gbuf, i
     snprintf(edges_buf, sizeof(edges_buf), "%lld", (long long)ctx.edges);
     char remap_buf[32];
     snprintf(remap_buf, sizeof(remap_buf), "%lld", (long long)ctx.remapped);
-    cbm_log_info("delta.patch", "nodes", nodes_buf, "edges", edges_buf, "remapped", remap_buf);
+    ani_log_info("delta.patch", "nodes", nodes_buf, "edges", edges_buf, "remapped", remap_buf);
     return 0;
 }

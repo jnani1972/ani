@@ -2,7 +2,7 @@
 
 Guards the CLI-argv fix for issue #636 / #423 / #20 on native Windows.
 
-The documented entrypoint `codebase-memory-mcp cli index_repository '<json>'`
+The documented entrypoint `ani cli index_repository '<json>'`
 receives its JSON argument through argv. main() used to take only the narrow
 `int main(int argc, char **argv)` (src/main.c), so on Windows the C runtime handed
 it argv in the active ANSI code page: a repo_path containing non-ASCII characters
@@ -23,7 +23,7 @@ argv path delivery was lossy.
 Exit code: 0 == honored (green), 1 == rejected/mangled (red), 2 == setup error.
 
 Usage:
-    python test_cli_non_ascii_arg.py <path-to-codebase-memory-mcp[.exe]>
+    python test_cli_non_ascii_arg.py <path-to-ani[.exe]>
 """
 import json
 import os
@@ -56,7 +56,7 @@ def main():
         print("FAIL: binary not found: %s" % binary)
         return 2
 
-    work = tempfile.mkdtemp(prefix="cbm_win_cliarg_")
+    work = tempfile.mkdtemp(prefix="ani_win_cliarg_")
     try:
         # Non-ASCII repo directory (created via the OS wide API → really exists).
         repo = os.path.join(work, "café_日本語_repo")
@@ -75,7 +75,7 @@ def main():
         ctrl_out = ""
         for attempt in ("cache_ascii", "cache_ascii_retry"):
             env = dict(os.environ)
-            env["CBM_CACHE_DIR"] = os.path.join(work, attempt)
+            env["ANI_CACHE_DIR"] = os.path.join(work, attempt)
             ctrl = subprocess.run(
                 [binary, "cli", "index_repository",
                  json.dumps({"repo_path": ascii_repo})],
@@ -92,14 +92,14 @@ def main():
             return 2
 
         env2 = dict(os.environ)
-        env2["CBM_CACHE_DIR"] = cache
+        env2["ANI_CACHE_DIR"] = cache
         # Exercise the DEFAULT (supervisor-enabled) path, not in-process. The non-ASCII
         # repo path must survive BOTH the argv read (main() wide command line) AND the
         # supervisor -> worker spawn (CreateProcessW). The suite runner sets
-        # CBM_INDEX_SUPERVISOR=0 for determinism across the other guards; forcing it OFF
+        # ANI_INDEX_SUPERVISOR=0 for determinism across the other guards; forcing it OFF
         # here would run in-process and mask the spawn-boundary half of #423/#20, so we
         # drop the override and let the supervisor wrap the worker as it does for users.
-        env2.pop("CBM_INDEX_SUPERVISOR", None)
+        env2.pop("ANI_INDEX_SUPERVISOR", None)
         arg = json.dumps({"repo_path": repo}, ensure_ascii=False)
         p = subprocess.run([binary, "cli", "index_repository", arg],
                            capture_output=True, timeout=120, env=env2)
@@ -114,12 +114,12 @@ def main():
         # FLAG-form --repo-path + --mode fast, supervised. This adds coverage
         # of the flag->JSON converter and the repo-path canonicalization,
         # which used ANSI _access/_fullpath (locale-dependent — corrupted CJK
-        # paths on CJK-codepage systems) before the cbm_canonical_path fix.
+        # paths on CJK-codepage systems) before the ani_canonical_path fix.
         cjk_repo = os.path.join(work, "\u96f7\u9054\u6e2c\u8a66")
         make_fixture(cjk_repo)
         env3 = dict(os.environ)
-        env3["CBM_CACHE_DIR"] = os.path.join(work, "cache_cjk")
-        env3.pop("CBM_INDEX_SUPERVISOR", None)
+        env3["ANI_CACHE_DIR"] = os.path.join(work, "cache_cjk")
+        env3.pop("ANI_INDEX_SUPERVISOR", None)
         p2 = subprocess.run([binary, "cli", "index_repository",
                              "--repo-path", cjk_repo, "--mode", "fast"],
                             capture_output=True, timeout=120, env=env3)

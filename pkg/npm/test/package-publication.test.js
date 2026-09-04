@@ -42,13 +42,13 @@ test('Unix extraction requests only the validated root executable', () => {
 
   extractExactTarArchive(
     '/tmp/release.tar.gz', '/tmp/extract', UNIX_ARCHIVE_NAMES,
-    'codebase-memory-mcp', runner,
+    'ani', runner,
   );
 
   assert.deepEqual(calls[0].args, ['-tzf', '/tmp/release.tar.gz']);
   assert.deepEqual(
     calls[1].args,
-    ['-xzf', '/tmp/release.tar.gz', '-C', '/tmp/extract', 'codebase-memory-mcp'],
+    ['-xzf', '/tmp/release.tar.gz', '-C', '/tmp/extract', 'ani'],
   );
 });
 
@@ -65,7 +65,7 @@ function fakeBinaryVerifier(binaryPath) {
 }
 
 function withBinaryDirectories(callback) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cbm-npm-binary-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ani-npm-binary-test-'));
   const source = path.join(root, 'source');
   const destination = path.join(root, 'destination');
   fs.mkdirSync(destination);

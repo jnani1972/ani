@@ -8,38 +8,38 @@
 #include <string.h>
 
 typedef struct {
-    cbm_graph_profile_dialect_t dialect;
+    ani_graph_profile_dialect_t dialect;
     const char *syntax_fragment;
     const char *read_fragment;
     const char *grep_fragment;
 } direct_dialect_expectation_t;
 
 static const direct_dialect_expectation_t direct_dialects[] = {
-    {CBM_GRAPH_DIALECT_CLAUDE, "permissionMode: plan", "  - Read\n", "  - Grep\n"},
-    {CBM_GRAPH_DIALECT_CODEX, "sandbox_mode = \"read-only\"", "read", "grep"},
-    {CBM_GRAPH_DIALECT_GEMINI, "kind: local", "  - read_file\n", "  - grep_search\n"},
-    {CBM_GRAPH_DIALECT_QWEN, "approvalMode: plan", "  - read_file\n", "  - grep_search\n"},
-    {CBM_GRAPH_DIALECT_COPILOT, "codebase-memory-mcp/check_index_coverage", "  - read\n",
+    {ANI_GRAPH_DIALECT_CLAUDE, "permissionMode: plan", "  - Read\n", "  - Grep\n"},
+    {ANI_GRAPH_DIALECT_CODEX, "sandbox_mode = \"read-only\"", "read", "grep"},
+    {ANI_GRAPH_DIALECT_GEMINI, "kind: local", "  - read_file\n", "  - grep_search\n"},
+    {ANI_GRAPH_DIALECT_QWEN, "approvalMode: plan", "  - read_file\n", "  - grep_search\n"},
+    {ANI_GRAPH_DIALECT_COPILOT, "ani/check_index_coverage", "  - read\n",
      "source read/grep fallback"},
-    {CBM_GRAPH_DIALECT_OPENCODE, "  \"*\": deny", "  read: allow", "  grep: allow"},
-    {CBM_GRAPH_DIALECT_KILO, "mode: subagent", "  read: allow", "  grep: allow"},
-    {CBM_GRAPH_DIALECT_KIRO, "\"includeMcpJson\": false", "\"read\"", "\"grep\""},
-    {CBM_GRAPH_DIALECT_JUNIE, "mcpServers: [\"codebase-memory-", "\"Read\"", "\"Grep\""},
-    {CBM_GRAPH_DIALECT_QODER, "mcp__codebase-memory-mcp__check_index_coverage",
-     "tools: Read,Grep,Glob,mcp__codebase-memory-mcp__", "Read,Grep"},
-    {CBM_GRAPH_DIALECT_CODEBUDDY, "permissionMode: plan", "tools: Read,Grep,Glob,", "Read,Grep"},
-    {CBM_GRAPH_DIALECT_FACTORY, "mcp__codebase-memory-mcp__check_index_coverage",
+    {ANI_GRAPH_DIALECT_OPENCODE, "  \"*\": deny", "  read: allow", "  grep: allow"},
+    {ANI_GRAPH_DIALECT_KILO, "mode: subagent", "  read: allow", "  grep: allow"},
+    {ANI_GRAPH_DIALECT_KIRO, "\"includeMcpJson\": false", "\"read\"", "\"grep\""},
+    {ANI_GRAPH_DIALECT_JUNIE, "mcpServers: [\"ani-", "\"Read\"", "\"Grep\""},
+    {ANI_GRAPH_DIALECT_QODER, "mcp__ani__check_index_coverage",
+     "tools: Read,Grep,Glob,mcp__ani__", "Read,Grep"},
+    {ANI_GRAPH_DIALECT_CODEBUDDY, "permissionMode: plan", "tools: Read,Grep,Glob,", "Read,Grep"},
+    {ANI_GRAPH_DIALECT_FACTORY, "mcp__ani__check_index_coverage",
      "tools: [\"Read\", \"LS\", \"Grep\", \"Glob\"", "source read/grep fallback"},
-    {CBM_GRAPH_DIALECT_VIBE, "agent_type = \"subagent\"", "\"read_file\"", "\"grep_search\""},
-    {CBM_GRAPH_DIALECT_OMP, "read-summarize: false", "  - read\n", "  - grep\n"},
-    {CBM_GRAPH_DIALECT_GROK, "mcpInheritance:", "read_file", "grep"},
+    {ANI_GRAPH_DIALECT_VIBE, "agent_type = \"subagent\"", "\"read_file\"", "\"grep_search\""},
+    {ANI_GRAPH_DIALECT_OMP, "read-summarize: false", "  - read\n", "  - grep\n"},
+    {ANI_GRAPH_DIALECT_GROK, "mcpInheritance:", "read_file", "grep"},
 };
 
-static const cbm_graph_profile_dialect_t handoff_only_dialects[] = {
-    CBM_GRAPH_DIALECT_AUGMENT,
-    CBM_GRAPH_DIALECT_CURSOR,
-    CBM_GRAPH_DIALECT_ROVO,
-    CBM_GRAPH_DIALECT_POCHI,
+static const ani_graph_profile_dialect_t handoff_only_dialects[] = {
+    ANI_GRAPH_DIALECT_AUGMENT,
+    ANI_GRAPH_DIALECT_CURSOR,
+    ANI_GRAPH_DIALECT_ROVO,
+    ANI_GRAPH_DIALECT_POCHI,
 };
 
 static int profile_has_mutator(const char *profile) {
@@ -58,39 +58,39 @@ static int profile_has_mutator(const char *profile) {
 }
 
 TEST(agent_profiles_stable_tier_identity) {
-    ASSERT_STR_EQ(cbm_graph_tier_slug(CBM_GRAPH_TIER_SCOUT), "codebase-memory-scout");
-    ASSERT_STR_EQ(cbm_graph_tier_slug(CBM_GRAPH_TIER_VERIFY), "codebase-memory");
-    ASSERT_STR_EQ(cbm_graph_tier_slug(CBM_GRAPH_TIER_AUDIT), "codebase-memory-auditor");
-    ASSERT_STR_EQ(cbm_graph_tier_display_name(CBM_GRAPH_TIER_SCOUT), "Codebase Memory Scout");
-    ASSERT_STR_EQ(cbm_graph_tier_display_name(CBM_GRAPH_TIER_VERIFY), "Codebase Memory Verify");
-    ASSERT_STR_EQ(cbm_graph_tier_display_name(CBM_GRAPH_TIER_AUDIT), "Codebase Memory Auditor");
-    ASSERT_TRUE(cbm_graph_dialect_direct_capable(CBM_GRAPH_DIALECT_CLAUDE));
-    ASSERT_TRUE(cbm_graph_dialect_direct_capable(CBM_GRAPH_DIALECT_KIRO));
-    ASSERT_FALSE(cbm_graph_dialect_direct_capable(CBM_GRAPH_DIALECT_AUGMENT));
-    ASSERT_FALSE(cbm_graph_dialect_direct_capable(CBM_GRAPH_DIALECT_CURSOR));
-    ASSERT_FALSE(cbm_graph_dialect_direct_capable(CBM_GRAPH_DIALECT_ROVO));
-    ASSERT_TRUE(cbm_graph_dialect_direct_capable(CBM_GRAPH_DIALECT_OMP));
-    ASSERT_FALSE(cbm_graph_dialect_direct_capable(CBM_GRAPH_DIALECT_POCHI));
-    ASSERT_FALSE(cbm_graph_dialect_direct_capable(CBM_GRAPH_DIALECT_COUNT));
-    ASSERT_NULL(cbm_graph_tier_slug(CBM_GRAPH_TIER_COUNT));
-    ASSERT_NULL(cbm_graph_tier_display_name(CBM_GRAPH_TIER_COUNT));
+    ASSERT_STR_EQ(ani_graph_tier_slug(ANI_GRAPH_TIER_SCOUT), "ani-scout");
+    ASSERT_STR_EQ(ani_graph_tier_slug(ANI_GRAPH_TIER_VERIFY), "ani");
+    ASSERT_STR_EQ(ani_graph_tier_slug(ANI_GRAPH_TIER_AUDIT), "ani-auditor");
+    ASSERT_STR_EQ(ani_graph_tier_display_name(ANI_GRAPH_TIER_SCOUT), "Ani Scout");
+    ASSERT_STR_EQ(ani_graph_tier_display_name(ANI_GRAPH_TIER_VERIFY), "Ani Verify");
+    ASSERT_STR_EQ(ani_graph_tier_display_name(ANI_GRAPH_TIER_AUDIT), "Ani Auditor");
+    ASSERT_TRUE(ani_graph_dialect_direct_capable(ANI_GRAPH_DIALECT_CLAUDE));
+    ASSERT_TRUE(ani_graph_dialect_direct_capable(ANI_GRAPH_DIALECT_KIRO));
+    ASSERT_FALSE(ani_graph_dialect_direct_capable(ANI_GRAPH_DIALECT_AUGMENT));
+    ASSERT_FALSE(ani_graph_dialect_direct_capable(ANI_GRAPH_DIALECT_CURSOR));
+    ASSERT_FALSE(ani_graph_dialect_direct_capable(ANI_GRAPH_DIALECT_ROVO));
+    ASSERT_TRUE(ani_graph_dialect_direct_capable(ANI_GRAPH_DIALECT_OMP));
+    ASSERT_FALSE(ani_graph_dialect_direct_capable(ANI_GRAPH_DIALECT_POCHI));
+    ASSERT_FALSE(ani_graph_dialect_direct_capable(ANI_GRAPH_DIALECT_COUNT));
+    ASSERT_NULL(ani_graph_tier_slug(ANI_GRAPH_TIER_COUNT));
+    ASSERT_NULL(ani_graph_tier_display_name(ANI_GRAPH_TIER_COUNT));
     PASS();
 }
 
 TEST(agent_profiles_direct_dialects_are_coverage_aware_and_read_only) {
     for (size_t i = 0U; i < sizeof(direct_dialects) / sizeof(direct_dialects[0]); i++) {
         const direct_dialect_expectation_t *expectation = &direct_dialects[i];
-        for (int tier = 0; tier < (int)CBM_GRAPH_TIER_COUNT; tier++) {
-            const char *binary = expectation->dialect == CBM_GRAPH_DIALECT_KIRO ||
-                                         expectation->dialect == CBM_GRAPH_DIALECT_CODEX
-                                     ? "/opt/codebase memory/cbm"
+        for (int tier = 0; tier < (int)ANI_GRAPH_TIER_COUNT; tier++) {
+            const char *binary = expectation->dialect == ANI_GRAPH_DIALECT_KIRO ||
+                                         expectation->dialect == ANI_GRAPH_DIALECT_CODEX
+                                     ? "/opt/codebase memory/ani"
                                      : NULL;
-            char *profile = cbm_render_graph_profile(expectation->dialect, (cbm_graph_tier_t)tier,
-                                                     CBM_GRAPH_ACCESS_DIRECT, binary);
+            char *profile = ani_render_graph_profile(expectation->dialect, (ani_graph_tier_t)tier,
+                                                     ANI_GRAPH_ACCESS_DIRECT, binary);
             if (!profile) {
                 FAIL("every documented direct dialect must render all three tiers");
             }
-            int valid = strstr(profile, "codebase-memory") != NULL &&
+            int valid = strstr(profile, "ani") != NULL &&
                         strstr(profile, "check_index_coverage") != NULL &&
                         strstr(profile, expectation->syntax_fragment) != NULL &&
                         strstr(profile, expectation->read_fragment) != NULL &&
@@ -107,25 +107,25 @@ TEST(agent_profiles_direct_dialects_are_coverage_aware_and_read_only) {
 }
 
 TEST(agent_profiles_tiers_encode_distinct_evidence_budgets) {
-    char *scout = cbm_render_graph_profile(CBM_GRAPH_DIALECT_CLAUDE, CBM_GRAPH_TIER_SCOUT,
-                                           CBM_GRAPH_ACCESS_DIRECT, NULL);
-    char *verify = cbm_render_graph_profile(CBM_GRAPH_DIALECT_CLAUDE, CBM_GRAPH_TIER_VERIFY,
-                                            CBM_GRAPH_ACCESS_DIRECT, NULL);
-    char *audit = cbm_render_graph_profile(CBM_GRAPH_DIALECT_CLAUDE, CBM_GRAPH_TIER_AUDIT,
-                                           CBM_GRAPH_ACCESS_DIRECT, NULL);
+    char *scout = ani_render_graph_profile(ANI_GRAPH_DIALECT_CLAUDE, ANI_GRAPH_TIER_SCOUT,
+                                           ANI_GRAPH_ACCESS_DIRECT, NULL);
+    char *verify = ani_render_graph_profile(ANI_GRAPH_DIALECT_CLAUDE, ANI_GRAPH_TIER_VERIFY,
+                                            ANI_GRAPH_ACCESS_DIRECT, NULL);
+    char *audit = ani_render_graph_profile(ANI_GRAPH_DIALECT_CLAUDE, ANI_GRAPH_TIER_AUDIT,
+                                           ANI_GRAPH_ACCESS_DIRECT, NULL);
     int valid = scout && verify && audit && strstr(scout, "3-4 narrow graph calls") &&
                 strstr(scout, "positive, provisional") && strstr(scout, "all/none claims") &&
-                !strstr(scout, "mcp__codebase-memory-mcp__query_graph") &&
-                !strstr(scout, "mcp__codebase-memory-mcp__detect_changes") &&
+                !strstr(scout, "mcp__ani__query_graph") &&
+                !strstr(scout, "mcp__ani__detect_changes") &&
                 strstr(verify, "default tier") && strstr(verify, "task-directed evidence") &&
                 strstr(verify, "scope coverage before negative claims") &&
-                strstr(verify, "mcp__codebase-memory-mcp__query_graph") &&
-                strstr(verify, "mcp__codebase-memory-mcp__detect_changes") &&
+                strstr(verify, "mcp__ani__query_graph") &&
+                strstr(verify, "mcp__ani__detect_changes") &&
                 strstr(audit, "bounded scope") && strstr(audit, "current graph generation") &&
                 strstr(audit, "complete relevant pagination") && strstr(audit, "scope coverage") &&
                 strstr(audit, "source fallback") &&
-                strstr(audit, "mcp__codebase-memory-mcp__query_graph") &&
-                strstr(audit, "mcp__codebase-memory-mcp__detect_changes");
+                strstr(audit, "mcp__ani__query_graph") &&
+                strstr(audit, "mcp__ani__detect_changes");
     free(scout);
     free(verify);
     free(audit);
@@ -134,11 +134,11 @@ TEST(agent_profiles_tiers_encode_distinct_evidence_budgets) {
 }
 
 TEST(agent_profiles_handoff_requires_parent_evidence_without_child_mcp) {
-    for (int dialect = 0; dialect < (int)CBM_GRAPH_DIALECT_COUNT; dialect++) {
-        for (int tier = 0; tier < (int)CBM_GRAPH_TIER_COUNT; tier++) {
+    for (int dialect = 0; dialect < (int)ANI_GRAPH_DIALECT_COUNT; dialect++) {
+        for (int tier = 0; tier < (int)ANI_GRAPH_TIER_COUNT; tier++) {
             char *profile =
-                cbm_render_graph_profile((cbm_graph_profile_dialect_t)dialect,
-                                         (cbm_graph_tier_t)tier, CBM_GRAPH_ACCESS_HANDOFF, NULL);
+                ani_render_graph_profile((ani_graph_profile_dialect_t)dialect,
+                                         (ani_graph_tier_t)tier, ANI_GRAPH_ACCESS_HANDOFF, NULL);
             if (!profile) {
                 FAIL("every dialect must be able to render a parent-handoff profile");
             }
@@ -146,10 +146,10 @@ TEST(agent_profiles_handoff_requires_parent_evidence_without_child_mcp) {
                         strstr(profile, "coverage evidence") &&
                         strstr(profile, "must not call or claim access to MCP") &&
                         !strstr(profile, "mcpServers") &&
-                        !strstr(profile, "mcp__codebase-memory-mcp__") &&
-                        !strstr(profile, "mcp_codebase-memory-mcp_") &&
-                        !strstr(profile, "@codebase-memory-mcp/") &&
-                        !strstr(profile, "codebase-memory-mcp/");
+                        !strstr(profile, "mcp__ani__") &&
+                        !strstr(profile, "mcp_ani_") &&
+                        !strstr(profile, "@ani/") &&
+                        !strstr(profile, "ani/");
             free(profile);
             if (!valid) {
                 FAIL("handoff profiles must require parent coverage and expose no child MCP");
@@ -161,33 +161,33 @@ TEST(agent_profiles_handoff_requires_parent_evidence_without_child_mcp) {
 
 TEST(agent_profiles_handoff_only_dialects_fail_closed_for_direct_access) {
     for (size_t i = 0U; i < sizeof(handoff_only_dialects) / sizeof(handoff_only_dialects[0]); i++) {
-        char *profile = cbm_render_graph_profile(handoff_only_dialects[i], CBM_GRAPH_TIER_VERIFY,
-                                                 CBM_GRAPH_ACCESS_DIRECT, "/opt/cbm");
+        char *profile = ani_render_graph_profile(handoff_only_dialects[i], ANI_GRAPH_TIER_VERIFY,
+                                                 ANI_GRAPH_ACCESS_DIRECT, "/opt/ani");
         ASSERT_NULL(profile);
     }
     PASS();
 }
 
 TEST(agent_profiles_server_level_dialects_hard_enforce_read_only_tools) {
-    char *junie_scout = cbm_render_graph_profile(CBM_GRAPH_DIALECT_JUNIE, CBM_GRAPH_TIER_SCOUT,
-                                                 CBM_GRAPH_ACCESS_DIRECT, NULL);
-    char *junie = cbm_render_graph_profile(CBM_GRAPH_DIALECT_JUNIE, CBM_GRAPH_TIER_VERIFY,
-                                           CBM_GRAPH_ACCESS_DIRECT, NULL);
-    char *qoder = cbm_render_graph_profile(CBM_GRAPH_DIALECT_QODER, CBM_GRAPH_TIER_VERIFY,
-                                           CBM_GRAPH_ACCESS_DIRECT, NULL);
-    char *factory = cbm_render_graph_profile(CBM_GRAPH_DIALECT_FACTORY, CBM_GRAPH_TIER_VERIFY,
-                                             CBM_GRAPH_ACCESS_DIRECT, NULL);
+    char *junie_scout = ani_render_graph_profile(ANI_GRAPH_DIALECT_JUNIE, ANI_GRAPH_TIER_SCOUT,
+                                                 ANI_GRAPH_ACCESS_DIRECT, NULL);
+    char *junie = ani_render_graph_profile(ANI_GRAPH_DIALECT_JUNIE, ANI_GRAPH_TIER_VERIFY,
+                                           ANI_GRAPH_ACCESS_DIRECT, NULL);
+    char *qoder = ani_render_graph_profile(ANI_GRAPH_DIALECT_QODER, ANI_GRAPH_TIER_VERIFY,
+                                           ANI_GRAPH_ACCESS_DIRECT, NULL);
+    char *factory = ani_render_graph_profile(ANI_GRAPH_DIALECT_FACTORY, ANI_GRAPH_TIER_VERIFY,
+                                             ANI_GRAPH_ACCESS_DIRECT, NULL);
     ASSERT_NOT_NULL(junie_scout);
     ASSERT_NOT_NULL(junie);
     ASSERT_NOT_NULL(qoder);
     ASSERT_NOT_NULL(factory);
-    ASSERT(strstr(junie_scout, "mcpServers: [\"codebase-memory-scout\"]") != NULL);
-    ASSERT(strstr(junie, "mcpServers: [\"codebase-memory-analysis\"]") != NULL);
+    ASSERT(strstr(junie_scout, "mcpServers: [\"ani-scout\"]") != NULL);
+    ASSERT(strstr(junie, "mcpServers: [\"ani-analysis\"]") != NULL);
     ASSERT(strstr(junie, "hard-enforces the analysis tool profile") != NULL);
-    ASSERT(strstr(qoder, "mcp__codebase-memory-mcp__check_index_coverage") != NULL);
-    ASSERT(strstr(factory, "mcp__codebase-memory-mcp__check_index_coverage") != NULL);
+    ASSERT(strstr(qoder, "mcp__ani__check_index_coverage") != NULL);
+    ASSERT(strstr(factory, "mcp__ani__check_index_coverage") != NULL);
     ASSERT(strstr(qoder, "mcpServers:") != NULL);
-    ASSERT(strstr(qoder, "codebase-memory-mcp") != NULL);
+    ASSERT(strstr(qoder, "ani") != NULL);
     ASSERT(strstr(factory, "mcpServers") == NULL);
     ASSERT(strstr(junie, "instruction-enforced") == NULL);
     ASSERT(strstr(qoder, "instruction-enforced") == NULL);
@@ -203,14 +203,14 @@ TEST(agent_profiles_server_level_dialects_hard_enforce_read_only_tools) {
 }
 
 TEST(agent_profiles_kiro_is_valid_json_and_escapes_binary_path) {
-    const char *binary = "/opt/cbm path/\"quoted\"";
-    char *profile = cbm_render_graph_profile(CBM_GRAPH_DIALECT_KIRO, CBM_GRAPH_TIER_AUDIT,
-                                             CBM_GRAPH_ACCESS_DIRECT, binary);
+    const char *binary = "/opt/ani path/\"quoted\"";
+    char *profile = ani_render_graph_profile(ANI_GRAPH_DIALECT_KIRO, ANI_GRAPH_TIER_AUDIT,
+                                             ANI_GRAPH_ACCESS_DIRECT, binary);
     ASSERT_NOT_NULL(profile);
     yyjson_doc *doc = yyjson_read(profile, strlen(profile), 0);
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
     yyjson_val *servers = root ? yyjson_obj_get(root, "mcpServers") : NULL;
-    yyjson_val *server = servers ? yyjson_obj_get(servers, "codebase-memory-mcp") : NULL;
+    yyjson_val *server = servers ? yyjson_obj_get(servers, "ani") : NULL;
     yyjson_val *command = server ? yyjson_obj_get(server, "command") : NULL;
     yyjson_val *args = server ? yyjson_obj_get(server, "args") : NULL;
     yyjson_val *profile_flag = args && yyjson_is_arr(args) ? yyjson_arr_get(args, 0U) : NULL;
@@ -223,7 +223,7 @@ TEST(agent_profiles_kiro_is_valid_json_and_escapes_binary_path) {
                 yyjson_is_str(profile_name) &&
                 strcmp(yyjson_get_str(profile_name), "analysis") == 0 && tools &&
                 yyjson_is_arr(tools) &&
-                strstr(profile, "@codebase-memory-mcp/check_index_coverage") != NULL;
+                strstr(profile, "@ani/check_index_coverage") != NULL;
     yyjson_doc_free(doc);
     free(profile);
     ASSERT_TRUE(valid);
@@ -231,45 +231,45 @@ TEST(agent_profiles_kiro_is_valid_json_and_escapes_binary_path) {
 }
 
 TEST(agent_profiles_codex_declares_transport_and_escapes_binary_path) {
-    const char *binary = "C:\\cbm bin\\codebase-memory-mcp.exe";
-    char *scout = cbm_render_graph_profile(CBM_GRAPH_DIALECT_CODEX, CBM_GRAPH_TIER_SCOUT,
-                                           CBM_GRAPH_ACCESS_DIRECT, binary);
-    char *verify = cbm_render_graph_profile(CBM_GRAPH_DIALECT_CODEX, CBM_GRAPH_TIER_VERIFY,
-                                            CBM_GRAPH_ACCESS_DIRECT, binary);
+    const char *binary = "C:\\ani bin\\ani.exe";
+    char *scout = ani_render_graph_profile(ANI_GRAPH_DIALECT_CODEX, ANI_GRAPH_TIER_SCOUT,
+                                           ANI_GRAPH_ACCESS_DIRECT, binary);
+    char *verify = ani_render_graph_profile(ANI_GRAPH_DIALECT_CODEX, ANI_GRAPH_TIER_VERIFY,
+                                            ANI_GRAPH_ACCESS_DIRECT, binary);
     ASSERT_NOT_NULL(scout);
     ASSERT_NOT_NULL(verify);
-    int valid = strstr(scout, "[mcp_servers.codebase-memory-mcp]\n"
-                              "command = \"C:\\\\cbm bin\\\\codebase-memory-mcp.exe\"\n"
+    int valid = strstr(scout, "[mcp_servers.ani]\n"
+                              "command = \"C:\\\\ani bin\\\\ani.exe\"\n"
                               "args = [\"--tool-profile=scout\"]\n"
                               "enabled_tools = [") != NULL &&
-                strstr(verify, "command = \"C:\\\\cbm bin\\\\codebase-memory-mcp.exe\"\n"
+                strstr(verify, "command = \"C:\\\\ani bin\\\\ani.exe\"\n"
                                "args = [\"--tool-profile=analysis\"]\n") != NULL;
     free(scout);
     free(verify);
     ASSERT_TRUE(valid);
-    ASSERT_NULL(cbm_render_graph_profile(CBM_GRAPH_DIALECT_CODEX, CBM_GRAPH_TIER_VERIFY,
-                                         CBM_GRAPH_ACCESS_DIRECT, NULL));
-    ASSERT_NULL(cbm_render_graph_profile(CBM_GRAPH_DIALECT_CODEX, CBM_GRAPH_TIER_VERIFY,
-                                         CBM_GRAPH_ACCESS_DIRECT, ""));
-    char *handoff = cbm_render_graph_profile(CBM_GRAPH_DIALECT_CODEX, CBM_GRAPH_TIER_VERIFY,
-                                             CBM_GRAPH_ACCESS_HANDOFF, NULL);
+    ASSERT_NULL(ani_render_graph_profile(ANI_GRAPH_DIALECT_CODEX, ANI_GRAPH_TIER_VERIFY,
+                                         ANI_GRAPH_ACCESS_DIRECT, NULL));
+    ASSERT_NULL(ani_render_graph_profile(ANI_GRAPH_DIALECT_CODEX, ANI_GRAPH_TIER_VERIFY,
+                                         ANI_GRAPH_ACCESS_DIRECT, ""));
+    char *handoff = ani_render_graph_profile(ANI_GRAPH_DIALECT_CODEX, ANI_GRAPH_TIER_VERIFY,
+                                             ANI_GRAPH_ACCESS_HANDOFF, NULL);
     ASSERT_NOT_NULL(handoff);
     ASSERT_TRUE(strstr(handoff, "[mcp_servers.") == NULL);
     free(handoff);
-    char *rc1 = cbm_render_graph_profile_codex_rc1(CBM_GRAPH_TIER_VERIFY);
+    char *rc1 = ani_render_graph_profile_codex_rc1(ANI_GRAPH_TIER_VERIFY);
     ASSERT_NOT_NULL(rc1);
-    ASSERT_TRUE(strstr(rc1, "[mcp_servers.codebase-memory-mcp]\nenabled_tools = [") != NULL);
+    ASSERT_TRUE(strstr(rc1, "[mcp_servers.ani]\nenabled_tools = [") != NULL);
     ASSERT_TRUE(strstr(rc1, "command = ") == NULL);
     free(rc1);
     PASS();
 }
 
 TEST(agent_profiles_vibe_uses_matching_prompt_identifier_and_contract) {
-    for (int tier = 0; tier < (int)CBM_GRAPH_TIER_COUNT; tier++) {
-        const char *slug = cbm_graph_tier_slug((cbm_graph_tier_t)tier);
-        char *profile = cbm_render_graph_profile(CBM_GRAPH_DIALECT_VIBE, (cbm_graph_tier_t)tier,
-                                                 CBM_GRAPH_ACCESS_DIRECT, NULL);
-        char *prompt = cbm_render_graph_prompt((cbm_graph_tier_t)tier, CBM_GRAPH_ACCESS_DIRECT);
+    for (int tier = 0; tier < (int)ANI_GRAPH_TIER_COUNT; tier++) {
+        const char *slug = ani_graph_tier_slug((ani_graph_tier_t)tier);
+        char *profile = ani_render_graph_profile(ANI_GRAPH_DIALECT_VIBE, (ani_graph_tier_t)tier,
+                                                 ANI_GRAPH_ACCESS_DIRECT, NULL);
+        char *prompt = ani_render_graph_prompt((ani_graph_tier_t)tier, ANI_GRAPH_ACCESS_DIRECT);
         int valid = profile && prompt && strstr(profile, slug) &&
                     strstr(profile, "system_prompt_id") && strstr(prompt, "check_index_coverage") &&
                     strstr(prompt, "source read/grep fallback");
@@ -287,27 +287,27 @@ TEST(agent_profiles_vibe_uses_matching_prompt_identifier_and_contract) {
  * name the server for inheritance and spell out the tier's qualified tool ids
  * as the dispatcher accepts them; handoff profiles must inherit nothing. */
 TEST(agent_profiles_grok_uses_dispatcher_ids_and_named_inheritance) {
-    for (int tier = 0; tier < (int)CBM_GRAPH_TIER_COUNT; tier++) {
-        const char *slug = cbm_graph_tier_slug((cbm_graph_tier_t)tier);
-        char *direct = cbm_render_graph_profile(CBM_GRAPH_DIALECT_GROK, (cbm_graph_tier_t)tier,
-                                                CBM_GRAPH_ACCESS_DIRECT, NULL);
-        char *handoff = cbm_render_graph_profile(CBM_GRAPH_DIALECT_GROK, (cbm_graph_tier_t)tier,
-                                                 CBM_GRAPH_ACCESS_HANDOFF, NULL);
+    for (int tier = 0; tier < (int)ANI_GRAPH_TIER_COUNT; tier++) {
+        const char *slug = ani_graph_tier_slug((ani_graph_tier_t)tier);
+        char *direct = ani_render_graph_profile(ANI_GRAPH_DIALECT_GROK, (ani_graph_tier_t)tier,
+                                                ANI_GRAPH_ACCESS_DIRECT, NULL);
+        char *handoff = ani_render_graph_profile(ANI_GRAPH_DIALECT_GROK, (ani_graph_tier_t)tier,
+                                                 ANI_GRAPH_ACCESS_HANDOFF, NULL);
         char name_line[128];
         snprintf(name_line, sizeof(name_line), "---\nname: %s\n", slug);
         int direct_ok =
             direct && strstr(direct, name_line) &&
             strstr(direct, "tools: read_file, grep, list_dir, search_tool, use_tool\n") &&
-            strstr(direct, "mcpInheritance:\n  named:\n    - codebase-memory-mcp\n---\n") &&
-            strstr(direct, "codebase-memory-mcp__search_graph") &&
-            strstr(direct, "codebase-memory-mcp__check_index_coverage") &&
-            !strstr(direct, "codebase-memory-mcp__*") && !profile_has_mutator(direct) &&
-            (tier != (int)CBM_GRAPH_TIER_SCOUT) ==
-                (strstr(direct, "codebase-memory-mcp__query_graph") != NULL);
+            strstr(direct, "mcpInheritance:\n  named:\n    - ani\n---\n") &&
+            strstr(direct, "ani__search_graph") &&
+            strstr(direct, "ani__check_index_coverage") &&
+            !strstr(direct, "ani__*") && !profile_has_mutator(direct) &&
+            (tier != (int)ANI_GRAPH_TIER_SCOUT) ==
+                (strstr(direct, "ani__query_graph") != NULL);
         int handoff_ok = handoff && strstr(handoff, name_line) &&
                          strstr(handoff, "tools: read_file, grep, list_dir\n") &&
                          strstr(handoff, "mcpInheritance: none\n---\n") &&
-                         !strstr(handoff, "use_tool") && !strstr(handoff, "codebase-memory-mcp__");
+                         !strstr(handoff, "use_tool") && !strstr(handoff, "ani__");
         free(direct);
         free(handoff);
         if (!direct_ok || !handoff_ok) {
@@ -318,44 +318,44 @@ TEST(agent_profiles_grok_uses_dispatcher_ids_and_named_inheritance) {
 }
 
 TEST(agent_profiles_render_deterministically_and_reject_invalid_inputs) {
-    char *first = cbm_render_graph_profile(CBM_GRAPH_DIALECT_QWEN, CBM_GRAPH_TIER_VERIFY,
-                                           CBM_GRAPH_ACCESS_DIRECT, NULL);
-    char *second = cbm_render_graph_profile(CBM_GRAPH_DIALECT_QWEN, CBM_GRAPH_TIER_VERIFY,
-                                            CBM_GRAPH_ACCESS_DIRECT, NULL);
+    char *first = ani_render_graph_profile(ANI_GRAPH_DIALECT_QWEN, ANI_GRAPH_TIER_VERIFY,
+                                           ANI_GRAPH_ACCESS_DIRECT, NULL);
+    char *second = ani_render_graph_profile(ANI_GRAPH_DIALECT_QWEN, ANI_GRAPH_TIER_VERIFY,
+                                            ANI_GRAPH_ACCESS_DIRECT, NULL);
     ASSERT_NOT_NULL(first);
     ASSERT_NOT_NULL(second);
     ASSERT_STR_EQ(first, second);
     free(first);
     free(second);
-    ASSERT_NULL(cbm_render_graph_profile(CBM_GRAPH_DIALECT_COUNT, CBM_GRAPH_TIER_VERIFY,
-                                         CBM_GRAPH_ACCESS_DIRECT, NULL));
-    ASSERT_NULL(cbm_render_graph_profile(CBM_GRAPH_DIALECT_CLAUDE, CBM_GRAPH_TIER_COUNT,
-                                         CBM_GRAPH_ACCESS_DIRECT, NULL));
-    ASSERT_NULL(cbm_render_graph_profile(CBM_GRAPH_DIALECT_CLAUDE, CBM_GRAPH_TIER_VERIFY,
-                                         CBM_GRAPH_ACCESS_COUNT, NULL));
-    ASSERT_NULL(cbm_render_graph_profile(CBM_GRAPH_DIALECT_KIRO, CBM_GRAPH_TIER_VERIFY,
-                                         CBM_GRAPH_ACCESS_DIRECT, NULL));
-    ASSERT_NULL(cbm_render_graph_prompt(CBM_GRAPH_TIER_COUNT, CBM_GRAPH_ACCESS_DIRECT));
-    ASSERT_NULL(cbm_render_graph_prompt(CBM_GRAPH_TIER_VERIFY, CBM_GRAPH_ACCESS_COUNT));
+    ASSERT_NULL(ani_render_graph_profile(ANI_GRAPH_DIALECT_COUNT, ANI_GRAPH_TIER_VERIFY,
+                                         ANI_GRAPH_ACCESS_DIRECT, NULL));
+    ASSERT_NULL(ani_render_graph_profile(ANI_GRAPH_DIALECT_CLAUDE, ANI_GRAPH_TIER_COUNT,
+                                         ANI_GRAPH_ACCESS_DIRECT, NULL));
+    ASSERT_NULL(ani_render_graph_profile(ANI_GRAPH_DIALECT_CLAUDE, ANI_GRAPH_TIER_VERIFY,
+                                         ANI_GRAPH_ACCESS_COUNT, NULL));
+    ASSERT_NULL(ani_render_graph_profile(ANI_GRAPH_DIALECT_KIRO, ANI_GRAPH_TIER_VERIFY,
+                                         ANI_GRAPH_ACCESS_DIRECT, NULL));
+    ASSERT_NULL(ani_render_graph_prompt(ANI_GRAPH_TIER_COUNT, ANI_GRAPH_ACCESS_DIRECT));
+    ASSERT_NULL(ani_render_graph_prompt(ANI_GRAPH_TIER_VERIFY, ANI_GRAPH_ACCESS_COUNT));
     PASS();
 }
 
 TEST(agent_profiles_omp_direct_has_prefixed_tools_and_handoff_excludes_mcp) {
-    char *direct = cbm_render_graph_profile(CBM_GRAPH_DIALECT_OMP, CBM_GRAPH_TIER_VERIFY,
-                                            CBM_GRAPH_ACCESS_DIRECT, NULL);
+    char *direct = ani_render_graph_profile(ANI_GRAPH_DIALECT_OMP, ANI_GRAPH_TIER_VERIFY,
+                                            ANI_GRAPH_ACCESS_DIRECT, NULL);
     ASSERT_NOT_NULL(direct);
-    ASSERT_NOT_NULL(strstr(direct, "mcp__codebase_memory_mcp_check_index_coverage"));
-    ASSERT_NOT_NULL(strstr(direct, "mcp__codebase_memory_mcp_search_graph"));
+    ASSERT_NOT_NULL(strstr(direct, "mcp__ani_check_index_coverage"));
+    ASSERT_NOT_NULL(strstr(direct, "mcp__ani_search_graph"));
     ASSERT_NOT_NULL(strstr(direct, "read-summarize: false"));
-    ASSERT_NOT_NULL(strstr(direct, "autoloadSkills: [codebase-memory]"));
-    ASSERT_NULL(strstr(direct, "mcp__codebase-memory-mcp__"));
+    ASSERT_NOT_NULL(strstr(direct, "autoloadSkills: [ani]"));
+    ASSERT_NULL(strstr(direct, "mcp__ani__"));
     ASSERT(!profile_has_mutator(direct));
     free(direct);
-    char *handoff = cbm_render_graph_profile(CBM_GRAPH_DIALECT_OMP, CBM_GRAPH_TIER_VERIFY,
-                                             CBM_GRAPH_ACCESS_HANDOFF, NULL);
+    char *handoff = ani_render_graph_profile(ANI_GRAPH_DIALECT_OMP, ANI_GRAPH_TIER_VERIFY,
+                                             ANI_GRAPH_ACCESS_HANDOFF, NULL);
     ASSERT_NOT_NULL(handoff);
-    ASSERT_NULL(strstr(handoff, "mcp__codebase_memory_mcp_"));
-    ASSERT_NULL(strstr(handoff, "mcp__codebase-memory-mcp__"));
+    ASSERT_NULL(strstr(handoff, "mcp__ani_"));
+    ASSERT_NULL(strstr(handoff, "mcp__ani__"));
     free(handoff);
     PASS();
 }

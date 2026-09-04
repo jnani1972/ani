@@ -6,9 +6,9 @@
 # it drifted apart from reality AND from itself — README/docs/npm said 158 while
 # server.json/nuspec/package-release.sh said 159.
 #
-# Why grammars and not CBM_LANG_COUNT: the registry contains entries with no
-# parser at all. CBM_LANG_NIM (grammar removed 2026-06-12) and
-# CBM_LANG_OBJECTSCRIPT_EXPORT have no grammar directory, no tree_sitter
+# Why grammars and not ANI_LANG_COUNT: the registry contains entries with no
+# parser at all. ANI_LANG_NIM (grammar removed 2026-06-12) and
+# ANI_LANG_OBJECTSCRIPT_EXPORT have no grammar directory, no tree_sitter
 # function and no MANIFEST row, yet files still route to them by extension.
 # Counting them would publish languages we do not parse. A vendored grammar
 # directory, by contrast, demonstrably exists and is checksum-gated.
@@ -22,7 +22,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-GRAMMAR_DIR="internal/cbm/vendored/grammars"
+GRAMMAR_DIR="internal/ani/vendored/grammars"
 
 # --- 1. The truth: count the vendored grammar directories. ---
 expected=$(find "$GRAMMAR_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
@@ -51,7 +51,7 @@ SURFACES=(
     docs/index.html
     docs/llms.txt
     pkg/npm/README.md
-    pkg/chocolatey/codebase-memory-mcp.nuspec
+    pkg/chocolatey/ani.nuspec
     scripts/package-release.sh
     server.json
 )

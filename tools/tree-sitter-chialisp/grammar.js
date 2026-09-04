@@ -10,7 +10,7 @@
 // the dialect gains a form (cl-21 -> cl-23 -> cl-26 each added several). So we
 // model exactly what the clvm_tools reader models: nested s-expressions over
 // five atom kinds. Definition/call/import shape is then decided in the
-// extractor (internal/cbm/extract_defs.c and friends), where it can be revised
+// extractor (internal/ani/extract_defs.c and friends), where it can be revised
 // without regenerating a parser.
 //
 // Reader model taken from clvm_tools' IR reader:

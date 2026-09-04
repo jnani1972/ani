@@ -31,8 +31,8 @@ enum {
 #include "foundation/compat_fs.h"
 #include "foundation/compat.h"
 #include "foundation/log.h"
-#include "foundation/str_util.h"   /* cbm_validate_shell_arg — git shell-out hardening */
-#include "foundation/hash_table.h" /* CBMHashTable — reconcile membership sets */
+#include "foundation/str_util.h"   /* ani_validate_shell_arg — git shell-out hardening */
+#include "foundation/hash_table.h" /* ANIHashTable — reconcile membership sets */
 
 #include "zstd_store.h"
 
@@ -50,7 +50,7 @@ enum {
 #include <unistd.h>
 #ifdef _WIN32
 #include <windows.h>
-#include "foundation/win_utf8.h" /* cbm_path_to_wide */
+#include "foundation/win_utf8.h" /* ani_path_to_wide */
 #endif
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
@@ -58,10 +58,10 @@ enum {
 /* Thread-local rotating buffers for small int→string conversions (logging).
  * Rotating allows multiple itoa_buf() calls in a single log statement. */
 enum { ART_RING = 4, ART_RING_MASK = 3 };
-static _Thread_local char g_export_error[CBM_SZ_512];
+static _Thread_local char g_export_error[ANI_SZ_512];
 
 static const char *itoa_buf(int v) {
-    static _Thread_local char bufs[ART_RING][CBM_SZ_32];
+    static _Thread_local char bufs[ART_RING][ANI_SZ_32];
     static _Thread_local int idx = 0;
     int i = idx;
     idx = (idx + ART_NUL) & ART_RING_MASK;
@@ -73,7 +73,7 @@ static const char *itoa_buf(int v) {
  * and a diagnostic that truncates the number it is there to explain is worse
  * than no diagnostic. */
 static const char *i64_buf(int64_t v) {
-    static _Thread_local char bufs[ART_RING][CBM_SZ_32];
+    static _Thread_local char bufs[ART_RING][ANI_SZ_32];
     static _Thread_local int idx = 0;
     int i = idx;
     idx = (idx + ART_NUL) & ART_RING_MASK;
@@ -81,7 +81,7 @@ static const char *i64_buf(int64_t v) {
     return bufs[i];
 }
 
-const char *cbm_artifact_export_last_error(void) {
+const char *ani_artifact_export_last_error(void) {
     return g_export_error[0] ? g_export_error : NULL;
 }
 
@@ -107,17 +107,17 @@ static int artifact_export_fail(const char *stage, const char *path, const char 
     }
 
     if (path && err_no != 0) {
-        cbm_log_error("artifact.export", "stage", safe_stage, "err", safe_err, "errno",
+        ani_log_error("artifact.export", "stage", safe_stage, "err", safe_err, "errno",
                       itoa_buf(err_no), "path", path);
     } else if (path) {
-        cbm_log_error("artifact.export", "stage", safe_stage, "err", safe_err, "path", path);
+        ani_log_error("artifact.export", "stage", safe_stage, "err", safe_err, "path", path);
     } else if (err_no != 0) {
-        cbm_log_error("artifact.export", "stage", safe_stage, "err", safe_err, "errno",
+        ani_log_error("artifact.export", "stage", safe_stage, "err", safe_err, "errno",
                       itoa_buf(err_no));
     } else {
-        cbm_log_error("artifact.export", "stage", safe_stage, "err", safe_err);
+        ani_log_error("artifact.export", "stage", safe_stage, "err", safe_err);
     }
-    return CBM_NOT_FOUND;
+    return ANI_NOT_FOUND;
 }
 
 typedef struct {
@@ -139,15 +139,15 @@ static void file_error_set(artifact_file_error_t *out, const char *err, int err_
     }
 }
 
-/* Build path: <repo>/.codebase-memory/<name> into caller-owned buf. */
+/* Build path: <repo>/.ani/<name> into caller-owned buf. */
 static bool artifact_path(char *buf, size_t bufsz, const char *repo_path, const char *name) {
-    int n = snprintf(buf, bufsz, "%s/%s/%s", repo_path, CBM_ARTIFACT_DIR, name);
+    int n = snprintf(buf, bufsz, "%s/%s/%s", repo_path, ANI_ARTIFACT_DIR, name);
     return n >= 0 && (size_t)n < bufsz;
 }
 
 /* Read entire file into malloc'd buffer. Sets *out_len. Returns NULL on error. */
 static char *read_file_alloc(const char *path, size_t *out_len) {
-    FILE *fp = cbm_fopen(path, "rb");
+    FILE *fp = ani_fopen(path, "rb");
     if (!fp) {
         return NULL;
     }
@@ -178,49 +178,49 @@ static int write_file_atomic(const char *path, const char *data, size_t len,
                              artifact_file_error_t *out_err) {
     file_error_clear(out_err);
 
-    char tmp[CBM_SZ_4K];
+    char tmp[ANI_SZ_4K];
     int n = snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     if (n < 0 || (size_t)n >= sizeof(tmp)) {
         file_error_set(out_err, "path_too_long", 0);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
     FILE *fp = fopen(tmp, "wb");
     if (!fp) {
         file_error_set(out_err, "open_temp", errno);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
     size_t wr = fwrite(data, ART_NUL, len, fp);
     if (wr != len) {
         int saved_errno = ferror(fp) ? errno : 0;
         (void)fclose(fp);
-        cbm_unlink(tmp);
+        ani_unlink(tmp);
         file_error_set(out_err, "write_temp", saved_errno);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
     if (fclose(fp) != 0) {
         int saved_errno = errno;
-        cbm_unlink(tmp);
+        ani_unlink(tmp);
         file_error_set(out_err, "close_temp", saved_errno);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
 #ifdef _WIN32
     /* MoveFileEx replace approach suggested by @Ayush7Ranjan in #492. */
     if (!MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         DWORD saved_error = GetLastError();
-        cbm_unlink(tmp);
+        ani_unlink(tmp);
         file_error_set(out_err, "rename_temp", (int)saved_error);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 #else
     if (rename(tmp, path) != 0) {
         int saved_errno = errno;
-        cbm_unlink(tmp);
+        ani_unlink(tmp);
         file_error_set(out_err, "rename_temp", saved_errno);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 #endif
     return 0;
@@ -233,18 +233,18 @@ static int write_file_atomic(const char *path, const char *data, size_t len,
 #endif
 
 /* See artifact.h. Mirrors git_context.c's git_validate_repo_path (the best-hardened
- * git shell-out): cbm_validate_shell_arg rejects quote / backslash / substitution
+ * git shell-out): ani_validate_shell_arg rejects quote / backslash / substitution
  * metacharacters, and on Windows we also reject the cmd.exe expansion metacharacters
  * % ! ^. Callers then use DOUBLE quotes (honored by both POSIX sh and cmd.exe, unlike
  * single quotes on cmd.exe), so a repo path may legitimately contain spaces. */
-bool cbm_artifact_repo_path_is_shell_safe(const char *repo_path) {
-    return cbm_validate_shell_path_arg(repo_path);
+bool ani_artifact_repo_path_is_shell_safe(const char *repo_path) {
+    return ani_validate_shell_path_arg(repo_path);
 }
 
-/* Get current git HEAD hash. buf must be >= CBM_SZ_64. Returns false on error. */
+/* Get current git HEAD hash. buf must be >= ANI_SZ_64. Returns false on error. */
 static bool git_head_hash(const char *repo_path, char *buf, size_t bufsz) {
-    char cmd[CBM_SZ_1K];
-    if (!cbm_artifact_repo_path_is_shell_safe(repo_path)) {
+    char cmd[ANI_SZ_1K];
+    if (!ani_artifact_repo_path_is_shell_safe(repo_path)) {
         buf[0] = '\0';
         return false;
     }
@@ -255,7 +255,7 @@ static bool git_head_hash(const char *repo_path, char *buf, size_t bufsz) {
                           git_context.c) */
         return false;
     }
-    FILE *fp = cbm_popen(cmd, "r");
+    FILE *fp = ani_popen(cmd, "r");
     if (!fp) {
         buf[0] = '\0';
         return false;
@@ -268,7 +268,7 @@ static bool git_head_hash(const char *repo_path, char *buf, size_t bufsz) {
             buf[--len] = '\0';
         }
     }
-    (void)cbm_pclose(fp);
+    (void)ani_pclose(fp);
     return buf[0] != '\0';
 }
 
@@ -286,8 +286,8 @@ static void iso_timestamp(char *buf, size_t bufsz) {
 
 /* ── Git + trust helpers for bootstrap reconciliation ─────────────
  *
- * SHELL QUOTING RULE (see cbm_artifact_repo_path_is_shell_safe above): every
- * git command built here is run through cbm_popen, which on Windows executes
+ * SHELL QUOTING RULE (see ani_artifact_repo_path_is_shell_safe above): every
+ * git command built here is run through ani_popen, which on Windows executes
  * `cmd.exe /c <cmd>`. cmd.exe does NOT honor single quotes — it passes them
  * through to git as literal characters — so a single-quoted argument silently
  * becomes part of the value and the command misbehaves rather than failing
@@ -333,7 +333,7 @@ static int64_t art_stat_mtime_ns(const struct stat *st) {
 #endif
 }
 
-/* Stat a path, refusing symlinks. Returns 0 on success, CBM_NOT_FOUND to skip.
+/* Stat a path, refusing symlinks. Returns 0 on success, ANI_NOT_FOUND to skip.
  * Mirrors discover.c's safe_stat / pass_pkgmap.c's pkgmap_safe_stat.
  *
  * Symlinks are refused rather than followed because git tracks a symlink's
@@ -345,23 +345,23 @@ static int64_t art_stat_mtime_ns(const struct stat *st) {
  * this keeps the invariant true even if that ever changes.
  *
  * On Windows the wide stat also keeps non-ASCII repo paths off the ANSI CRT
- * (the cbm_fopen rule applied to stat). */
+ * (the ani_fopen rule applied to stat). */
 static int reconcile_stat_no_symlink(const char *abs_path, struct stat *st) {
 #ifdef _WIN32
-    wchar_t *wpath = cbm_path_to_wide(abs_path);
+    wchar_t *wpath = ani_path_to_wide(abs_path);
     if (!wpath) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     DWORD attr = GetFileAttributesW(wpath);
     if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_REPARSE_POINT)) {
         free(wpath);
-        return CBM_NOT_FOUND; /* junction / symlink — same escape hatch */
+        return ANI_NOT_FOUND; /* junction / symlink — same escape hatch */
     }
     struct _stat64 wst;
     int ret = _wstat64(wpath, &wst);
     free(wpath);
     if (ret != 0) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     st->st_mode = wst.st_mode;
     st->st_size = wst.st_size;
@@ -369,10 +369,10 @@ static int reconcile_stat_no_symlink(const char *abs_path, struct stat *st) {
     return 0;
 #else
     if (lstat(abs_path, st) != 0) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     if (S_ISLNK(st->st_mode)) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     return 0;
 #endif
@@ -383,7 +383,7 @@ static int reconcile_stat_no_symlink(const char *abs_path, struct stat *st) {
  * hex-validated commit string (never arbitrary data). Returns false on
  * shell-arg validation failure or truncation. */
 static bool build_git_cmd(char *buf, size_t bufsz, const char *repo_path, const char *args) {
-    if (!cbm_artifact_repo_path_is_shell_safe(repo_path)) {
+    if (!ani_artifact_repo_path_is_shell_safe(repo_path)) {
         return false;
     }
     int n = snprintf(buf, bufsz, "git -C \"%s\" %s 2>" ARTIFACT_NULL_DEV, repo_path, args);
@@ -393,39 +393,39 @@ static bool build_git_cmd(char *buf, size_t bufsz, const char *repo_path, const 
 /* Run a git command; return true iff it exits 0. Output is drained (not kept)
  * so `diff --quiet` semantics work and large outputs don't SIGPIPE. */
 static bool git_run_ok(const char *repo_path, const char *args) {
-    char cmd[CBM_SZ_2K];
+    char cmd[ANI_SZ_2K];
     if (!build_git_cmd(cmd, sizeof(cmd), repo_path, args)) {
         return false;
     }
-    FILE *fp = cbm_popen(cmd, "r");
+    FILE *fp = ani_popen(cmd, "r");
     if (!fp) {
         return false;
     }
-    char drain[CBM_SZ_4K];
+    char drain[ANI_SZ_4K];
     while (fread(drain, 1, sizeof(drain), fp) > 0) {}
-    return cbm_pclose(fp) == 0;
+    return ani_pclose(fp) == 0;
 }
 
 /* Run a git command and capture the FULL stdout (NUL bytes preserved) into a
  * growing malloc'd buffer. Empty output is success with *out_len = 0. Returns
- * 0 on success, CBM_NOT_FOUND on popen / non-zero-exit / OOM. Caller frees *out. */
+ * 0 on success, ANI_NOT_FOUND on popen / non-zero-exit / OOM. Caller frees *out. */
 static int git_capture_full(const char *repo_path, const char *args, char **out, size_t *out_len) {
     *out = NULL;
     *out_len = 0;
-    char cmd[CBM_SZ_2K];
+    char cmd[ANI_SZ_2K];
     if (!build_git_cmd(cmd, sizeof(cmd), repo_path, args)) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
-    FILE *fp = cbm_popen(cmd, "r");
+    FILE *fp = ani_popen(cmd, "r");
     if (!fp) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
-    size_t cap = CBM_SZ_4K;
+    size_t cap = ANI_SZ_4K;
     size_t len = 0;
     char *buf = malloc(cap);
     if (!buf) {
-        (void)cbm_pclose(fp);
-        return CBM_NOT_FOUND;
+        (void)ani_pclose(fp);
+        return ANI_NOT_FOUND;
     }
     size_t n;
     while ((n = fread(buf + len, 1, cap - len, fp)) > 0) {
@@ -435,17 +435,17 @@ static int git_capture_full(const char *repo_path, const char *args, char **out,
             char *tmp = realloc(buf, ncap);
             if (!tmp) {
                 free(buf);
-                (void)cbm_pclose(fp);
-                return CBM_NOT_FOUND;
+                (void)ani_pclose(fp);
+                return ANI_NOT_FOUND;
             }
             buf = tmp;
             cap = ncap;
         }
     }
-    int rc = cbm_pclose(fp);
+    int rc = ani_pclose(fp);
     if (rc != 0) {
         free(buf);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     *out = buf;
     *out_len = len;
@@ -461,7 +461,7 @@ static int git_capture_full(const char *repo_path, const char *args, char **out,
  * argument here would silently disable reconciliation on Windows. `-t` needs
  * no metacharacters at all — the oid is already hex-validated. */
 static bool git_commit_exists(const char *repo_path, const char *commit) {
-    char args[CBM_SZ_128];
+    char args[ANI_SZ_128];
     int n = snprintf(args, sizeof(args), "cat-file -t %s", commit);
     if (n < 0 || (size_t)n >= sizeof(args)) {
         return false;
@@ -480,7 +480,7 @@ static bool git_commit_exists(const char *repo_path, const char *commit) {
 }
 
 /* True iff the working tree has no tracked/staged/untracked changes outside
- * .codebase-memory/. The export itself writes .codebase-memory/, so a blanket
+ * .ani/. The export itself writes .ani/, so a blanket
  * dirty check would always fail; excluding that subtree is what makes the
  * "clean export" invariant checkable.
  *
@@ -491,13 +491,13 @@ static bool git_commit_exists(const char *repo_path, const char *commit) {
  * pathspec, `diff --quiet` reported dirty, and the clean-basis marker was
  * never written on Windows.) */
 static bool tree_clean_for_reconcile(const char *repo_path) {
-    /* Tracked (staged + unstaged) changes vs HEAD, excluding .codebase-memory. */
-    if (!git_run_ok(repo_path, "diff --quiet HEAD -- . \":(exclude).codebase-memory\"")) {
+    /* Tracked (staged + unstaged) changes vs HEAD, excluding .ani. */
+    if (!git_run_ok(repo_path, "diff --quiet HEAD -- . \":(exclude).ani\"")) {
         return false;
     }
-    /* Untracked (non-ignored) files outside .codebase-memory. */
+    /* Untracked (non-ignored) files outside .ani. */
     static const char *const ls_args =
-        "ls-files -z --others --exclude-standard -- . \":(exclude).codebase-memory\"";
+        "ls-files -z --others --exclude-standard -- . \":(exclude).ani\"";
     char *untracked = NULL;
     size_t un_len = 0;
     if (git_capture_full(repo_path, ls_args, &untracked, &un_len) != 0) {
@@ -509,19 +509,19 @@ static bool tree_clean_for_reconcile(const char *repo_path) {
 }
 
 /* True for file_hashes rows that are not repository files. The pipeline stores
- * synthetic "semantic input" digests under .codebase-memory/.semantic-input/
- * (pipeline_internal.h's CBM_SEMANTIC_INPUT_PREFIX), and the artifact itself
+ * synthetic "semantic input" digests under .ani/.semantic-input/
+ * (pipeline_internal.h's ANI_SEMANTIC_INPUT_PREFIX), and the artifact itself
  * lives in the same directory. Neither is a plain file the indexer parsed, so
  * neither can be stat()ed or vouched for by git — find_deleted_files skips the
  * same class for the same reason.
  *
- * Testing the whole .codebase-memory/ subtree (rather than the semantic-input
- * prefix alone) keeps this in lockstep with the ":(exclude).codebase-memory"
+ * Testing the whole .ani/ subtree (rather than the semantic-input
+ * prefix alone) keeps this in lockstep with the ":(exclude).ani"
  * pathspec used by the clean-tree probe: both halves of the trust check must
  * agree on what counts as a repository file, or export can never mark a basis
  * it would then refuse to act on. */
 static bool reconcile_is_synthetic_row(const char *rel_path) {
-    static const char prefix[] = CBM_ARTIFACT_DIR "/";
+    static const char prefix[] = ANI_ARTIFACT_DIR "/";
     return rel_path && strncmp(rel_path, prefix, sizeof(prefix) - ART_NUL) == 0;
 }
 
@@ -531,11 +531,11 @@ static bool reconcile_is_synthetic_row(const char *rel_path) {
  * belt-and-suspenders that catches a stale/swapped DB even when the tree looks
  * clean.
  *
- * The disk side MUST be read with cbm_path_info_utf8, because that is the
+ * The disk side MUST be read with ani_path_info_utf8, because that is the
  * function that WROTE the rows being compared: the semantic manifest stamps
  * every row via pipeline_incremental.c's semantic_manifest_hash_file, which
- * calls cbm_path_info_utf8. On POSIX any lstat-based helper agrees with it,
- * but on Windows cbm_path_info_utf8 derives mtime_ns from ftLastWriteTime
+ * calls ani_path_info_utf8. On POSIX any lstat-based helper agrees with it,
+ * but on Windows ani_path_info_utf8 derives mtime_ns from ftLastWriteTime
  * (100-ns FILETIME ticks) while a _wstat64 st_mtime carries WHOLE SECONDS —
  * so a seconds-truncated re-stat can only ever equal the stored value when a
  * file's write time lands exactly on a second boundary. It essentially never
@@ -543,23 +543,23 @@ static bool reconcile_is_synthetic_row(const char *rel_path) {
  * Windows, suppressing the reconcile_basis marker there. Compare like with
  * like: same function on both sides, no encoding to keep in sync.
  *
- * cbm_path_info_utf8 reports symlinks/reparse points rather than following
+ * ani_path_info_utf8 reports symlinks/reparse points rather than following
  * them, so the is_symlink/is_regular guard below preserves exactly the
  * refusal reconcile_stat_no_symlink provides (git tracks a symlink's link
  * text, not its target's bytes). */
 static bool db_hashes_match_disk(const char *repo_path, const char *db_path, const char *project,
                                  char *detail, size_t detail_sz) {
     snprintf(detail, detail_sz, "store_unreadable");
-    cbm_store_t *s = cbm_store_open_path(db_path);
+    ani_store_t *s = ani_store_open_path(db_path);
     if (!s) {
         return false;
     }
-    cbm_file_hash_t *hashes = NULL;
+    ani_file_hash_t *hashes = NULL;
     int count = 0;
     bool match = true;
-    if (cbm_store_get_file_hashes(s, project, &hashes, &count) != CBM_STORE_OK) {
+    if (ani_store_get_file_hashes(s, project, &hashes, &count) != ANI_STORE_OK) {
         snprintf(detail, detail_sz, "file_hashes_unreadable project=%s", project);
-        cbm_store_close(s);
+        ani_store_close(s);
         return false;
     }
     detail[0] = '\0';
@@ -567,15 +567,15 @@ static bool db_hashes_match_disk(const char *repo_path, const char *db_path, con
         if (reconcile_is_synthetic_row(hashes[i].rel_path)) {
             continue;
         }
-        char abs[CBM_SZ_4K];
+        char abs[ANI_SZ_4K];
         int n = snprintf(abs, sizeof(abs), "%s/%s", repo_path, hashes[i].rel_path);
         if (n < 0 || n >= (int)sizeof(abs)) {
             match = false;
             snprintf(detail, detail_sz, "path=%s reason=path_too_long", hashes[i].rel_path);
             break;
         }
-        cbm_path_info_t info;
-        if (cbm_path_info_utf8(abs, &info) != 0 || !info.is_regular || info.is_symlink) {
+        ani_path_info_t info;
+        if (ani_path_info_utf8(abs, &info) != 0 || !info.is_regular || info.is_symlink) {
             match = false;
             snprintf(detail, detail_sz, "path=%s reason=not_a_readable_regular_file",
                      hashes[i].rel_path);
@@ -597,16 +597,16 @@ static bool db_hashes_match_disk(const char *repo_path, const char *db_path, con
             break;
         }
     }
-    cbm_store_free_file_hashes(hashes, count);
-    cbm_store_close(s);
+    ani_store_free_file_hashes(hashes, count);
+    ani_store_close(s);
     return match;
 }
 
 /* Read the optional reconcile_basis marker from artifact.json. True only when it
  * is exactly "git-clean-head" (the sole trusted basis this code emits). */
 static bool read_metadata_reconcile_trusted(const char *repo_path) {
-    char meta_path[CBM_SZ_4K];
-    if (!artifact_path(meta_path, sizeof(meta_path), repo_path, CBM_ARTIFACT_META)) {
+    char meta_path[ANI_SZ_4K];
+    if (!artifact_path(meta_path, sizeof(meta_path), repo_path, ANI_ARTIFACT_META)) {
         return false;
     }
     size_t len = 0;
@@ -631,17 +631,17 @@ static bool read_metadata_reconcile_trusted(const char *repo_path) {
 }
 
 /* Description of why the last export on THIS thread withheld the clean-basis
- * marker; empty when it wrote one. See cbm_artifact_reconcile_basis_last_blocker. */
-static _Thread_local char g_basis_blocker[CBM_SZ_512];
+ * marker; empty when it wrote one. See ani_artifact_reconcile_basis_last_blocker. */
+static _Thread_local char g_basis_blocker[ANI_SZ_512];
 
-const char *cbm_artifact_reconcile_basis_last_blocker(void) {
+const char *ani_artifact_reconcile_basis_last_blocker(void) {
     return g_basis_blocker[0] ? g_basis_blocker : NULL;
 }
 
 /* Evaluate export's four clean-basis preconditions, recording the first one
  * that fails in g_basis_blocker. Returns true iff all four hold.
  *
- * Split out of cbm_artifact_export deliberately: as one short-circuiting &&
+ * Split out of ani_artifact_export deliberately: as one short-circuiting &&
  * chain the four gates collapsed into a single bool, and a marker that went
  * missing on one platform gave no way to tell "HEAD unresolved" from "tree
  * dirty" from "DB does not match disk" — which is exactly how a Windows-only
@@ -665,7 +665,7 @@ static bool reconcile_basis_trusted(const char *repo_path, const char *db_path,
         snprintf(g_basis_blocker, sizeof(g_basis_blocker), "tree_not_clean");
         return false;
     }
-    char detail[CBM_SZ_256] = "";
+    char detail[ANI_SZ_256] = "";
     if (!db_hashes_match_disk(repo_path, db_path, project_name, detail, sizeof(detail))) {
         snprintf(g_basis_blocker, sizeof(g_basis_blocker), "db_hashes_differ_from_disk %s", detail);
         return false;
@@ -677,32 +677,32 @@ static bool reconcile_basis_trusted(const char *repo_path, const char *db_path,
 
 /* Read schema_version from artifact.json. Returns -1 if missing/invalid. */
 static int read_metadata_version(const char *repo_path) {
-    char meta_path[CBM_SZ_4K];
-    artifact_path(meta_path, sizeof(meta_path), repo_path, CBM_ARTIFACT_META);
+    char meta_path[ANI_SZ_4K];
+    artifact_path(meta_path, sizeof(meta_path), repo_path, ANI_ARTIFACT_META);
 
     size_t len = 0;
     char *json = read_file_alloc(meta_path, &len);
     if (!json) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
     yyjson_doc *doc = yyjson_read(json, len, 0);
     free(json);
     if (!doc) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
     yyjson_val *root = yyjson_doc_get_root(doc);
     yyjson_val *ver = yyjson_obj_get(root, "schema_version");
-    int version = ver ? yyjson_get_int(ver) : CBM_NOT_FOUND;
+    int version = ver ? yyjson_get_int(ver) : ANI_NOT_FOUND;
     yyjson_doc_free(doc);
     return version;
 }
 
 /* Read original_size from artifact.json. Returns 0 on error. */
 static size_t read_metadata_original_size(const char *repo_path) {
-    char meta_path[CBM_SZ_4K];
-    artifact_path(meta_path, sizeof(meta_path), repo_path, CBM_ARTIFACT_META);
+    char meta_path[ANI_SZ_4K];
+    artifact_path(meta_path, sizeof(meta_path), repo_path, ANI_ARTIFACT_META);
 
     size_t len = 0;
     char *json = read_file_alloc(meta_path, &len);
@@ -727,14 +727,14 @@ static size_t read_metadata_original_size(const char *repo_path) {
 static int write_metadata(const char *repo_path, const char *project_name, const char *commit,
                           int nodes, int edges, size_t original_size, size_t compressed_size,
                           int compression_level, bool reconcile_trusted) {
-    char ts[CBM_SZ_64];
+    char ts[ANI_SZ_64];
     iso_timestamp(ts, sizeof(ts));
 
     yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
     yyjson_mut_val *root = yyjson_mut_obj(doc);
     yyjson_mut_doc_set_root(doc, root);
 
-    yyjson_mut_obj_add_int(doc, root, "schema_version", CBM_ARTIFACT_SCHEMA_VERSION);
+    yyjson_mut_obj_add_int(doc, root, "schema_version", ANI_ARTIFACT_SCHEMA_VERSION);
     yyjson_mut_obj_add_str(doc, root, "commit", commit);
     yyjson_mut_obj_add_str(doc, root, "indexed_at", ts);
     yyjson_mut_obj_add_str(doc, root, "project", project_name);
@@ -744,7 +744,7 @@ static int write_metadata(const char *repo_path, const char *project_name, const
     yyjson_mut_obj_add_uint(doc, root, "compressed_size", (uint64_t)compressed_size);
     yyjson_mut_obj_add_int(doc, root, "compression_level", compression_level);
     /* Optional clean-basis marker: present only when export verified the DB
-     * matches a clean checked-out tree at `commit` (see cbm_artifact_export).
+     * matches a clean checked-out tree at `commit` (see ani_artifact_export).
      * Older binaries ignore this unknown field, so no schema_version bump. */
     if (reconcile_trusted) {
         yyjson_mut_obj_add_str(doc, root, "reconcile_basis", "git-clean-head");
@@ -757,8 +757,8 @@ static int write_metadata(const char *repo_path, const char *project_name, const
         return artifact_export_fail("write_metadata", NULL, "json_encode", 0);
     }
 
-    char meta_path[CBM_SZ_4K];
-    if (!artifact_path(meta_path, sizeof(meta_path), repo_path, CBM_ARTIFACT_META)) {
+    char meta_path[ANI_SZ_4K];
+    if (!artifact_path(meta_path, sizeof(meta_path), repo_path, ANI_ARTIFACT_META)) {
         free(json);
         return artifact_export_fail("write_metadata", repo_path, "path_too_long", 0);
     }
@@ -774,7 +774,7 @@ static int write_metadata(const char *repo_path, const char *project_name, const
 /* ── .gitattributes setup ────────────────────────────────────────── */
 
 static void ensure_gitattributes(const char *repo_path) {
-    char ga_path[CBM_SZ_4K];
+    char ga_path[ANI_SZ_4K];
     artifact_path(ga_path, sizeof(ga_path), repo_path, ".gitattributes");
 
     /* Atomic create-only-if-absent: O_EXCL closes the TOCTOU window
@@ -783,7 +783,7 @@ static void ensure_gitattributes(const char *repo_path) {
     int fd = open(ga_path, O_WRONLY | O_CREAT | O_EXCL, 0644);
     if (fd < 0) {
         if (errno != EEXIST) {
-            cbm_log_warn("artifact.gitattributes.open path=%s err=%s", ga_path, strerror(errno));
+            ani_log_warn("artifact.gitattributes.open path=%s err=%s", ga_path, strerror(errno));
         }
         /* fall through to merge driver setup either way */
     } else {
@@ -793,8 +793,8 @@ static void ensure_gitattributes(const char *repo_path) {
              * macro expands to `-diff -merge -text`, so a trailing `binary`
              * unsets `merge=ours` and the conflict prevention this file
              * exists for never engages. The macro must come first. */
-            (void)fputs("# Auto-generated by codebase-memory-mcp\n"
-                        "# Prevent merge conflicts on compressed artifact\n" CBM_ARTIFACT_FILENAME
+            (void)fputs("# Auto-generated by ani\n"
+                        "# Prevent merge conflicts on compressed artifact\n" ANI_ARTIFACT_FILENAME
                         " binary merge=ours\n",
                         fp);
             (void)fclose(fp);
@@ -804,18 +804,18 @@ static void ensure_gitattributes(const char *repo_path) {
     }
 
     /* Best-effort: configure merge driver */
-    if (!cbm_artifact_repo_path_is_shell_safe(repo_path)) {
+    if (!ani_artifact_repo_path_is_shell_safe(repo_path)) {
         return;
     }
-    char cmd[CBM_SZ_1K];
+    char cmd[ANI_SZ_1K];
     int n = snprintf(cmd, sizeof(cmd),
                      "git -C \"%s\" config merge.ours.driver true 2>" ARTIFACT_NULL_DEV, repo_path);
     if (n < 0 || (size_t)n >= sizeof(cmd)) {
         return; /* truncated command → skip (parity with git_context.c) */
     }
-    FILE *p = cbm_popen(cmd, "r");
+    FILE *p = ani_popen(cmd, "r");
     if (p) {
-        (void)cbm_pclose(p);
+        (void)ani_pclose(p);
     }
 }
 
@@ -838,29 +838,29 @@ static const char *DROP_INDEXES_SQL = "DROP INDEX IF EXISTS idx_nodes_label;"
  *
  * VACUUM INTO refuses to write a destination that already exists, so the
  * destination file cannot be pre-created with exclusive semantics the way
- * cbm_mkstemp would — sqlite has to be the one that creates it. Containing it in
- * a directory only this user can enter buys the same protection: cbm_mkdtemp
+ * ani_mkstemp would — sqlite has to be the one that creates it. Containing it in
+ * a directory only this user can enter buys the same protection: ani_mkdtemp
  * creates with 0700 on POSIX and an explicit owner-only DACL on Windows, and the
  * XXXXXX suffix makes the path unguessable. The old fixed
- * "<tmp>/cbm_artifact_tmp.db" was vulnerable on both counts — another local user
+ * "<tmp>/ani_artifact_tmp.db" was vulnerable on both counts — another local user
  * could pre-plant a symlink there to redirect the copy, and two concurrent
  * exports collided on the one name. */
 typedef struct {
-    char dir[CBM_SZ_512]; /* cbm_mkdtemp copies its result back into this buffer */
-    char db[CBM_SZ_4K];
+    char dir[ANI_SZ_512]; /* ani_mkdtemp copies its result back into this buffer */
+    char db[ANI_SZ_4K];
 } artifact_snapshot_tmp_t;
 
 static bool artifact_snapshot_tmp_open(artifact_snapshot_tmp_t *tmp) {
     tmp->dir[0] = '\0';
     tmp->db[0] = '\0';
-    int written = snprintf(tmp->dir, sizeof(tmp->dir), "%s/cbm-artifact-XXXXXX", cbm_tmpdir());
-    if (written <= 0 || (size_t)written >= sizeof(tmp->dir) || !cbm_mkdtemp(tmp->dir)) {
+    int written = snprintf(tmp->dir, sizeof(tmp->dir), "%s/ani-artifact-XXXXXX", ani_tmpdir());
+    if (written <= 0 || (size_t)written >= sizeof(tmp->dir) || !ani_mkdtemp(tmp->dir)) {
         tmp->dir[0] = '\0';
         return false;
     }
     written = snprintf(tmp->db, sizeof(tmp->db), "%s/snapshot.db", tmp->dir);
     if (written <= 0 || (size_t)written >= sizeof(tmp->db)) {
-        (void)cbm_rmdir(tmp->dir);
+        (void)ani_rmdir(tmp->dir);
         tmp->dir[0] = '\0';
         return false;
     }
@@ -877,14 +877,14 @@ static void artifact_snapshot_tmp_close(artifact_snapshot_tmp_t *tmp) {
     }
     static const char *const suffixes[] = {"-wal", "-shm"};
     for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++) {
-        char sidecar[CBM_SZ_4K];
+        char sidecar[ANI_SZ_4K];
         int written = snprintf(sidecar, sizeof(sidecar), "%s%s", tmp->db, suffixes[i]);
         if (written > 0 && (size_t)written < sizeof(sidecar)) {
-            (void)cbm_unlink(sidecar);
+            (void)ani_unlink(sidecar);
         }
     }
-    (void)cbm_unlink(tmp->db);
-    (void)cbm_rmdir(tmp->dir);
+    (void)ani_unlink(tmp->db);
+    (void)ani_rmdir(tmp->dir);
     tmp->dir[0] = '\0';
 }
 
@@ -897,7 +897,7 @@ static void artifact_snapshot_tmp_close(artifact_snapshot_tmp_t *tmp) {
 static char *prepare_snapshot_db(const char *db_path, size_t *out_size, bool strip_indexes) {
     artifact_snapshot_tmp_t tmp;
     if (!artifact_snapshot_tmp_open(&tmp)) {
-        artifact_export_fail("prepare_snapshot_dir", cbm_tmpdir(), "private_tmpdir_failed", errno);
+        artifact_export_fail("prepare_snapshot_dir", ani_tmpdir(), "private_tmpdir_failed", errno);
         return NULL;
     }
     /* Fresh private directory ⇒ the destination is absent by construction, which
@@ -916,7 +916,7 @@ static char *prepare_snapshot_db(const char *db_path, size_t *out_size, bool str
         return NULL;
     }
 
-    char vacuum_sql[CBM_SZ_4K];
+    char vacuum_sql[ANI_SZ_4K];
     snprintf(vacuum_sql, sizeof(vacuum_sql), "VACUUM INTO '%s';", tmp_path);
     char *errmsg = NULL;
     int vrc = sqlite3_exec(raw_db, vacuum_sql, NULL, NULL, &errmsg);
@@ -953,7 +953,7 @@ static char *prepare_snapshot_db(const char *db_path, size_t *out_size, bool str
 
 /* ── Export ───────────────────────────────────────────────────────── */
 
-int cbm_artifact_export(const char *db_path, const char *repo_path, const char *project_name,
+int ani_artifact_export(const char *db_path, const char *repo_path, const char *project_name,
                         int quality) {
     clear_export_error();
 
@@ -961,18 +961,18 @@ int cbm_artifact_export(const char *db_path, const char *repo_path, const char *
         return artifact_export_fail("validate_args", NULL, "missing_argument", 0);
     }
 
-    /* Ensure .codebase-memory/ directory exists */
-    char art_dir[CBM_SZ_4K];
-    int dir_len = snprintf(art_dir, sizeof(art_dir), "%s/%s", repo_path, CBM_ARTIFACT_DIR);
+    /* Ensure .ani/ directory exists */
+    char art_dir[ANI_SZ_4K];
+    int dir_len = snprintf(art_dir, sizeof(art_dir), "%s/%s", repo_path, ANI_ARTIFACT_DIR);
     if (dir_len < 0 || (size_t)dir_len >= sizeof(art_dir)) {
         return artifact_export_fail("prepare_artifact_dir", repo_path, "path_too_long", 0);
     }
     errno = 0;
-    if (!cbm_mkdir_p(art_dir, ART_DIR_PERMS)) {
+    if (!ani_mkdir_p(art_dir, ART_DIR_PERMS)) {
         return artifact_export_fail("prepare_artifact_dir", art_dir, "mkdir_or_not_directory",
                                     errno);
     }
-    if (!cbm_is_dir(art_dir)) {
+    if (!ani_is_dir(art_dir)) {
         return artifact_export_fail("prepare_artifact_dir", art_dir, "not_directory", 0);
     }
 
@@ -980,7 +980,7 @@ int cbm_artifact_export(const char *db_path, const char *repo_path, const char *
     char *db_data = NULL;
     int compression_level = ART_ZSTD_FAST;
 
-    if (quality == CBM_ARTIFACT_BEST) {
+    if (quality == ANI_ARTIFACT_BEST) {
         compression_level = ART_ZSTD_BEST;
         db_data = prepare_snapshot_db(db_path, &db_size, true);
     } else {
@@ -992,21 +992,21 @@ int cbm_artifact_export(const char *db_path, const char *repo_path, const char *
 
     if (!db_data || db_size == 0) {
         free(db_data);
-        if (cbm_artifact_export_last_error()) {
-            return CBM_NOT_FOUND;
+        if (ani_artifact_export_last_error()) {
+            return ANI_NOT_FOUND;
         }
         return artifact_export_fail("read_db", db_path, "empty_or_unreadable", errno);
     }
 
     /* Compress with zstd */
-    size_t bound = cbm_zstd_compress_bound(db_size);
+    size_t bound = ani_zstd_compress_bound(db_size);
     char *compressed = malloc(bound);
     if (!compressed) {
         free(db_data);
         return artifact_export_fail("compress", NULL, "alloc_compressed_buffer", 0);
     }
 
-    int64_t clen = cbm_zstd_compress(db_data, db_size, compressed, bound, compression_level);
+    int64_t clen = ani_zstd_compress(db_data, db_size, compressed, bound, compression_level);
     free(db_data);
 
     if (clen <= 0) {
@@ -1015,8 +1015,8 @@ int cbm_artifact_export(const char *db_path, const char *repo_path, const char *
     }
 
     /* Write compressed artifact */
-    char zst_path[CBM_SZ_4K];
-    if (!artifact_path(zst_path, sizeof(zst_path), repo_path, CBM_ARTIFACT_FILENAME)) {
+    char zst_path[ANI_SZ_4K];
+    if (!artifact_path(zst_path, sizeof(zst_path), repo_path, ANI_ARTIFACT_FILENAME)) {
         free(compressed);
         return artifact_export_fail("write_artifact", repo_path, "path_too_long", 0);
     }
@@ -1031,37 +1031,37 @@ int cbm_artifact_export(const char *db_path, const char *repo_path, const char *
     /* Get node/edge counts for metadata */
     int nodes = 0;
     int edges = 0;
-    cbm_store_t *count_store = cbm_store_open_path_query(db_path);
+    ani_store_t *count_store = ani_store_open_path_query(db_path);
     if (count_store) {
-        nodes = cbm_store_count_nodes(count_store, project_name);
-        edges = cbm_store_count_edges(count_store, project_name);
-        cbm_store_close(count_store);
+        nodes = ani_store_count_nodes(count_store, project_name);
+        edges = ani_store_count_edges(count_store, project_name);
+        ani_store_close(count_store);
     }
 
     /* Compute the optional clean-basis trust marker. An imported DB can be
      * fast-reconciled against git only if export can prove it was built from a
      * clean checked-out tree at a known commit. Any doubt omits the marker and
      * bootstrap falls back to today's slow-safe full re-parse. */
-    char commit[CBM_SZ_64] = "";
+    char commit[ANI_SZ_64] = "";
     bool has_commit = git_head_hash(repo_path, commit, sizeof(commit));
     bool reconcile_trusted =
         reconcile_basis_trusted(repo_path, db_path, project_name, commit, has_commit);
     if (!reconcile_trusted) {
-        cbm_log_info("artifact.reconcile_basis_omitted", "reason", g_basis_blocker);
+        ani_log_info("artifact.reconcile_basis_omitted", "reason", g_basis_blocker);
     }
 
     /* Write metadata */
     if (write_metadata(repo_path, project_name, commit, nodes, edges, db_size, (size_t)clen,
                        compression_level, reconcile_trusted) != 0) {
-        cbm_unlink(zst_path);
-        return CBM_NOT_FOUND;
+        ani_unlink(zst_path);
+        return ANI_NOT_FOUND;
     }
 
     /* Ensure .gitattributes for merge conflict prevention */
     ensure_gitattributes(repo_path);
 
     double ratio = db_size > 0 ? (double)db_size / (double)clen : 0.0;
-    cbm_log_info("artifact.export", "quality", quality == CBM_ARTIFACT_BEST ? "best" : "fast",
+    ani_log_info("artifact.export", "quality", quality == ANI_ARTIFACT_BEST ? "best" : "fast",
                  "original_mb", itoa_buf((int)(db_size / ART_BYTES_PER_MB)), "compressed_mb",
                  itoa_buf((int)((size_t)clen / ART_BYTES_PER_MB)), "ratio",
                  itoa_buf((int)(ratio * ART_RATIO_SCALE)));
@@ -1071,35 +1071,35 @@ int cbm_artifact_export(const char *db_path, const char *repo_path, const char *
 
 /* ── Import ──────────────────────────────────────────────────────── */
 
-int cbm_artifact_import(const char *repo_path, const char *cache_db_path) {
+int ani_artifact_import(const char *repo_path, const char *cache_db_path) {
     if (!repo_path || !cache_db_path) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
     /* Check schema version compatibility */
     int version = read_metadata_version(repo_path);
-    if (version < 0 || version > CBM_ARTIFACT_SCHEMA_VERSION) {
-        cbm_log_info("artifact.import", "skip", "schema_version_mismatch", "artifact_ver",
-                     itoa_buf(version), "current_ver", itoa_buf(CBM_ARTIFACT_SCHEMA_VERSION));
-        return CBM_NOT_FOUND;
+    if (version < 0 || version > ANI_ARTIFACT_SCHEMA_VERSION) {
+        ani_log_info("artifact.import", "skip", "schema_version_mismatch", "artifact_ver",
+                     itoa_buf(version), "current_ver", itoa_buf(ANI_ARTIFACT_SCHEMA_VERSION));
+        return ANI_NOT_FOUND;
     }
 
     /* Get original_size for decompression buffer */
     size_t original_size = read_metadata_original_size(repo_path);
     if (original_size == 0) {
-        cbm_log_error("artifact.import", "err", "missing_original_size");
-        return CBM_NOT_FOUND;
+        ani_log_error("artifact.import", "err", "missing_original_size");
+        return ANI_NOT_FOUND;
     }
 
     /* Read compressed artifact */
-    char zst_path[CBM_SZ_4K];
-    artifact_path(zst_path, sizeof(zst_path), repo_path, CBM_ARTIFACT_FILENAME);
+    char zst_path[ANI_SZ_4K];
+    artifact_path(zst_path, sizeof(zst_path), repo_path, ANI_ARTIFACT_FILENAME);
 
     size_t clen = 0;
     char *compressed = read_file_alloc(zst_path, &clen);
     if (!compressed) {
-        cbm_log_error("artifact.import", "err", "read_artifact");
-        return CBM_NOT_FOUND;
+        ani_log_error("artifact.import", "err", "read_artifact");
+        return ANI_NOT_FOUND;
     }
 
     /* Decompress */
@@ -1109,39 +1109,39 @@ int cbm_artifact_import(const char *repo_path, const char *cache_db_path) {
      * so a crafted size can never make the capacity exceed the real buffer
      * (the int-truncation that used to do exactly that is gone with the size_t
      * signature). Require the metadata field to agree, and cap the total. */
-    size_t frame_size = cbm_zstd_frame_content_size(compressed, clen);
+    size_t frame_size = ani_zstd_frame_content_size(compressed, clen);
     if (frame_size == 0 || frame_size > ART_MAX_DECOMPRESSED_BYTES || frame_size != original_size) {
         free(compressed);
-        cbm_log_error("artifact.import", "err", "bad_decompressed_size");
-        return CBM_NOT_FOUND;
+        ani_log_error("artifact.import", "err", "bad_decompressed_size");
+        return ANI_NOT_FOUND;
     }
 
     char *decompressed = malloc(frame_size);
     if (!decompressed) {
         free(compressed);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
-    int64_t dlen = cbm_zstd_decompress(compressed, clen, decompressed, frame_size);
+    int64_t dlen = ani_zstd_decompress(compressed, clen, decompressed, frame_size);
     free(compressed);
 
     if (dlen <= 0 || (size_t)dlen != frame_size) {
         free(decompressed);
-        cbm_log_error("artifact.import", "err", "zstd_decompress");
-        return CBM_NOT_FOUND;
+        ani_log_error("artifact.import", "err", "zstd_decompress");
+        return ANI_NOT_FOUND;
     }
 
     /* Write to temp file, then rename for atomicity */
-    char tmp_path[CBM_SZ_4K];
+    char tmp_path[ANI_SZ_4K];
     snprintf(tmp_path, sizeof(tmp_path), "%s.import_tmp", cache_db_path);
 
     /* Ensure cache directory exists */
-    char cache_dir[CBM_SZ_1K];
+    char cache_dir[ANI_SZ_1K];
     snprintf(cache_dir, sizeof(cache_dir), "%s", cache_db_path);
     char *last_slash = strrchr(cache_dir, '/');
     if (last_slash) {
         *last_slash = '\0';
-        cbm_mkdir_p(cache_dir, ART_DIR_PERMS);
+        ani_mkdir_p(cache_dir, ART_DIR_PERMS);
     }
 
     artifact_file_error_t ioerr;
@@ -1150,55 +1150,55 @@ int cbm_artifact_import(const char *repo_path, const char *cache_db_path) {
 
     if (wrc != 0) {
         if (ioerr.err_no != 0) {
-            cbm_log_error("artifact.import", "err", "write_temp_db", "detail", ioerr.err, "errno",
+            ani_log_error("artifact.import", "err", "write_temp_db", "detail", ioerr.err, "errno",
                           itoa_buf(ioerr.err_no), "path", tmp_path);
         } else {
-            cbm_log_error("artifact.import", "err", "write_temp_db", "detail", ioerr.err, "path",
+            ani_log_error("artifact.import", "err", "write_temp_db", "detail", ioerr.err, "path",
                           tmp_path);
         }
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
-    /* Open with cbm_store_open_path to auto-create missing indexes + FTS5 */
-    cbm_store_t *store = cbm_store_open_path(tmp_path);
+    /* Open with ani_store_open_path to auto-create missing indexes + FTS5 */
+    ani_store_t *store = ani_store_open_path(tmp_path);
     if (!store) {
-        cbm_log_error("artifact.import", "err", "open_imported_db");
-        cbm_unlink(tmp_path);
-        return CBM_NOT_FOUND;
+        ani_log_error("artifact.import", "err", "open_imported_db");
+        ani_unlink(tmp_path);
+        return ANI_NOT_FOUND;
     }
 
     /* Deep integrity check — refuse corrupted artifacts. The shallow check
      * only sanity-checks the projects table, so page-corrupted (torn)
      * artifacts installed cleanly (#895); quick_check catches them. */
-    if (!cbm_store_check_integrity_deep(store)) {
-        cbm_log_error("artifact.import", "err", "integrity_check_failed");
-        cbm_store_close(store);
-        cbm_unlink(tmp_path);
-        return CBM_NOT_FOUND;
+    if (!ani_store_check_integrity_deep(store)) {
+        ani_log_error("artifact.import", "err", "integrity_check_failed");
+        ani_store_close(store);
+        ani_unlink(tmp_path);
+        return ANI_NOT_FOUND;
     }
 
-    cbm_store_close(store);
+    ani_store_close(store);
 
     /* Atomic rename to final path. Drop the DESTINATION's leftover
      * -wal/-shm first: the import cleans the tmp file's sidecars, but a
      * stale WAL next to the cache path would be replayed on top of the
      * imported file at the next open (#897). */
-    cbm_remove_db_sidecars(cache_db_path);
+    ani_remove_db_sidecars(cache_db_path);
     if (rename(tmp_path, cache_db_path) != 0) {
-        cbm_log_error("artifact.import", "err", "rename_to_cache");
-        cbm_unlink(tmp_path);
-        return CBM_NOT_FOUND;
+        ani_log_error("artifact.import", "err", "rename_to_cache");
+        ani_unlink(tmp_path);
+        return ANI_NOT_FOUND;
     }
 
     /* Clean up any stale WAL/SHM from the temp open */
-    char wal[CBM_SZ_4K];
-    char shm[CBM_SZ_4K];
+    char wal[ANI_SZ_4K];
+    char shm[ANI_SZ_4K];
     snprintf(wal, sizeof(wal), "%s-wal", tmp_path);
     snprintf(shm, sizeof(shm), "%s-shm", tmp_path);
-    cbm_unlink(wal);
-    cbm_unlink(shm);
+    ani_unlink(wal);
+    ani_unlink(shm);
 
-    cbm_log_info("artifact.import", "db", cache_db_path, "size_mb",
+    ani_log_info("artifact.import", "db", cache_db_path, "size_mb",
                  itoa_buf((int)((size_t)dlen / ART_BYTES_PER_MB)));
 
     return 0;
@@ -1206,13 +1206,13 @@ int cbm_artifact_import(const char *repo_path, const char *cache_db_path) {
 
 /* ── Existence check ─────────────────────────────────────────────── */
 
-bool cbm_artifact_exists(const char *repo_path) {
+bool ani_artifact_exists(const char *repo_path) {
     if (!repo_path) {
         return false;
     }
 
-    char zst_path[CBM_SZ_4K];
-    artifact_path(zst_path, sizeof(zst_path), repo_path, CBM_ARTIFACT_FILENAME);
+    char zst_path[ANI_SZ_4K];
+    artifact_path(zst_path, sizeof(zst_path), repo_path, ANI_ARTIFACT_FILENAME);
 
     struct stat st;
     if (stat(zst_path, &st) != 0 || st.st_size == 0) {
@@ -1221,18 +1221,18 @@ bool cbm_artifact_exists(const char *repo_path) {
 
     /* Check schema version is compatible */
     int version = read_metadata_version(repo_path);
-    return version >= 0 && version <= CBM_ARTIFACT_SCHEMA_VERSION;
+    return version >= 0 && version <= ANI_ARTIFACT_SCHEMA_VERSION;
 }
 
 /* ── Commit hash extraction ──────────────────────────────────────── */
 
-char *cbm_artifact_commit(const char *repo_path) {
+char *ani_artifact_commit(const char *repo_path) {
     if (!repo_path) {
         return NULL;
     }
 
-    char meta_path[CBM_SZ_4K];
-    artifact_path(meta_path, sizeof(meta_path), repo_path, CBM_ARTIFACT_META);
+    char meta_path[ANI_SZ_4K];
+    artifact_path(meta_path, sizeof(meta_path), repo_path, ANI_ARTIFACT_META);
 
     size_t len = 0;
     char *json = read_file_alloc(meta_path, &len);
@@ -1276,14 +1276,14 @@ typedef struct {
     size_t ls_len;
     char *tracked_out;
     size_t tracked_len;
-    CBMHashTable *changed; /* paths modified since the artifact commit */
-    CBMHashTable *tracked; /* paths tracked AT the artifact commit */
+    ANIHashTable *changed; /* paths modified since the artifact commit */
+    ANIHashTable *tracked; /* paths tracked AT the artifact commit */
 } reconcile_sets_t;
 
 static void reconcile_sets_free(reconcile_sets_t *s) {
     /* Tables FIRST: every key points into the buffers freed just below. */
-    cbm_ht_free(s->changed);
-    cbm_ht_free(s->tracked);
+    ani_ht_free(s->changed);
+    ani_ht_free(s->tracked);
     s->changed = NULL;
     s->tracked = NULL;
     free(s->diff_out);
@@ -1300,13 +1300,13 @@ static void reconcile_sets_free(reconcile_sets_t *s) {
  * borrowed from buf (the table does not copy keys), so buf must outlive ht.
  * Empty entries (consecutive NULs) are skipped.
  *
- * Returns false if ANY entry failed to land. cbm_ht_set discards the return of
+ * Returns false if ANY entry failed to land. ani_ht_set discards the return of
  * the underlying insert (hash_table.c), so an allocation failure drops an entry
  * SILENTLY — and a dropped entry in `changed` means a genuinely modified file
  * reads as unchanged and gets restamped, i.e. a silently stale graph. Presence
  * is therefore verified per entry and any failure aborts the whole
  * reconciliation (fail closed). */
-static bool reconcile_add_nul_entries(CBMHashTable *ht, const char *buf, size_t len) {
+static bool reconcile_add_nul_entries(ANIHashTable *ht, const char *buf, size_t len) {
     if (!ht) {
         return false;
     }
@@ -1321,8 +1321,8 @@ static bool reconcile_add_nul_entries(CBMHashTable *ht, const char *buf, size_t 
             j++;
         }
         if (j > i) {
-            cbm_ht_set(ht, entry, &g_reconcile_sentinel);
-            if (!cbm_ht_has(ht, entry)) {
+            ani_ht_set(ht, entry, &g_reconcile_sentinel);
+            if (!ani_ht_has(ht, entry)) {
                 return false;
             }
         }
@@ -1343,11 +1343,11 @@ static bool reconcile_sets_build(const char *repo_path, const char *commit,
      * NUL-delimited (-z) output is parsed directly; line-oriented parsing
      * cannot handle paths containing newlines or quotes. The tracked set
      * exists because git diff/ls-files are blind to files git IGNORES: a
-     * gitignored-yet-indexed file (a .cbmignore negation un-skipping a
+     * gitignored-yet-indexed file (a .aniignore negation un-skipping a
      * generated dir, #500) would otherwise be restamped as "unchanged" while
      * its content is not under git's control at all. */
-    char diff_args[CBM_SZ_256];
-    char lstree_args[CBM_SZ_256];
+    char diff_args[ANI_SZ_256];
+    char lstree_args[ANI_SZ_256];
     int dn =
         snprintf(diff_args, sizeof(diff_args), "diff -z --name-only --no-renames %s --", commit);
     int ln = snprintf(lstree_args, sizeof(lstree_args), "ls-tree -r -z --name-only %s --", commit);
@@ -1375,14 +1375,14 @@ static bool reconcile_sets_build(const char *repo_path, const char *commit,
         return false;
     }
 
-    /* cbm_ht_create returns NULL on OOM. Checking BOTH is load-bearing: with a
+    /* ani_ht_create returns NULL on OOM. Checking BOTH is load-bearing: with a
      * NULL `changed` and a live `tracked`, every tracked row would look
      * unchanged and get restamped — including genuinely modified files. Note
      * the polarity difference from classify_files, which uses the same
      * primitive where a dropped entry merely means "re-parse" (safe); here it
      * means "unchanged" (unsafe). Fail closed. */
-    sets->changed = cbm_ht_create(CBM_SZ_64);
-    sets->tracked = cbm_ht_create(CBM_SZ_64);
+    sets->changed = ani_ht_create(ANI_SZ_64);
+    sets->tracked = ani_ht_create(ANI_SZ_64);
     if (!sets->changed || !sets->tracked) {
         return false;
     }
@@ -1393,31 +1393,31 @@ static bool reconcile_sets_build(const char *repo_path, const char *commit,
 
 /* Restamp every row that is tracked at the artifact commit and not in the
  * changed set, with local stat() values. Returns the number of rows restamped,
- * or CBM_NOT_FOUND if the store could not be read/written. */
+ * or ANI_NOT_FOUND if the store could not be read/written. */
 static int reconcile_restamp_rows(const char *repo_path, const char *cache_db_path,
                                   const char *project_name, const reconcile_sets_t *sets,
                                   int *out_skipped) {
     *out_skipped = 0;
-    cbm_store_t *store = cbm_store_open_path(cache_db_path);
+    ani_store_t *store = ani_store_open_path(cache_db_path);
     if (!store) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
-    cbm_file_hash_t *stored = NULL;
+    ani_file_hash_t *stored = NULL;
     int stored_count = 0;
-    if (cbm_store_get_file_hashes(store, project_name, &stored, &stored_count) != CBM_STORE_OK) {
-        cbm_store_close(store);
-        return CBM_NOT_FOUND;
+    if (ani_store_get_file_hashes(store, project_name, &stored, &stored_count) != ANI_STORE_OK) {
+        ani_store_close(store);
+        return ANI_NOT_FOUND;
     }
     if (stored_count <= 0) {
-        cbm_store_free_file_hashes(stored, stored_count);
-        cbm_store_close(store);
+        ani_store_free_file_hashes(stored, stored_count);
+        ani_store_close(store);
         return 0;
     }
-    cbm_file_hash_t *batch = malloc((size_t)stored_count * sizeof(*batch));
+    ani_file_hash_t *batch = malloc((size_t)stored_count * sizeof(*batch));
     if (!batch) {
-        cbm_store_free_file_hashes(stored, stored_count);
-        cbm_store_close(store);
-        return CBM_NOT_FOUND;
+        ani_store_free_file_hashes(stored, stored_count);
+        ani_store_close(store);
+        return ANI_NOT_FOUND;
     }
 
     int batch_n = 0;
@@ -1426,11 +1426,11 @@ static int reconcile_restamp_rows(const char *repo_path, const char *cache_db_pa
         if (reconcile_is_synthetic_row(stored[i].rel_path)) {
             continue; /* synthetic semantic input — not a repository file */
         }
-        if (!cbm_ht_get(sets->tracked, stored[i].rel_path) ||
-            cbm_ht_get(sets->changed, stored[i].rel_path)) {
+        if (!ani_ht_get(sets->tracked, stored[i].rel_path) ||
+            ani_ht_get(sets->changed, stored[i].rel_path)) {
             continue; /* untracked or changed → stays foreign → re-parsed */
         }
-        char abs[CBM_SZ_4K];
+        char abs[ANI_SZ_4K];
         int n = snprintf(abs, sizeof(abs), "%s/%s", repo_path, stored[i].rel_path);
         if (n < 0 || n >= (int)sizeof(abs)) {
             skipped++;
@@ -1447,7 +1447,7 @@ static int reconcile_restamp_rows(const char *repo_path, const char *cache_db_pa
         batch[batch_n].project = project_name;
         batch[batch_n].rel_path = stored[i].rel_path;
         batch[batch_n].sha256 = stored[i].sha256;
-        /* art_stat_mtime_ns, NOT cbm_path_info_utf8 (which db_hashes_match_disk
+        /* art_stat_mtime_ns, NOT ani_path_info_utf8 (which db_hashes_match_disk
          * uses): the two disagree on Windows and each side must match ITS OWN
          * consumer. A restamped row exists to be read by the incremental
          * classifier (pipeline_incremental.c classify_files) and by
@@ -1463,13 +1463,13 @@ static int reconcile_restamp_rows(const char *repo_path, const char *cache_db_pa
 
     int restamped = 0;
     if (batch_n > 0) {
-        restamped = (cbm_store_upsert_file_hash_batch(store, batch, batch_n) == CBM_STORE_OK)
+        restamped = (ani_store_upsert_file_hash_batch(store, batch, batch_n) == ANI_STORE_OK)
                         ? batch_n
-                        : CBM_NOT_FOUND;
+                        : ANI_NOT_FOUND;
     }
     free(batch);
-    cbm_store_free_file_hashes(stored, stored_count);
-    cbm_store_close(store);
+    ani_store_free_file_hashes(stored, stored_count);
+    ani_store_close(store);
     *out_skipped = skipped;
     return restamped;
 }
@@ -1479,30 +1479,30 @@ static int reconcile_restamp_rows(const char *repo_path, const char *cache_db_pa
  * Windows/autocrlf note: on-disk bytes may differ from the exporter's while git
  * reports "unchanged"; line numbers and parse results are equivalent, so
  * re-stamping by git's diff is correct. */
-int cbm_artifact_reconcile_hashes(const char *repo_path, const char *cache_db_path,
+int ani_artifact_reconcile_hashes(const char *repo_path, const char *cache_db_path,
                                   const char *project_name) {
     if (!repo_path || !cache_db_path || !project_name) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
     /* 1. The producer-written clean-basis marker must be present. This alone is
      *    NOT trust (see artifact.h) — it only opens the door to the git checks
      *    below, each of which is evaluated against the LOCAL repository. */
     if (!read_metadata_reconcile_trusted(repo_path)) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
-    char *commit = cbm_artifact_commit(repo_path);
+    char *commit = ani_artifact_commit(repo_path);
     if (!commit || !is_hex_oid(commit)) {
         /* Hard gate: repo-controlled metadata never reaches a git command
          * unless it is pure hex. */
         free(commit);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
     /* 2. That commit must exist locally as a commit (shallow-clone guard). */
     if (!git_commit_exists(repo_path, commit)) {
         free(commit);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
 
     /* 3. Build the changed / tracked-at-commit sets from git. */
@@ -1511,21 +1511,21 @@ int cbm_artifact_reconcile_hashes(const char *repo_path, const char *cache_db_pa
     free(commit);
     if (!built) {
         reconcile_sets_free(&sets);
-        cbm_log_info("artifact.reconcile_skipped", "reason", "git_sets_unavailable");
-        return CBM_NOT_FOUND;
+        ani_log_info("artifact.reconcile_skipped", "reason", "git_sets_unavailable");
+        return ANI_NOT_FOUND;
     }
 
     /* 4. Restamp the eligible rows. */
     int skipped = 0;
     int restamped = reconcile_restamp_rows(repo_path, cache_db_path, project_name, &sets, &skipped);
-    int changed_count = (int)cbm_ht_count(sets.changed);
+    int changed_count = (int)ani_ht_count(sets.changed);
     reconcile_sets_free(&sets);
 
     if (restamped < 0) {
-        cbm_log_info("artifact.reconcile_skipped", "reason", "store_unavailable");
-        return CBM_NOT_FOUND;
+        ani_log_info("artifact.reconcile_skipped", "reason", "store_unavailable");
+        return ANI_NOT_FOUND;
     }
-    cbm_log_info("artifact.reconcile", "restamped", itoa_buf(restamped), "changed",
+    ani_log_info("artifact.reconcile", "restamped", itoa_buf(restamped), "changed",
                  itoa_buf(changed_count), "skipped", itoa_buf(skipped));
     return restamped;
 }

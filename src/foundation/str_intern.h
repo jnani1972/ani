@@ -6,31 +6,31 @@
  *
  * Uses an arena for string storage (bulk free) + hash table for dedup lookup.
  */
-#ifndef CBM_STR_INTERN_H
-#define CBM_STR_INTERN_H
+#ifndef ANI_STR_INTERN_H
+#define ANI_STR_INTERN_H
 
 #include <stddef.h>
 #include <stdint.h>
 
-typedef struct CBMInternPool CBMInternPool;
+typedef struct ANIInternPool ANIInternPool;
 
 /* Create a new intern pool. */
-CBMInternPool *cbm_intern_create(void);
+ANIInternPool *ani_intern_create(void);
 
 /* Free the pool and all interned strings. */
-void cbm_intern_free(CBMInternPool *pool);
+void ani_intern_free(ANIInternPool *pool);
 
 /* Intern a NUL-terminated string. Returns a stable pointer.
  * The same input always returns the same pointer. */
-const char *cbm_intern(CBMInternPool *pool, const char *s);
+const char *ani_intern(ANIInternPool *pool, const char *s);
 
 /* Intern a string of known length. */
-const char *cbm_intern_n(CBMInternPool *pool, const char *s, size_t len);
+const char *ani_intern_n(ANIInternPool *pool, const char *s, size_t len);
 
 /* Number of unique strings in the pool. */
-uint32_t cbm_intern_count(const CBMInternPool *pool);
+uint32_t ani_intern_count(const ANIInternPool *pool);
 
 /* Total bytes stored (unique strings only). */
-size_t cbm_intern_bytes(const CBMInternPool *pool);
+size_t ani_intern_bytes(const ANIInternPool *pool);
 
-#endif /* CBM_STR_INTERN_H */
+#endif /* ANI_STR_INTERN_H */

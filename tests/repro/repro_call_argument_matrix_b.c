@@ -1,5 +1,5 @@
 /*
- * Exhaustive call-argument reproduction matrix, CBMLanguage 80..164.
+ * Exhaustive call-argument reproduction matrix, ANILanguage 80..164.
  *
  * Every language in this numeric range whose live spec has call-node metadata
  * owns one TEST row below. Semantic applications are exercised twice: once as
@@ -12,18 +12,18 @@
  * transcoded to ObjectScript UDL before grammar extraction.
  */
 #include "test_framework.h"
-#include "cbm.h"
+#include "ani.h"
 #include "lang_specs.h"
 
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
-size_t repro_call_argument_matrix_b_copy_language_ids(CBMLanguage *language_ids, size_t capacity);
+size_t repro_call_argument_matrix_b_copy_language_ids(ANILanguage *language_ids, size_t capacity);
 
 typedef struct {
     const char *tag;
-    CBMLanguage language;
+    ANILanguage language;
     const char *filename;
     const char *reason;
 } CaseIdentity;
@@ -86,11 +86,11 @@ static int scope_matches(const char *actual, const char *expected, ScopeMode mod
     return terminal_name_matches(actual, expected);
 }
 
-static int usage_count_scoped(const CBMFileResult *result, const char *target, const char *scope,
+static int usage_count_scoped(const ANIFileResult *result, const char *target, const char *scope,
                               ScopeMode mode) {
     int count = 0;
     for (int i = 0; i < result->usages.count; i++) {
-        const CBMUsage *usage = &result->usages.items[i];
+        const ANIUsage *usage = &result->usages.items[i];
         if (terminal_name_matches(usage->ref_name, target) &&
             scope_matches(usage->enclosing_func_qn, scope, mode))
             count++;
@@ -98,11 +98,11 @@ static int usage_count_scoped(const CBMFileResult *result, const char *target, c
     return count;
 }
 
-static int usage_kind_count_scoped(const CBMFileResult *result, const char *target,
-                                   const char *scope, ScopeMode mode, CBMUsageKind kind) {
+static int usage_kind_count_scoped(const ANIFileResult *result, const char *target,
+                                   const char *scope, ScopeMode mode, ANIUsageKind kind) {
     int count = 0;
     for (int i = 0; i < result->usages.count; i++) {
-        const CBMUsage *usage = &result->usages.items[i];
+        const ANIUsage *usage = &result->usages.items[i];
         if (usage->kind == kind && terminal_name_matches(usage->ref_name, target) &&
             scope_matches(usage->enclosing_func_qn, scope, mode)) {
             count++;
@@ -111,12 +111,12 @@ static int usage_kind_count_scoped(const CBMFileResult *result, const char *targ
     return count;
 }
 
-static int local_shadow_usage_count_scoped(const CBMFileResult *result, const char *target,
+static int local_shadow_usage_count_scoped(const ANIFileResult *result, const char *target,
                                            const char *scope, ScopeMode mode) {
     int count = 0;
     for (int i = 0; i < result->usages.count; i++) {
-        const CBMUsage *usage = &result->usages.items[i];
-        if (usage->kind == CBM_USAGE_VALUE && usage->semantic_reference_blocked &&
+        const ANIUsage *usage = &result->usages.items[i];
+        if (usage->kind == ANI_USAGE_VALUE && usage->semantic_reference_blocked &&
             usage->semantic_reference_local_shadow &&
             terminal_name_matches(usage->ref_name, target) &&
             scope_matches(usage->enclosing_func_qn, scope, mode)) {
@@ -126,11 +126,11 @@ static int local_shadow_usage_count_scoped(const CBMFileResult *result, const ch
     return count;
 }
 
-static int call_count_scoped(const CBMFileResult *result, const char *target, const char *scope,
+static int call_count_scoped(const ANIFileResult *result, const char *target, const char *scope,
                              ScopeMode mode) {
     int count = 0;
     for (int i = 0; i < result->calls.count; i++) {
-        const CBMCall *call = &result->calls.items[i];
+        const ANICall *call = &result->calls.items[i];
         if (terminal_name_matches(call->callee_name, target) &&
             scope_matches(call->enclosing_func_qn, scope, mode))
             count++;
@@ -138,18 +138,18 @@ static int call_count_scoped(const CBMFileResult *result, const char *target, co
     return count;
 }
 
-static int usage_within_call_count_scoped(const CBMFileResult *result, const char *target,
+static int usage_within_call_count_scoped(const ANIFileResult *result, const char *target,
                                           const char *scope, ScopeMode mode, const char *callee) {
     int count = 0;
     for (int u = 0; u < result->usages.count; u++) {
-        const CBMUsage *usage = &result->usages.items[u];
+        const ANIUsage *usage = &result->usages.items[u];
         if (!terminal_name_matches(usage->ref_name, target) ||
             !scope_matches(usage->enclosing_func_qn, scope, mode) ||
             usage->site_end_byte <= usage->site_start_byte) {
             continue;
         }
         for (int c = 0; c < result->calls.count; c++) {
-            const CBMCall *call = &result->calls.items[c];
+            const ANICall *call = &result->calls.items[c];
             if (!terminal_name_matches(call->callee_name, callee) ||
                 !scope_matches(call->enclosing_func_qn, scope, mode) ||
                 call->source_origin != usage->source_origin ||
@@ -165,10 +165,10 @@ static int usage_within_call_count_scoped(const CBMFileResult *result, const cha
     return count;
 }
 
-static int callable_definition_count(const CBMFileResult *result, const char *target) {
+static int callable_definition_count(const ANIFileResult *result, const char *target) {
     int count = 0;
     for (int i = 0; i < result->defs.count; i++) {
-        const CBMDefinition *definition = &result->defs.items[i];
+        const ANIDefinition *definition = &result->defs.items[i];
         int callable_label = definition->label && (strcmp(definition->label, "Function") == 0 ||
                                                    strcmp(definition->label, "Method") == 0);
         if (callable_label && terminal_name_matches(definition->name, target) &&
@@ -179,12 +179,12 @@ static int callable_definition_count(const CBMFileResult *result, const char *ta
 }
 
 static const char *checked_callable_qn(const CaseIdentity *identity, const char *variant,
-                                       const CBMFileResult *result, const char *target,
+                                       const ANIFileResult *result, const char *target,
                                        int *failures) {
     const char *qualified_name = NULL;
     int count = 0;
     for (int i = 0; i < result->defs.count; i++) {
-        const CBMDefinition *definition = &result->defs.items[i];
+        const ANIDefinition *definition = &result->defs.items[i];
         int callable_label = definition->label && (strcmp(definition->label, "Function") == 0 ||
                                                    strcmp(definition->label, "Method") == 0);
         if (!callable_label || !terminal_name_matches(definition->name, target) ||
@@ -224,7 +224,7 @@ static int ast_node_kind_count(TSNode node, const char *node_kind) {
 
 static void check_ast_kind_present(const CaseIdentity *identity, const char *variant,
                                    const char *source, const char *node_kind, int *failures) {
-    const TSLanguage *language = cbm_ts_language(identity->language);
+    const TSLanguage *language = ani_ts_language(identity->language);
     TSParser *parser = ts_parser_new();
     if (!language || !parser || !ts_parser_set_language(parser, language)) {
         fprintf(stderr,
@@ -259,9 +259,9 @@ static void check_ast_kind_present(const CaseIdentity *identity, const char *var
     ts_parser_delete(parser);
 }
 
-static CBMFileResult *extract_source(const CaseIdentity *identity, const char *variant,
+static ANIFileResult *extract_source(const CaseIdentity *identity, const char *variant,
                                      const char *source, int *failures) {
-    CBMFileResult *result = cbm_extract_file(source, (int)strlen(source), identity->language,
+    ANIFileResult *result = ani_extract_file(source, (int)strlen(source), identity->language,
                                              "repro", identity->filename, 0, NULL, NULL);
     if (!result) {
         fprintf(stderr,
@@ -282,7 +282,7 @@ static CBMFileResult *extract_source(const CaseIdentity *identity, const char *v
 }
 
 static const char *checked_module_qn(const CaseIdentity *identity, const char *variant,
-                                     const CBMFileResult *result, int *failures) {
+                                     const ANIFileResult *result, int *failures) {
     if (result->module_qn && result->module_qn[0])
         return result->module_qn;
     fprintf(stderr,
@@ -297,7 +297,7 @@ static int run_routine_argument_case(const RoutineArgumentCase *test_case) {
     int failures = 0;
     check_ast_kind_present(&test_case->identity, "inside-call", test_case->inside_source,
                            test_case->call_node_kind, &failures);
-    CBMFileResult *inside =
+    ANIFileResult *inside =
         extract_source(&test_case->identity, "inside-call", test_case->inside_source, &failures);
     if (inside) {
         check_exact(&test_case->identity, "inside-call", "caller_callable_definition",
@@ -317,11 +317,11 @@ static int run_routine_argument_case(const RoutineArgumentCase *test_case) {
                     1, &failures);
         check_exact(&test_case->identity, "inside-call", "argument_is_ordinary_usage_in_caller",
                     usage_kind_count_scoped(inside, test_case->argument, test_case->caller,
-                                            SCOPE_ROUTINE, CBM_USAGE_VALUE),
+                                            SCOPE_ROUTINE, ANI_USAGE_VALUE),
                     1, &failures);
         check_exact(&test_case->identity, "inside-call", "argument_not_call_reference_in_caller",
                     usage_kind_count_scoped(inside, test_case->argument, test_case->caller,
-                                            SCOPE_ROUTINE, CBM_USAGE_CALL_REFERENCE),
+                                            SCOPE_ROUTINE, ANI_USAGE_CALL_REFERENCE),
                     0, &failures);
         if (test_case->expect_lexical_local_shadow) {
             check_exact(&test_case->identity, "inside-call",
@@ -339,10 +339,10 @@ static int run_routine_argument_case(const RoutineArgumentCase *test_case) {
             &failures);
         check_exact(&test_case->identity, "inside-call", "total_calls", inside->calls.count,
                     test_case->inside_total_calls, &failures);
-        cbm_free_result(inside);
+        ani_free_result(inside);
     }
 
-    CBMFileResult *bare =
+    ANIFileResult *bare =
         extract_source(&test_case->identity, "bare-reference", test_case->bare_source, &failures);
     if (bare) {
         check_exact(&test_case->identity, "bare-reference", "caller_callable_definition",
@@ -353,18 +353,18 @@ static int run_routine_argument_case(const RoutineArgumentCase *test_case) {
                     1, &failures);
         check_exact(&test_case->identity, "bare-reference", "bare_is_ordinary_usage_in_caller",
                     usage_kind_count_scoped(bare, test_case->argument, test_case->caller,
-                                            SCOPE_ROUTINE, CBM_USAGE_VALUE),
+                                            SCOPE_ROUTINE, ANI_USAGE_VALUE),
                     1, &failures);
         check_exact(&test_case->identity, "bare-reference", "bare_not_call_reference_in_caller",
                     usage_kind_count_scoped(bare, test_case->argument, test_case->caller,
-                                            SCOPE_ROUTINE, CBM_USAGE_CALL_REFERENCE),
+                                            SCOPE_ROUTINE, ANI_USAGE_CALL_REFERENCE),
                     0, &failures);
         check_exact(&test_case->identity, "bare-reference", "bare_reference_not_call_in_caller",
                     call_count_scoped(bare, test_case->argument, test_case->caller, SCOPE_ROUTINE),
                     0, &failures);
         check_exact(&test_case->identity, "bare-reference", "total_calls", bare->calls.count,
                     test_case->bare_total_calls, &failures);
-        cbm_free_result(bare);
+        ani_free_result(bare);
     }
 
     return failures == 0 ? 0 : 1;
@@ -374,7 +374,7 @@ static int run_module_argument_case(const ModuleArgumentCase *test_case) {
     int failures = 0;
     check_ast_kind_present(&test_case->identity, "inside-call", test_case->inside_source,
                            test_case->call_node_kind, &failures);
-    CBMFileResult *inside =
+    ANIFileResult *inside =
         extract_source(&test_case->identity, "inside-call", test_case->inside_source, &failures);
     if (inside) {
         const char *module_qn =
@@ -387,11 +387,11 @@ static int run_module_argument_case(const ModuleArgumentCase *test_case) {
                     &failures);
         check_exact(&test_case->identity, "inside-call", "argument_is_ordinary_usage_in_module",
                     usage_kind_count_scoped(inside, test_case->argument, module_qn, SCOPE_EXACT,
-                                            CBM_USAGE_VALUE),
+                                            ANI_USAGE_VALUE),
                     1, &failures);
         check_exact(&test_case->identity, "inside-call", "argument_not_call_reference_in_module",
                     usage_kind_count_scoped(inside, test_case->argument, module_qn, SCOPE_EXACT,
-                                            CBM_USAGE_CALL_REFERENCE),
+                                            ANI_USAGE_CALL_REFERENCE),
                     0, &failures);
         check_exact(&test_case->identity, "inside-call", "callee_not_usage_in_module",
                     usage_count_scoped(inside, test_case->callee, module_qn, SCOPE_EXACT), 0,
@@ -401,10 +401,10 @@ static int run_module_argument_case(const ModuleArgumentCase *test_case) {
                     &failures);
         check_exact(&test_case->identity, "inside-call", "total_calls", inside->calls.count,
                     test_case->inside_total_calls, &failures);
-        cbm_free_result(inside);
+        ani_free_result(inside);
     }
 
-    CBMFileResult *bare =
+    ANIFileResult *bare =
         extract_source(&test_case->identity, "bare-reference", test_case->bare_source, &failures);
     if (bare) {
         const char *module_qn =
@@ -414,18 +414,18 @@ static int run_module_argument_case(const ModuleArgumentCase *test_case) {
                     &failures);
         check_exact(&test_case->identity, "bare-reference", "bare_is_ordinary_usage_in_module",
                     usage_kind_count_scoped(bare, test_case->argument, module_qn, SCOPE_EXACT,
-                                            CBM_USAGE_VALUE),
+                                            ANI_USAGE_VALUE),
                     1, &failures);
         check_exact(&test_case->identity, "bare-reference", "bare_not_call_reference_in_module",
                     usage_kind_count_scoped(bare, test_case->argument, module_qn, SCOPE_EXACT,
-                                            CBM_USAGE_CALL_REFERENCE),
+                                            ANI_USAGE_CALL_REFERENCE),
                     0, &failures);
         check_exact(&test_case->identity, "bare-reference", "bare_reference_not_call_in_module",
                     call_count_scoped(bare, test_case->argument, module_qn, SCOPE_EXACT), 0,
                     &failures);
         check_exact(&test_case->identity, "bare-reference", "total_calls", bare->calls.count,
                     test_case->bare_total_calls, &failures);
-        cbm_free_result(bare);
+        ani_free_result(bare);
     }
 
     return failures == 0 ? 0 : 1;
@@ -908,142 +908,142 @@ static const char PLSQL_BARE[] = "CREATE OR REPLACE PACKAGE BODY sample_pkg AS\n
      bare_calls_value}
 
 static const RoutineArgumentCase RACKET_CASE = ROUTINE_ARGUMENT_CASE(
-    "RACKET", CBM_LANG_RACKET, "sample.rkt", RACKET_INSIDE, RACKET_BARE, "list", "run", "accept",
+    "RACKET", ANI_LANG_RACKET, "sample.rkt", RACKET_INSIDE, RACKET_BARE, "list", "run", "accept",
     "watched", 1, 1, 0, "Racket list application and symbol-reference vocabulary");
 static const RoutineArgumentCase ODIN_CASE = ROUTINE_ARGUMENT_CASE(
-    "ODIN", CBM_LANG_ODIN, "sample.odin", ODIN_INSIDE, ODIN_BARE, "call_expression", "run",
+    "ODIN", ANI_LANG_ODIN, "sample.odin", ODIN_INSIDE, ODIN_BARE, "call_expression", "run",
     "accept", "watched", 1, 1, 0, "native routine application");
 static const RoutineArgumentCase RESCRIPT_CASE = ROUTINE_ARGUMENT_CASE(
-    "RESCRIPT", CBM_LANG_RESCRIPT, "Sample.res", RESCRIPT_INSIDE, RESCRIPT_BARE, "call_expression",
+    "RESCRIPT", ANI_LANG_RESCRIPT, "Sample.res", RESCRIPT_INSIDE, RESCRIPT_BARE, "call_expression",
     "run", "accept", "watched", 1, 1, 0, "native routine application");
 static const RoutineArgumentCase PURESCRIPT_CASE =
-    ROUTINE_ARGUMENT_CASE("PURESCRIPT", CBM_LANG_PURESCRIPT, "Main.purs", PURESCRIPT_INSIDE,
+    ROUTINE_ARGUMENT_CASE("PURESCRIPT", ANI_LANG_PURESCRIPT, "Main.purs", PURESCRIPT_INSIDE,
                           PURESCRIPT_BARE, "exp_apply", "run", "accept", "watched", 1, 1, 0,
                           "PureScript application and variable-reference vocabulary");
 static const RoutineArgumentCase NICKEL_CASE = ROUTINE_ARGUMENT_CASE(
-    "NICKEL", CBM_LANG_NICKEL, "sample.ncl", NICKEL_INSIDE, NICKEL_BARE, "applicative", "run",
+    "NICKEL", ANI_LANG_NICKEL, "sample.ncl", NICKEL_INSIDE, NICKEL_BARE, "applicative", "run",
     "accept", "watched", 1, 1, 0, "Nickel application and identifier-reference vocabulary");
 static const RoutineArgumentCase CRYSTAL_CASE = ROUTINE_ARGUMENT_CASE(
-    "CRYSTAL", CBM_LANG_CRYSTAL, "sample.cr", CRYSTAL_INSIDE, CRYSTAL_BARE, "call", "run", "accept",
+    "CRYSTAL", ANI_LANG_CRYSTAL, "sample.cr", CRYSTAL_INSIDE, CRYSTAL_BARE, "call", "run", "accept",
     "watched", 1, 1, 0, "native routine application");
 static const RoutineArgumentCase TEAL_CASE = ROUTINE_ARGUMENT_CASE(
-    "TEAL", CBM_LANG_TEAL, "sample.tl", LUA_TYPED_INSIDE, LUA_TYPED_BARE, "function_call", "run",
+    "TEAL", ANI_LANG_TEAL, "sample.tl", LUA_TYPED_INSIDE, LUA_TYPED_BARE, "function_call", "run",
     "accept", "watched", 1, 1, 0, "native routine application");
 static const RoutineArgumentCase HARE_CASE = ROUTINE_ARGUMENT_CASE(
-    "HARE", CBM_LANG_HARE, "sample.ha", HARE_INSIDE, HARE_BARE, "call_expression", "run", "accept",
+    "HARE", ANI_LANG_HARE, "sample.ha", HARE_INSIDE, HARE_BARE, "call_expression", "run", "accept",
     "watched", 1, 1, 0, "native routine application");
 static const RoutineArgumentCase PONY_CASE = ROUTINE_ARGUMENT_CASE(
-    "PONY", CBM_LANG_PONY, "sample.pony", PONY_INSIDE, PONY_BARE, "call_expression", "run",
+    "PONY", ANI_LANG_PONY, "sample.pony", PONY_INSIDE, PONY_BARE, "call_expression", "run",
     "accept", "watched", 1, 1, 0, "native method application");
 static const RoutineArgumentCase LUAU_CASE = ROUTINE_ARGUMENT_CASE(
-    "LUAU", CBM_LANG_LUAU, "sample.luau", LUA_TYPED_INSIDE, LUA_TYPED_BARE, "function_call", "run",
+    "LUAU", ANI_LANG_LUAU, "sample.luau", LUA_TYPED_INSIDE, LUA_TYPED_BARE, "function_call", "run",
     "accept", "watched", 1, 1, 0, "native routine application");
 static const RoutineArgumentCase SWAY_CASE = ROUTINE_ARGUMENT_CASE(
-    "SWAY", CBM_LANG_SWAY, "sample.sw", SWAY_INSIDE, SWAY_BARE, "call_expression", "run", "accept",
+    "SWAY", ANI_LANG_SWAY, "sample.sw", SWAY_INSIDE, SWAY_BARE, "call_expression", "run", "accept",
     "watched", 1, 1, 0, "native routine application");
 static const RoutineArgumentCase TEMPL_CASE = ROUTINE_ARGUMENT_CASE(
-    "TEMPL", CBM_LANG_TEMPL, "sample.templ", TEMPL_INSIDE, TEMPL_BARE, "call_expression", "run",
+    "TEMPL", ANI_LANG_TEMPL, "sample.templ", TEMPL_INSIDE, TEMPL_BARE, "call_expression", "run",
     "accept", "watched", 1, 1, 0, "embedded Go routine application");
 static const RoutineArgumentCase WGSL_CASE =
-    ROUTINE_ARGUMENT_CASE("WGSL", CBM_LANG_WGSL, "sample.wgsl", WGSL_INSIDE, WGSL_BARE,
+    ROUTINE_ARGUMENT_CASE("WGSL", ANI_LANG_WGSL, "sample.wgsl", WGSL_INSIDE, WGSL_BARE,
                           "type_constructor_or_function_call_expression", "run", "accept",
                           "watched", 1, 1, 0, "native shader routine application");
 static const RoutineArgumentCase JSONNET_CASE = ROUTINE_ARGUMENT_CASE(
-    "JSONNET", CBM_LANG_JSONNET, "sample.jsonnet", JSONNET_INSIDE, JSONNET_BARE, "functioncall",
+    "JSONNET", ANI_LANG_JSONNET, "sample.jsonnet", JSONNET_INSIDE, JSONNET_BARE, "functioncall",
     "run", "accept", "watched", 1, 1, 0, "native configuration-function application");
 static const RoutineArgumentCase STARLARK_CASE = ROUTINE_ARGUMENT_CASE(
-    "STARLARK", CBM_LANG_STARLARK, "BUILD", STARLARK_INSIDE, STARLARK_BARE, "call", "run", "accept",
+    "STARLARK", ANI_LANG_STARLARK, "BUILD", STARLARK_INSIDE, STARLARK_BARE, "call", "run", "accept",
     "watched", 1, 1, 0, "native Starlark routine application");
 static const RoutineArgumentCase BICEP_CASE = ROUTINE_ARGUMENT_CASE(
-    "BICEP", CBM_LANG_BICEP, "sample.bicep", BICEP_INSIDE, BICEP_BARE, "call_expression", "run",
+    "BICEP", ANI_LANG_BICEP, "sample.bicep", BICEP_INSIDE, BICEP_BARE, "call_expression", "run",
     "accept", "watched", 1, 1, 0, "native Bicep user-function application");
 static const RoutineArgumentCase HLSL_CASE = ROUTINE_ARGUMENT_CASE(
-    "HLSL", CBM_LANG_HLSL, "sample.hlsl", HLSL_FAMILY_INSIDE, HLSL_FAMILY_BARE, "call_expression",
+    "HLSL", ANI_LANG_HLSL, "sample.hlsl", HLSL_FAMILY_INSIDE, HLSL_FAMILY_BARE, "call_expression",
     "run", "accept", "watched", 1, 1, 0, "native shader routine application");
 static const RoutineArgumentCase VHDL_CASE = ROUTINE_ARGUMENT_CASE(
-    "VHDL", CBM_LANG_VHDL, "sample.vhd", VHDL_INSIDE, VHDL_BARE, "parenthesis_group", "run",
+    "VHDL", ANI_LANG_VHDL, "sample.vhd", VHDL_INSIDE, VHDL_BARE, "parenthesis_group", "run",
     "accept", "watched", 2, 1, 0, "VHDL declaration and body application");
 static const RoutineArgumentCase SYSTEMVERILOG_CASE = ROUTINE_ARGUMENT_CASE(
-    "SYSTEMVERILOG", CBM_LANG_SYSTEMVERILOG, "sample.sv", SYSTEMVERILOG_INSIDE, SYSTEMVERILOG_BARE,
+    "SYSTEMVERILOG", ANI_LANG_SYSTEMVERILOG, "sample.sv", SYSTEMVERILOG_INSIDE, SYSTEMVERILOG_BARE,
     "function_subroutine_call", "run", "accept", "watched", 1, 1, 0,
     "native hardware-description routine application");
 static const RoutineArgumentCase ISPC_CASE = ROUTINE_ARGUMENT_CASE(
-    "ISPC", CBM_LANG_ISPC, "sample.ispc", HLSL_FAMILY_INSIDE, HLSL_FAMILY_BARE, "call_expression",
+    "ISPC", ANI_LANG_ISPC, "sample.ispc", HLSL_FAMILY_INSIDE, HLSL_FAMILY_BARE, "call_expression",
     "run", "accept", "watched", 1, 1, 0, "native SPMD routine application");
 static const RoutineArgumentCase CAIRO_CASE = ROUTINE_ARGUMENT_CASE(
-    "CAIRO", CBM_LANG_CAIRO, "sample.cairo", CAIRO_INSIDE, CAIRO_BARE, "call_expression", "run",
+    "CAIRO", ANI_LANG_CAIRO, "sample.cairo", CAIRO_INSIDE, CAIRO_BARE, "call_expression", "run",
     "accept", "watched", 1, 1, 0, "native smart-contract routine application");
 static const RoutineArgumentCase MOVE_CASE = ROUTINE_ARGUMENT_CASE(
-    "MOVE", CBM_LANG_MOVE, "sample.move", MOVE_INSIDE, MOVE_BARE, "call_expression", "run",
+    "MOVE", ANI_LANG_MOVE, "sample.move", MOVE_INSIDE, MOVE_BARE, "call_expression", "run",
     "accept", "watched", 1, 1, 0, "native smart-contract routine application");
 static const RoutineArgumentCase SQUIRREL_CASE = ROUTINE_ARGUMENT_CASE(
-    "SQUIRREL", CBM_LANG_SQUIRREL, "sample.nut", SQUIRREL_INSIDE, SQUIRREL_BARE, "call_expression",
+    "SQUIRREL", ANI_LANG_SQUIRREL, "sample.nut", SQUIRREL_INSIDE, SQUIRREL_BARE, "call_expression",
     "run", "accept", "watched", 1, 1, 0, "native routine application");
 static const RoutineArgumentCase FUNC_CASE = ROUTINE_ARGUMENT_CASE(
-    "FUNC", CBM_LANG_FUNC, "sample.fc", FUNC_INSIDE, FUNC_BARE, "function_application", "run",
+    "FUNC", ANI_LANG_FUNC, "sample.fc", FUNC_INSIDE, FUNC_BARE, "function_application", "run",
     "accept", "watched", 1, 1, 0, "native FunC function application");
 static const RoutineArgumentCase PUPPET_CASE = ROUTINE_ARGUMENT_CASE(
-    "PUPPET", CBM_LANG_PUPPET, "sample.pp", PUPPET_INSIDE, PUPPET_BARE, "function_call", "run",
+    "PUPPET", ANI_LANG_PUPPET, "sample.pp", PUPPET_INSIDE, PUPPET_BARE, "function_call", "run",
     "accept", "watched", 1, 1, 0, "Puppet function application and variable-reference vocabulary");
 static const RoutineArgumentCase SLANG_CASE = ROUTINE_ARGUMENT_CASE(
-    "SLANG", CBM_LANG_SLANG, "sample.slang", HLSL_FAMILY_INSIDE, HLSL_FAMILY_BARE,
+    "SLANG", ANI_LANG_SLANG, "sample.slang", HLSL_FAMILY_INSIDE, HLSL_FAMILY_BARE,
     "call_expression", "run", "accept", "watched", 1, 1, 0, "native shader routine application");
 static const RoutineArgumentCase LLVM_IR_CASE = ROUTINE_ARGUMENT_CASE(
-    "LLVM_IR", CBM_LANG_LLVM_IR, "sample.ll", LLVM_IR_INSIDE, LLVM_IR_BARE, "call", "run", "accept",
+    "LLVM_IR", ANI_LANG_LLVM_IR, "sample.ll", LLVM_IR_INSIDE, LLVM_IR_BARE, "call", "run", "accept",
     "watched", 1, 1, 0, "LLVM call instruction and local_var reference vocabulary");
 static const RoutineArgumentCase TLAPLUS_CASE = ROUTINE_ARGUMENT_CASE(
-    "TLAPLUS", CBM_LANG_TLAPLUS, "Sample.tla", TLAPLUS_INSIDE, TLAPLUS_BARE, "bound_op", "Guard",
+    "TLAPLUS", ANI_LANG_TLAPLUS, "Sample.tla", TLAPLUS_INSIDE, TLAPLUS_BARE, "bound_op", "Guard",
     "Accept", "values", 1, 1, 0, "TLA+ operator application with a value argument");
 static const RoutineArgumentCase PKL_CASE = ROUTINE_ARGUMENT_CASE(
-    "PKL", CBM_LANG_PKL, "sample.pkl", PKL_INSIDE, PKL_BARE, "unqualifiedAccessExpr", "run",
+    "PKL", ANI_LANG_PKL, "sample.pkl", PKL_INSIDE, PKL_BARE, "unqualifiedAccessExpr", "run",
     "accept", "watched", 1, 1, 0, "native Pkl method application and property-read vocabulary");
 static const RoutineArgumentCase APEX_CASE = ROUTINE_ARGUMENT_CASE(
-    "APEX", CBM_LANG_APEX, "Sample.cls", APEX_INSIDE, APEX_BARE, "method_invocation", "run",
+    "APEX", ANI_LANG_APEX, "Sample.cls", APEX_INSIDE, APEX_BARE, "method_invocation", "run",
     "accept", "watched", 1, 1, 0, "native method application");
 static const RoutineArgumentCase PINE_CASE = ROUTINE_ARGUMENT_CASE(
-    "PINE", CBM_LANG_PINE, "sample.pine", PINE_INSIDE, PINE_BARE, "call", "run", "accept",
+    "PINE", ANI_LANG_PINE, "sample.pine", PINE_INSIDE, PINE_BARE, "call", "run", "accept",
     "watched", 1, 2, 1, "Pine has one module-level indicator call in each fixture");
 static const RoutineArgumentCase QML_CASE = ROUTINE_ARGUMENT_CASE(
-    "QML", CBM_LANG_QML, "Sample.qml", QML_INSIDE, QML_BARE, "call_expression", "run", "accept",
+    "QML", ANI_LANG_QML, "Sample.qml", QML_INSIDE, QML_BARE, "call_expression", "run", "accept",
     "watched", 1, 1, 0, "native QML JavaScript routine application");
 static const RoutineArgumentCase CFSCRIPT_CASE = ROUTINE_ARGUMENT_CASE(
-    "CFSCRIPT", CBM_LANG_CFSCRIPT, "Sample.cfc", CFSCRIPT_INSIDE, CFSCRIPT_BARE, "call_expression",
+    "CFSCRIPT", ANI_LANG_CFSCRIPT, "Sample.cfc", CFSCRIPT_INSIDE, CFSCRIPT_BARE, "call_expression",
     "run", "accept", "watched", 1, 1, 0, "native CFScript routine application");
 static const RoutineArgumentCase CFML_CASE = ROUTINE_ARGUMENT_CASE(
-    "CFML", CBM_LANG_CFML, "sample.cfm", CFML_INSIDE, CFML_BARE, "call_expression", "run", "accept",
+    "CFML", ANI_LANG_CFML, "sample.cfm", CFML_INSIDE, CFML_BARE, "call_expression", "run", "accept",
     "watched", 1, 1, 0, "native CFML tag-routine application");
 static const RoutineArgumentCase MOJO_CASE =
-    ROUTINE_ARGUMENT_CASE("MOJO", CBM_LANG_MOJO, "sample.mojo", MOJO_INSIDE, MOJO_BARE, "call",
+    ROUTINE_ARGUMENT_CASE("MOJO", ANI_LANG_MOJO, "sample.mojo", MOJO_INSIDE, MOJO_BARE, "call",
                           "run", "accept", "watched", 1, 1, 0, "native Mojo routine application");
 static const RoutineArgumentCase OBJECTSCRIPT_UDL_CASE = ROUTINE_ARGUMENT_CASE(
-    "OBJECTSCRIPT_UDL", CBM_LANG_OBJECTSCRIPT_UDL, "Sample.cls", OBJECTSCRIPT_UDL_INSIDE,
+    "OBJECTSCRIPT_UDL", ANI_LANG_OBJECTSCRIPT_UDL, "Sample.cls", OBJECTSCRIPT_UDL_INSIDE,
     OBJECTSCRIPT_UDL_BARE, "class_method_call", "Run", "Accept", "watched", 1, 1, 0,
     "ObjectScript UDL class-method application with a value argument");
 static const RoutineArgumentCase OBJECTSCRIPT_ROUTINE_CASE = ROUTINE_ARGUMENT_CASE(
-    "OBJECTSCRIPT_ROUTINE", CBM_LANG_OBJECTSCRIPT_ROUTINE, "Sample.mac",
+    "OBJECTSCRIPT_ROUTINE", ANI_LANG_OBJECTSCRIPT_ROUTINE, "Sample.mac",
     OBJECTSCRIPT_ROUTINE_INSIDE, OBJECTSCRIPT_ROUTINE_BARE, "extrinsic_function", "Run", "Accept",
     "watched", 1, 1, 0, "ObjectScript routine extrinsic application with a value argument");
 static const RoutineArgumentCase PLSQL_CASE = ROUTINE_ARGUMENT_CASE(
-    "PLSQL", CBM_LANG_PLSQL, "sample_pkg.pkb", PLSQL_INSIDE, PLSQL_BARE, "ref_call", "run",
+    "PLSQL", ANI_LANG_PLSQL, "sample_pkg.pkb", PLSQL_INSIDE, PLSQL_BARE, "ref_call", "run",
     "accept", "watched", 1, 1, 0, "native PL/SQL package-body routine application");
 
 static const RoutineArgumentCase CHIALISP_CASE = ROUTINE_ARGUMENT_CASE(
-    "CHIALISP", CBM_LANG_CHIALISP, "sample.clib", CHIALISP_INSIDE, CHIALISP_BARE, "list", "run",
+    "CHIALISP", ANI_LANG_CHIALISP, "sample.clib", CHIALISP_INSIDE, CHIALISP_BARE, "list", "run",
     "accept", "watched", 1, 1, 0, "Chialisp list application and symbol-reference vocabulary");
 
 static const ModuleArgumentCase JUST_CASE = MODULE_ARGUMENT_CASE(
-    "JUST", CBM_LANG_JUST, "justfile", JUST_INSIDE, JUST_BARE, "function_call", "uppercase",
+    "JUST", ANI_LANG_JUST, "justfile", JUST_INSIDE, JUST_BARE, "function_call", "uppercase",
     "watched", 1, 0, "Just expression call; recipe dependency is checked separately");
 static const ModuleArgumentCase GOTEMPLATE_CASE =
-    MODULE_ARGUMENT_CASE("GOTEMPLATE", CBM_LANG_GOTEMPLATE, "sample.tmpl", GOTEMPLATE_INSIDE,
+    MODULE_ARGUMENT_CASE("GOTEMPLATE", ANI_LANG_GOTEMPLATE, "sample.tmpl", GOTEMPLATE_INSIDE,
                          GOTEMPLATE_BARE, "function_call", "printf", "Watched", 1, 0,
                          "Go-template pipeline value and paired bare field reference");
 static const ModuleArgumentCase LINKERSCRIPT_CASE =
-    MODULE_ARGUMENT_CASE("LINKERSCRIPT", CBM_LANG_LINKERSCRIPT, "sample.ld", LINKERSCRIPT_INSIDE,
+    MODULE_ARGUMENT_CASE("LINKERSCRIPT", ANI_LANG_LINKERSCRIPT, "sample.ld", LINKERSCRIPT_INSIDE,
                          LINKERSCRIPT_BARE, "call_expression", "ABSOLUTE", "_start", 1, 0,
                          "linker built-in argument and symbol-reference vocabulary");
 static const ModuleArgumentCase GN_CASE =
-    MODULE_ARGUMENT_CASE("GN", CBM_LANG_GN, "BUILD.gn", GN_INSIDE, GN_BARE, "call_expression",
+    MODULE_ARGUMENT_CASE("GN", ANI_LANG_GN, "BUILD.gn", GN_INSIDE, GN_BARE, "call_expression",
                          "assert", "watched", 1, 0, "GN expression function with a value argument");
 
 #undef MODULE_ARGUMENT_CASE
@@ -1053,10 +1053,10 @@ static int run_no_call_domain(const CaseIdentity *identity, const char *source,
                               const char *node_kind) {
     int failures = 0;
     check_ast_kind_present(identity, "domain-negative", source, node_kind, &failures);
-    CBMFileResult *result = extract_source(identity, "domain-negative", source, &failures);
+    ANIFileResult *result = extract_source(identity, "domain-negative", source, &failures);
     if (result) {
         check_exact(identity, "domain-negative", "total_calls", result->calls.count, 0, &failures);
-        cbm_free_result(result);
+        ani_free_result(result);
     }
     return failures == 0 ? 0 : 1;
 }
@@ -1065,7 +1065,7 @@ static int run_module_domain_call(const CaseIdentity *identity, const char *sour
                                   const char *node_kind, const char *callee) {
     int failures = 0;
     check_ast_kind_present(identity, "domain-call", source, node_kind, &failures);
-    CBMFileResult *result = extract_source(identity, "domain-call", source, &failures);
+    ANIFileResult *result = extract_source(identity, "domain-call", source, &failures);
     if (result) {
         const char *module_qn = checked_module_qn(identity, "domain-call", result, &failures);
         check_exact(identity, "domain-call", "callee_call_in_module",
@@ -1073,19 +1073,19 @@ static int run_module_domain_call(const CaseIdentity *identity, const char *sour
         check_exact(identity, "domain-call", "callee_not_usage_in_module",
                     usage_count_scoped(result, callee, module_qn, SCOPE_EXACT), 0, &failures);
         check_exact(identity, "domain-call", "total_calls", result->calls.count, 1, &failures);
-        cbm_free_result(result);
+        ani_free_result(result);
     }
     return failures == 0 ? 0 : 1;
 }
 
 static int run_just_dependency_control(void) {
     static const CaseIdentity identity = {
-        "JUST", CBM_LANG_JUST, "justfile",
+        "JUST", ANI_LANG_JUST, "justfile",
         "recipe dependency is build-graph metadata, separate from expression arguments"};
     int failures = 0;
     check_ast_kind_present(&identity, "dependency-control", JUST_DEPENDENCY, "dependency",
                            &failures);
-    CBMFileResult *result =
+    ANIFileResult *result =
         extract_source(&identity, "dependency-control", JUST_DEPENDENCY, &failures);
     if (result) {
         check_exact(&identity, "dependency-control", "build_callable_definition",
@@ -1100,19 +1100,19 @@ static int run_just_dependency_control(void) {
                     usage_count_scoped(result, "build", test_qn, SCOPE_EXACT), 1, &failures);
         check_exact(&identity, "dependency-control", "total_calls", result->calls.count, 1,
                     &failures);
-        cbm_free_result(result);
+        ani_free_result(result);
     }
     return failures == 0 ? 0 : 1;
 }
 
 static int run_tlaplus_bounded_quantification_control(void) {
     static const CaseIdentity identity = {
-        "TLAPLUS", CBM_LANG_TLAPLUS, "Bounded.tla",
+        "TLAPLUS", ANI_LANG_TLAPLUS, "Bounded.tla",
         "bounded quantification is not an operator call and must retain its set reference"};
     int failures = 0;
     check_ast_kind_present(&identity, "bounded-quantification-control",
                            TLAPLUS_BOUNDED_QUANTIFICATION, "bounded_quantification", &failures);
-    CBMFileResult *result = extract_source(&identity, "bounded-quantification-control",
+    ANIFileResult *result = extract_source(&identity, "bounded-quantification-control",
                                            TLAPLUS_BOUNDED_QUANTIFICATION, &failures);
     if (result) {
         check_exact(&identity, "bounded-quantification-control", "guard_callable_definition",
@@ -1125,19 +1125,19 @@ static int run_tlaplus_bounded_quantification_control(void) {
                     call_count_scoped(result, "item", "Guard", SCOPE_ROUTINE), 0, &failures);
         check_exact(&identity, "bounded-quantification-control", "total_calls", result->calls.count,
                     0, &failures);
-        cbm_free_result(result);
+        ani_free_result(result);
     }
     return failures == 0 ? 0 : 1;
 }
 
 static int run_nasm_domain_control(void) {
     static const CaseIdentity identity = {
-        "NASM", CBM_LANG_NASM, "sample.asm",
+        "NASM", ANI_LANG_NASM, "sample.asm",
         "call instruction is semantic and must retain its enclosing label"};
     int failures = 0;
     check_ast_kind_present(&identity, "instruction-control", NASM_SCOPE, "actual_instruction",
                            &failures);
-    CBMFileResult *result = extract_source(&identity, "instruction-control", NASM_SCOPE, &failures);
+    ANIFileResult *result = extract_source(&identity, "instruction-control", NASM_SCOPE, &failures);
     if (result) {
         check_exact(&identity, "instruction-control", "run_callable_definition",
                     callable_definition_count(result, "run"), 1, &failures);
@@ -1153,20 +1153,20 @@ static int run_nasm_domain_control(void) {
                     usage_count_scoped(result, "accept", "run", SCOPE_ROUTINE), 0, &failures);
         check_exact(&identity, "instruction-control", "total_calls", result->calls.count, 1,
                     &failures);
-        cbm_free_result(result);
+        ani_free_result(result);
     }
     return failures == 0 ? 0 : 1;
 }
 
 static int run_bitbake_domain_control(void) {
     static const CaseIdentity identity = {
-        "BITBAKE", CBM_LANG_BITBAKE, "sample.bb",
+        "BITBAKE", ANI_LANG_BITBAKE, "sample.bb",
         "BitBake call metadata covers embedded Python, not task-to-task callback semantics"};
     int failures = 0;
     check_ast_kind_present(&identity, "embedded-python", BITBAKE_DOMAIN,
                            "anonymous_python_function", &failures);
     check_ast_kind_present(&identity, "embedded-python", BITBAKE_DOMAIN, "call", &failures);
-    CBMFileResult *result = extract_source(&identity, "embedded-python", BITBAKE_DOMAIN, &failures);
+    ANIFileResult *result = extract_source(&identity, "embedded-python", BITBAKE_DOMAIN, &failures);
     if (result) {
         check_exact(&identity, "embedded-python", "task_callable_definition",
                     callable_definition_count(result, "do_run"), 1, &failures);
@@ -1175,7 +1175,7 @@ static int run_bitbake_domain_control(void) {
         check_exact(&identity, "embedded-python", "callee_not_usage_in_task",
                     usage_count_scoped(result, "note", "do_run", SCOPE_ROUTINE), 0, &failures);
         check_exact(&identity, "embedded-python", "total_calls", result->calls.count, 1, &failures);
-        cbm_free_result(result);
+        ani_free_result(result);
     }
     return failures == 0 ? 0 : 1;
 }
@@ -1251,7 +1251,7 @@ DEFINE_MODULE_ARGUMENT_TEST(gn, GN_CASE)
 
 TEST(repro_call_argument_matrix_b_domain_nasm) {
     static const CaseIdentity call_syntax_identity = {
-        "NASM", CBM_LANG_NASM, "macro.asm",
+        "NASM", ANI_LANG_NASM, "macro.asm",
         "function-like macro application is a semantic call_syntax_expression"};
     int failures = run_nasm_domain_control();
     failures += run_module_domain_call(&call_syntax_identity, NASM_CALL_SYNTAX,
@@ -1261,28 +1261,28 @@ TEST(repro_call_argument_matrix_b_domain_nasm) {
 
 TEST(repro_call_argument_matrix_b_domain_prisma) {
     static const CaseIdentity identity = {
-        "PRISMA", CBM_LANG_PRISMA, "schema.prisma",
+        "PRISMA", ANI_LANG_PRISMA, "schema.prisma",
         "schema default function is a domain call, not callback-argument coverage"};
     return run_module_domain_call(&identity, PRISMA_SCOPE, "call_expression", "now");
 }
 
 TEST(repro_call_argument_matrix_b_domain_diff) {
     static const CaseIdentity identity = {
-        "DIFF", CBM_LANG_DIFF, "sample.diff",
+        "DIFF", ANI_LANG_DIFF, "sample.diff",
         "diff command is a document record and must not emit a code call"};
     return run_no_call_domain(&identity, DIFF_SCOPE, "command");
 }
 
 TEST(repro_call_argument_matrix_b_domain_bibtex) {
     static const CaseIdentity identity = {
-        "BIBTEX", CBM_LANG_BIBTEX, "sample.bib",
+        "BIBTEX", ANI_LANG_BIBTEX, "sample.bib",
         "BibTeX command is document syntax and must not emit a code call"};
     return run_no_call_domain(&identity, BIBTEX_SCOPE, "command");
 }
 
 TEST(repro_call_argument_matrix_b_domain_devicetree) {
     static const CaseIdentity identity = {
-        "DEVICETREE", CBM_LANG_DEVICETREE, "sample.dts",
+        "DEVICETREE", ANI_LANG_DEVICETREE, "sample.dts",
         "DeviceTree macro expression is a domain call, not callback-argument coverage"};
     return run_module_domain_call(&identity, DEVICETREE_SCOPE, "call_expression", "MHZ");
 }
@@ -1349,12 +1349,12 @@ _Static_assert(MATRIX_LANGUAGE_COUNT == 49,
     X(repro_call_argument_matrix_b_module_gotemplate, GOTEMPLATE_CASE.identity.language)        \
     X(repro_call_argument_matrix_b_module_linkerscript, LINKERSCRIPT_CASE.identity.language)    \
     X(repro_call_argument_matrix_b_module_gn, GN_CASE.identity.language)                        \
-    X(repro_call_argument_matrix_b_domain_nasm, CBM_LANG_NASM)                                  \
-    X(repro_call_argument_matrix_b_domain_prisma, CBM_LANG_PRISMA)                              \
-    X(repro_call_argument_matrix_b_domain_diff, CBM_LANG_DIFF)                                  \
-    X(repro_call_argument_matrix_b_domain_bibtex, CBM_LANG_BIBTEX)                              \
-    X(repro_call_argument_matrix_b_domain_devicetree, CBM_LANG_DEVICETREE)                      \
-    X(repro_call_argument_matrix_b_domain_bitbake, CBM_LANG_BITBAKE)
+    X(repro_call_argument_matrix_b_domain_nasm, ANI_LANG_NASM)                                  \
+    X(repro_call_argument_matrix_b_domain_prisma, ANI_LANG_PRISMA)                              \
+    X(repro_call_argument_matrix_b_domain_diff, ANI_LANG_DIFF)                                  \
+    X(repro_call_argument_matrix_b_domain_bibtex, ANI_LANG_BIBTEX)                              \
+    X(repro_call_argument_matrix_b_domain_devicetree, ANI_LANG_DEVICETREE)                      \
+    X(repro_call_argument_matrix_b_domain_bitbake, ANI_LANG_BITBAKE)
 
 #define MATRIX_B_COUNT_ROW(test_name_, language_) +1
 enum { MATRIX_B_ROW_COUNT = 0 MATRIX_B_LANGUAGE_ROWS(MATRIX_B_COUNT_ROW) };
@@ -1366,7 +1366,7 @@ enum { MATRIX_B_ROW_COUNT = 0 MATRIX_B_LANGUAGE_ROWS(MATRIX_B_COUNT_ROW) };
 _Static_assert((int)MATRIX_B_ROW_COUNT == (int)MATRIX_LANGUAGE_COUNT,
                "matrix B suite and language-row count must stay synchronized");
 
-size_t repro_call_argument_matrix_b_copy_language_ids(CBMLanguage *language_ids, size_t capacity) {
+size_t repro_call_argument_matrix_b_copy_language_ids(ANILanguage *language_ids, size_t capacity) {
     size_t row_count = 0;
 #define COPY_MATRIX_B_LANGUAGE(test_name_, language_) \
     do {                                              \

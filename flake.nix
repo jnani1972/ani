@@ -1,5 +1,5 @@
 {
-  description = "codebase-memory-mcp — C11 MCP server for codebase indexing";
+  description = "ani — C11 MCP server for codebase indexing";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
@@ -62,7 +62,7 @@
     {
       packages = forAllSystems (pkgs: rec {
         default = pkgs.stdenv.mkDerivation {
-          pname = "codebase-memory-mcp";
+          pname = "ani";
           version = "0.10.8";
 
           src = ./.;
@@ -75,18 +75,18 @@
           # directly to bypass that check; the Nix stdenv already guarantees the
           # correct compiler and target architecture.
           buildPhase = ''
-            make -j$NIX_BUILD_CORES -f Makefile.cbm cbm
+            make -j$NIX_BUILD_CORES -f Makefile.ani ani
           '';
 
           installPhase = ''
-            install -Dm755 build/c/codebase-memory-mcp $out/bin/codebase-memory-mcp
+            install -Dm755 build/c/ani $out/bin/ani
           '';
 
           meta = {
             description = "MCP server that builds and queries a semantic graph of your codebase";
-            homepage = "https://github.com/DeusData/codebase-memory-mcp";
+            homepage = "https://github.com/jnani1972/ani";
             license = nixpkgs.lib.licenses.mit;
-            mainProgram = "codebase-memory-mcp";
+            mainProgram = "ani";
             platforms = systems;
           };
         };
@@ -96,7 +96,7 @@
         # bump npmDepsHash whenever that lockfile changes:
         #   nix run nixpkgs#prefetch-npm-deps -- graph-ui/package-lock.json
         graph-ui = pkgs.buildNpmPackage {
-          pname = "codebase-memory-graph-ui";
+          pname = "ani-graph-ui";
           version = "0.1.0";
 
           src = ./graph-ui;
@@ -114,15 +114,15 @@
         # Same server binary as `default`, but with the graph-ui assets embedded
         # so `--ui=true` starts the HTTP server. The frontend is built separately
         # by the graph-ui package above; here we drop its dist/ into place and run
-        # the embed + link path (cbm-with-ui) — no network access needed.
-        codebase-memory-mcp-ui = default.overrideAttrs (old: {
-          pname = "codebase-memory-mcp-ui";
+        # the embed + link path (ani-with-ui) — no network access needed.
+        ani-ui = default.overrideAttrs (old: {
+          pname = "ani-ui";
 
           buildPhase = ''
-            # cbm-with-ui depends on `embed`, which depends on `frontend`, which
+            # ani-with-ui depends on `embed`, which depends on `frontend`, which
             # runs `npm ci && npm run build` — needs network access, unavailable
             # in the sandbox. Supply the pre-built assets, run the embed script
-            # directly, then link with `cbm-with-ui` while telling make its
+            # directly, then link with `ani-with-ui` while telling make its
             # `frontend`/`embed` prerequisites are already up to date (-o) so it
             # won't re-run the npm build.
             mkdir -p graph-ui/dist
@@ -131,13 +131,13 @@
 
             bash scripts/embed-frontend.sh graph-ui/dist build/c/embedded
 
-            make -j$NIX_BUILD_CORES -f Makefile.cbm \
+            make -j$NIX_BUILD_CORES -f Makefile.ani \
               -o frontend -o embed \
-              cbm-with-ui
+              ani-with-ui
           '';
 
           meta = old.meta // {
-            description = "codebase-memory-mcp with the embedded graph UI (--ui)";
+            description = "ani with the embedded graph UI (--ui)";
           };
         });
       });

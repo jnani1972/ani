@@ -43,7 +43,7 @@ Make passthrough (VAR=VAL, forwarded verbatim):
   EXTRA_CFLAGS= EXTRA_LDFLAGS=   Sanitizer soak builds (see _soak.yml).
 
 Environment:
-  CBM_NO_CCACHE=1  Disable the compiler cache (build correctness is identical;
+  ANI_NO_CCACHE=1  Disable the compiler cache (build correctness is identical;
                    only speed changes).
 
 Callers: _build.yml (all release artifacts) · pr.yml pr-smoke · every
@@ -59,13 +59,13 @@ done
 # Pre-parse --arch flag before sourcing env.sh
 for arg in "$@"; do
     case "$arg" in
-        --arch=*) export CBM_ARCH="${arg#--arch=}" ;;
+        --arch=*) export ANI_ARCH="${arg#--arch=}" ;;
     esac
 done
 prev_arg=""
 for arg in "$@"; do
     if [[ "${prev_arg:-}" == "--arch" ]]; then
-        export CBM_ARCH="$arg"
+        export ANI_ARCH="$arg"
     fi
     prev_arg="$arg"
 done
@@ -135,7 +135,7 @@ done
 CFLAGS_EXTRA=""
 if [[ -n "$VERSION" ]]; then
     CLEAN_VERSION="${VERSION#v}"
-    CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
+    CFLAGS_EXTRA="-DANI_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
 fi
 
 print_env "build.sh"
@@ -145,15 +145,15 @@ echo "  ui=$WITH_UI version=${VERSION:-dev}"
 verify_compiler "$CC"
 
 # Step 1: Clean C build artifacts only (not node_modules — npm ci handles that)
-cbm_remove_build_dir "$ROOT" "$BUILD_DIR"
+ani_remove_build_dir "$ROOT" "$BUILD_DIR"
 
 # Step 2: Build (Makefile applies $ARCHFLAGS for the target arch on macOS)
 if $WITH_UI; then
-    make -j"$NPROC" -f Makefile.cbm cbm-with-ui \
+    make -j"$NPROC" -f Makefile.ani ani-with-ui \
         CFLAGS_EXTRA="$CFLAGS_EXTRA" "${EXTRA_MAKE_ARGS[@]+"${EXTRA_MAKE_ARGS[@]}"}"
 else
-    make -j"$NPROC" -f Makefile.cbm cbm \
+    make -j"$NPROC" -f Makefile.ani ani \
         CFLAGS_EXTRA="$CFLAGS_EXTRA" "${EXTRA_MAKE_ARGS[@]+"${EXTRA_MAKE_ARGS[@]}"}"
 fi
 
-echo "=== Build complete: ${BUILD_DIR}/codebase-memory-mcp ==="
+echo "=== Build complete: ${BUILD_DIR}/ani ==="

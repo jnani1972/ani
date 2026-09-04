@@ -6,50 +6,50 @@
  *
  * Uses our own types so callers never include <regex.h> directly.
  */
-#ifndef CBM_COMPAT_REGEX_H
-#define CBM_COMPAT_REGEX_H
+#ifndef ANI_COMPAT_REGEX_H
+#define ANI_COMPAT_REGEX_H
 
 #include "foundation/constants.h"
 #include <stddef.h>
 
 /* ── Flags ────────────────────────────────────────────────────── */
 
-#define CBM_REG_EXTENDED 1
-#define CBM_REG_ICASE 2
-#define CBM_REG_NOSUB 4
-#define CBM_REG_NEWLINE 8
+#define ANI_REG_EXTENDED 1
+#define ANI_REG_ICASE 2
+#define ANI_REG_NOSUB 4
+#define ANI_REG_NEWLINE 8
 
 /* ── Error codes ──────────────────────────────────────────────── */
 
-#define CBM_REG_OK 0
-#define CBM_REG_NOMATCH (-1)
+#define ANI_REG_OK 0
+#define ANI_REG_NOMATCH (-1)
 
 /* ── Types ────────────────────────────────────────────────────── */
 
 /* Opaque regex handle — sized to hold the platform's regex_t. */
 typedef struct {
-    /* CBM_SZ_256 bytes should be large enough for any platform's regex_t.
-     * POSIX regex_t is typically 48-CBM_SZ_64 bytes; TRE is ~80 bytes. */
-    char opaque[CBM_SZ_256];
-} cbm_regex_t;
+    /* ANI_SZ_256 bytes should be large enough for any platform's regex_t.
+     * POSIX regex_t is typically 48-ANI_SZ_64 bytes; TRE is ~80 bytes. */
+    char opaque[ANI_SZ_256];
+} ani_regex_t;
 
 typedef struct {
     int rm_so; /* byte offset of match start, -1 if no match */
     int rm_eo; /* byte offset past match end */
-} cbm_regmatch_t;
+} ani_regmatch_t;
 
 /* ── Functions ────────────────────────────────────────────────── */
 
-/* Compile a regular expression. Returns CBM_REG_OK on success, non-zero on error. */
-int cbm_regcomp(cbm_regex_t *r, const char *pattern, int flags);
+/* Compile a regular expression. Returns ANI_REG_OK on success, non-zero on error. */
+int ani_regcomp(ani_regex_t *r, const char *pattern, int flags);
 
 /* Execute compiled regex against str. nmatch/matches may be 0/NULL.
  * eflags: 0 or combination of platform-specific exec flags.
- * Returns CBM_REG_OK on match, CBM_REG_NOMATCH on no match. */
-int cbm_regexec(const cbm_regex_t *r, const char *str, int nmatch, cbm_regmatch_t *matches,
+ * Returns ANI_REG_OK on match, ANI_REG_NOMATCH on no match. */
+int ani_regexec(const ani_regex_t *r, const char *str, int nmatch, ani_regmatch_t *matches,
                 int eflags);
 
 /* Free compiled regex. */
-void cbm_regfree(cbm_regex_t *r);
+void ani_regfree(ani_regex_t *r);
 
-#endif /* CBM_COMPAT_REGEX_H */
+#endif /* ANI_COMPAT_REGEX_H */

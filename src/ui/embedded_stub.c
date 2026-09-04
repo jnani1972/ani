@@ -1,21 +1,21 @@
 /*
  * embedded_stub.c — Empty asset table when built without frontend.
  *
- * Used by the standard `cbm` target (no Node.js required).
- * The `cbm-with-ui` target replaces this with generated embedded_assets.c.
+ * Used by the standard `ani` target (no Node.js required).
+ * The `ani-with-ui` target replaces this with generated embedded_assets.c.
  */
 #include "ui/embedded_assets.h"
 
 #include <stddef.h>
 #include <string.h>
 
-cbm_embedded_file_t CBM_EMBEDDED_FILES[] = {{NULL, NULL, 0, NULL}};
-const int CBM_EMBEDDED_FILE_COUNT = 0;
+ani_embedded_file_t ANI_EMBEDDED_FILES[] = {{NULL, NULL, 0, NULL}};
+const int ANI_EMBEDDED_FILE_COUNT = 0;
 
-const cbm_embedded_file_t *cbm_embedded_lookup(const char *path) {
-    for (int i = 0; i < CBM_EMBEDDED_FILE_COUNT; i++) {
-        if (strcmp(CBM_EMBEDDED_FILES[i].path, path) == 0) {
-            return &CBM_EMBEDDED_FILES[i];
+const ani_embedded_file_t *ani_embedded_lookup(const char *path) {
+    for (int i = 0; i < ANI_EMBEDDED_FILE_COUNT; i++) {
+        if (strcmp(ANI_EMBEDDED_FILES[i].path, path) == 0) {
+            return &ANI_EMBEDDED_FILES[i];
         }
     }
     return NULL;

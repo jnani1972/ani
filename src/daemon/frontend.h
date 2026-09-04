@@ -1,8 +1,8 @@
 /*
  * frontend.h — Stateless stdio bridge for a daemon-backed MCP session.
  */
-#ifndef CBM_DAEMON_FRONTEND_H
-#define CBM_DAEMON_FRONTEND_H
+#ifndef ANI_DAEMON_FRONTEND_H
+#define ANI_DAEMON_FRONTEND_H
 
 #include "daemon/runtime.h"
 #include "daemon/version_cohort.h"
@@ -10,23 +10,23 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-typedef struct cbm_daemon_maintenance_monitor cbm_daemon_maintenance_monitor_t;
+typedef struct ani_daemon_maintenance_monitor ani_daemon_maintenance_monitor_t;
 
 /* Called once when install/update/uninstall requests an active local command
  * to stop cooperatively. Returning false does not authorize the command to
  * outlive the bounded grace period. */
-typedef bool (*cbm_daemon_maintenance_cancel_fn)(void *context);
+typedef bool (*ani_daemon_maintenance_cancel_fn)(void *context);
 
 /* Parse one JSON-RPC message and recognize only the exact cancellation
  * notification method. String contents, nested fields, method prefixes, and
  * requests carrying an id are not cancellation notifications. */
-bool cbm_daemon_frontend_is_cancellation_notification(const char *message);
+bool ani_daemon_frontend_is_cancellation_notification(const char *message);
 
 /* Return true only when message is an exact cancellation notification whose
  * params.requestId has the same JSON type and value as the active request.
  * Empty, stale, and numeric-vs-string targets never authorize request
  * cancellation. */
-bool cbm_daemon_frontend_cancellation_matches_request(const char *message, int64_t active_id,
+bool ani_daemon_frontend_cancellation_matches_request(const char *message, int64_t active_id,
                                                       const char *active_id_str);
 
 /* Start a temporary observer for a one-shot local CLI command or physical
@@ -37,21 +37,21 @@ bool cbm_daemon_frontend_cancellation_matches_request(const char *message, int64
  * caller must stop and join before freeing either borrowed object; a false stop
  * result means process-level exit is the only safe alternative to freeing
  * memory still visible to the observer. */
-cbm_daemon_maintenance_monitor_t *cbm_daemon_maintenance_monitor_start(
-    cbm_version_cohort_manager_t *manager, cbm_daemon_maintenance_cancel_fn cancel,
+ani_daemon_maintenance_monitor_t *ani_daemon_maintenance_monitor_start(
+    ani_version_cohort_manager_t *manager, ani_daemon_maintenance_cancel_fn cancel,
     void *cancel_context, int exit_code, const char *participant);
-bool cbm_daemon_maintenance_monitor_stop(cbm_daemon_maintenance_monitor_t **monitor_io);
+bool ani_daemon_maintenance_monitor_stop(ani_daemon_maintenance_monitor_t **monitor_io);
 
-#if defined(CBM_ENABLE_TEST_SEAMS) && CBM_ENABLE_TEST_SEAMS
+#if defined(ANI_ENABLE_TEST_SEAMS) && ANI_ENABLE_TEST_SEAMS
 /* Deterministic observer accounting for the idle-frontend regression test.
  * The hold is inert until reset(true), and production builds contain neither
  * these controls nor their counters. */
-void cbm_daemon_frontend_test_observer_reset(bool hold_monitor);
-void cbm_daemon_frontend_test_observer_release(void);
-bool cbm_daemon_frontend_test_monitor_waiting(void);
-uint64_t cbm_daemon_frontend_test_monitor_observations(void);
-uint64_t cbm_daemon_frontend_test_worker_observations(void);
-uint64_t cbm_daemon_frontend_test_worker_idle_cycles(void);
+void ani_daemon_frontend_test_observer_reset(bool hold_monitor);
+void ani_daemon_frontend_test_observer_release(void);
+bool ani_daemon_frontend_test_monitor_waiting(void);
+uint64_t ani_daemon_frontend_test_monitor_observations(void);
+uint64_t ani_daemon_frontend_test_worker_observations(void);
+uint64_t ani_daemon_frontend_test_worker_idle_cycles(void);
 #endif
 
 /* Takes ownership of client and borrows cohort_manager for the complete call.
@@ -62,7 +62,7 @@ uint64_t cbm_daemon_frontend_test_worker_idle_cycles(void);
  * only this session's daemon work. EOF/parse failure closes the authenticated
  * session. An unexpected daemon transport failure likewise terminates the
  * process so an agent waiting with stdin still open observes server EOF. */
-int cbm_daemon_frontend_mcp_run(cbm_daemon_runtime_client_t *client,
-                                cbm_version_cohort_manager_t *cohort_manager, FILE *in, FILE *out);
+int ani_daemon_frontend_mcp_run(ani_daemon_runtime_client_t *client,
+                                ani_version_cohort_manager_t *cohort_manager, FILE *in, FILE *out);
 
-#endif /* CBM_DAEMON_FRONTEND_H */
+#endif /* ANI_DAEMON_FRONTEND_H */

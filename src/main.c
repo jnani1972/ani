@@ -1,5 +1,5 @@
 /*
- * main.c — Entry point for codebase-memory-mcp.
+ * main.c — Entry point for ani.
  *
  * Modes:
  *   (default)       Run as MCP server on stdin/stdout (JSON-RPC 2.0)
@@ -20,8 +20,8 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #endif
-#include "cbm.h"
-#include "store/store.h" // cbm_alloc_init — bind 3rd-party allocators to mimalloc before any sqlite/git init
+#include "ani.h"
+#include "store/store.h" // ani_alloc_init — bind 3rd-party allocators to mimalloc before any sqlite/git init
 #include "daemon/application.h"
 #include "daemon/bootstrap.h"
 #include "daemon/frontend.h"
@@ -58,7 +58,7 @@ enum {
     MAIN_HOOK_NOTICE_INTERVAL_SECONDS = 900,
     MAIN_CLOSE_TIMEOUT_MS = 5000,
     MAIN_COORDINATION_CLEANUP_MS = 500,
-    PARENT_WATCHDOG_STACK_SIZE = 64 * CBM_SZ_1K, /* watchdog only polls — tiny stack suffices */
+    PARENT_WATCHDOG_STACK_SIZE = 64 * ANI_SZ_1K, /* watchdog only polls — tiny stack suffices */
 };
 #define SLEN(s) (sizeof(s) - 1)
 #include "foundation/log.h"
@@ -72,7 +72,7 @@ enum {
 #include "foundation/profile.h"
 #include "foundation/sha256.h"
 #include "foundation/secure_random.h"
-#include "foundation/win_utf8.h" /* cbm_wide_to_utf8 — Windows UTF-8 argv (#423/#20); no-op on POSIX */
+#include "foundation/win_utf8.h" /* ani_wide_to_utf8 — Windows UTF-8 argv (#423/#20); no-op on POSIX */
 #ifdef _WIN32
 #include <shellapi.h> /* CommandLineToArgvW — not pulled in by windows.h under WIN32_LEAN_AND_MEAN */
 #include <io.h>
@@ -100,14 +100,14 @@ enum {
 #include <unistd.h>
 #endif
 
-#ifndef CBM_VERSION
-#define CBM_VERSION "dev"
+#ifndef ANI_VERSION
+#define ANI_VERSION "dev"
 #endif
 
 /* ── Globals for signal handling ────────────────────────────────── */
 
 static atomic_int g_shutdown = 0;
-static cbm_daemon_runtime_client_t *g_daemon_client = NULL;
+static ani_daemon_runtime_client_t *g_daemon_client = NULL;
 
 static uint64_t main_deadline_after(uint32_t timeout_ms);
 
@@ -118,12 +118,12 @@ typedef struct main_local_cli_lease main_local_cli_lease_t;
 
 struct main_local_cli_lease {
     char *project;
-    cbm_project_lock_lease_t *lease;
+    ani_project_lock_lease_t *lease;
     main_local_cli_lease_t *next;
 };
 
 typedef struct {
-    cbm_project_lock_manager_t *manager;
+    ani_project_lock_manager_t *manager;
     main_local_cli_lease_t *leases;
     FILE *feedback;
     bool index_worker;
@@ -131,29 +131,29 @@ typedef struct {
 } main_local_cli_mutation_t;
 
 typedef struct {
-    cbm_mutex_t mutex;
-    cbm_mcp_server_t *server;
+    ani_mutex_t mutex;
+    ani_mcp_server_t *server;
     bool maintenance_cancelled;
 } main_local_maintenance_context_t;
 
 static void main_local_maintenance_context_init(main_local_maintenance_context_t *context) {
     memset(context, 0, sizeof(*context));
-    cbm_mutex_init(&context->mutex);
+    ani_mutex_init(&context->mutex);
 }
 
 static void main_local_maintenance_context_destroy(main_local_maintenance_context_t *context) {
-    cbm_mutex_destroy(&context->mutex);
+    ani_mutex_destroy(&context->mutex);
     memset(context, 0, sizeof(*context));
 }
 
 static void main_local_maintenance_server_bind(main_local_maintenance_context_t *context,
-                                               cbm_mcp_server_t *server) {
+                                               ani_mcp_server_t *server) {
     if (!context) {
         return;
     }
-    cbm_mutex_lock(&context->mutex);
+    ani_mutex_lock(&context->mutex);
     context->server = server;
-    cbm_mutex_unlock(&context->mutex);
+    ani_mutex_unlock(&context->mutex);
 }
 
 static bool main_local_command_cancel(void *opaque) {
@@ -161,10 +161,10 @@ static bool main_local_command_cancel(void *opaque) {
     if (!context) {
         return false;
     }
-    cbm_mutex_lock(&context->mutex);
-    bool cancelled = context->server && cbm_mcp_server_cancel_active(context->server);
+    ani_mutex_lock(&context->mutex);
+    bool cancelled = context->server && ani_mcp_server_cancel_active(context->server);
     context->maintenance_cancelled = context->maintenance_cancelled || cancelled;
-    cbm_mutex_unlock(&context->mutex);
+    ani_mutex_unlock(&context->mutex);
     return cancelled;
 }
 
@@ -172,19 +172,19 @@ static bool main_local_maintenance_was_cancelled(main_local_maintenance_context_
     if (!context) {
         return false;
     }
-    cbm_mutex_lock(&context->mutex);
+    ani_mutex_lock(&context->mutex);
     bool cancelled = context->maintenance_cancelled;
-    cbm_mutex_unlock(&context->mutex);
+    ani_mutex_unlock(&context->mutex);
     return cancelled;
 }
 
-static void main_local_maintenance_finish(cbm_daemon_maintenance_monitor_t **monitor,
+static void main_local_maintenance_finish(ani_daemon_maintenance_monitor_t **monitor,
                                           main_local_maintenance_context_t *context,
                                           bool context_initialized, const char *participant) {
-    if (monitor && *monitor && !cbm_daemon_maintenance_monitor_stop(monitor)) {
+    if (monitor && *monitor && !ani_daemon_maintenance_monitor_stop(monitor)) {
         /* The observer still borrows context (and may be inside cancellation).
          * Freeing command/server/manager memory would be a cross-thread UAF. */
-        cbm_log_error("participant.maintenance_join_failed", "participant", participant, "action",
+        ani_log_error("participant.maintenance_join_failed", "participant", participant, "action",
                       "process_exit");
         (void)fflush(stdout);
         (void)fflush(stderr);
@@ -196,9 +196,9 @@ static void main_local_maintenance_finish(cbm_daemon_maintenance_monitor_t **mon
 }
 
 static _Noreturn void main_coordination_cleanup_fail_stop(const char *component) {
-    cbm_log_error("coordination.cleanup_timeout", "component", component, "action", "process_exit");
+    ani_log_error("coordination.cleanup_timeout", "component", component, "action", "process_exit");
     (void)fprintf(stderr,
-                  "codebase-memory-mcp: coordination cleanup timed out (%s); "
+                  "ani: coordination cleanup timed out (%s); "
                   "terminating so the OS releases retained claims\n",
                   component ? component : "unknown");
     (void)fflush(stdout);
@@ -206,17 +206,17 @@ static _Noreturn void main_coordination_cleanup_fail_stop(const char *component)
     _Exit(EXIT_FAILURE);
 }
 
-static void main_project_lock_release_fully(cbm_project_lock_lease_t **lease) {
+static void main_project_lock_release_fully(ani_project_lock_lease_t **lease) {
     uint64_t deadline = main_deadline_after(MAIN_COORDINATION_CLEANUP_MS);
     while (lease && *lease) {
-        (void)cbm_project_lock_lease_release(lease);
+        (void)ani_project_lock_lease_release(lease);
         if (!*lease) {
             return;
         }
-        if (cbm_now_ms() >= deadline) {
+        if (ani_now_ms() >= deadline) {
             main_coordination_cleanup_fail_stop("project_lock_cleanup");
         }
-        cbm_usleep(1000);
+        ani_usleep(1000);
     }
 }
 
@@ -230,10 +230,10 @@ static void main_project_lock_release_fully(cbm_project_lock_lease_t **lease) {
  * is benign in isolation (an O_EXCL|O_NOFOLLOW PID file), but it is still
  * test-only code reachable through a caller-supplied path in a shipped binary,
  * and its consumers all build with TEST_SEAMS=1. The crash/hang injectors in
- * internal/cbm/cbm.c are governed by the same boundary. The narrowly validated
+ * internal/ani/ani.c are governed by the same boundary. The narrowly validated
  * Windows PATH smoke redirect remains in release artifacts so artifact tests
  * never mutate the runner's live user PATH. */
-#ifdef CBM_ENABLE_TEST_SEAMS
+#ifdef ANI_ENABLE_TEST_SEAMS
 static bool main_test_worker_project_lock_marker(const main_local_cli_mutation_t *mutation) {
 #ifdef _WIN32
     (void)mutation;
@@ -243,7 +243,7 @@ static bool main_test_worker_project_lock_marker(const main_local_cli_mutation_t
         return true;
     }
     char marker_path[MAIN_PATH_CAP] = {0};
-    if (!cbm_safe_getenv("CBM_TEST_WORKER_PROJECT_LOCK_PID_FILE", marker_path, sizeof(marker_path),
+    if (!ani_safe_getenv("ANI_TEST_WORKER_PROJECT_LOCK_PID_FILE", marker_path, sizeof(marker_path),
                          NULL) ||
         !marker_path[0]) {
         return true;
@@ -274,19 +274,19 @@ static bool main_local_cli_mutation_begin_internal(void *context, const char *pr
         return false;
     }
     for (;;) {
-        cbm_project_lock_lease_t *lease = NULL;
-        cbm_private_file_lock_status_t status;
+        ani_project_lock_lease_t *lease = NULL;
+        ani_private_file_lock_status_t status;
         if (wait) {
-            uint64_t now = cbm_now_ms();
+            uint64_t now = ani_now_ms();
             uint64_t deadline = now > UINT64_MAX - 100U ? UINT64_MAX : now + 100U;
-            status = cbm_project_lock_acquire(mutation->manager, project, deadline, NULL, &lease);
+            status = ani_project_lock_acquire(mutation->manager, project, deadline, NULL, &lease);
         } else {
-            status = cbm_project_lock_try_acquire(mutation->manager, project, &lease);
+            status = ani_project_lock_try_acquire(mutation->manager, project, &lease);
         }
-        if (status == CBM_PRIVATE_FILE_LOCK_OK && lease) {
+        if (status == ANI_PRIVATE_FILE_LOCK_OK && lease) {
             main_local_cli_lease_t *held = calloc(1, sizeof(*held));
             if (held) {
-                held->project = cbm_strdup(project);
+                held->project = ani_strdup(project);
             }
             if (!held || !held->project) {
                 free(held);
@@ -296,7 +296,7 @@ static bool main_local_cli_mutation_begin_internal(void *context, const char *pr
             held->lease = lease;
             held->next = mutation->leases;
             mutation->leases = held;
-#ifdef CBM_ENABLE_TEST_SEAMS
+#ifdef ANI_ENABLE_TEST_SEAMS
             if (!main_test_worker_project_lock_marker(mutation)) {
                 mutation->leases = held->next;
                 main_project_lock_release_fully(&held->lease);
@@ -308,8 +308,8 @@ static bool main_local_cli_mutation_begin_internal(void *context, const char *pr
             return true;
         }
         main_project_lock_release_fully(&lease);
-        if (status != CBM_PRIVATE_FILE_LOCK_BUSY) {
-            cbm_log_error("cli.project_lock_failed", "project", project, "action",
+        if (status != ANI_PRIVATE_FILE_LOCK_BUSY) {
+            ani_log_error("cli.project_lock_failed", "project", project, "action",
                           "refuse_mutation");
             return false;
         }
@@ -317,7 +317,7 @@ static bool main_local_cli_mutation_begin_internal(void *context, const char *pr
             return false;
         }
         if (mutation->feedback && !mutation->waiting_reported) {
-            (void)fprintf(mutation->feedback, "Waiting for another CBM mutation of %s...\n",
+            (void)fprintf(mutation->feedback, "Waiting for another ANI mutation of %s...\n",
                           project);
             (void)fflush(mutation->feedback);
             mutation->waiting_reported = true;
@@ -402,7 +402,7 @@ static void *parent_watchdog_thread(void *arg) {
     const unsigned int poll_interval_us = 500000; /* 500ms */
 
     while (!atomic_load(&g_shutdown)) {
-        cbm_usleep(poll_interval_us);
+        ani_usleep(poll_interval_us);
         if (atomic_load(&g_shutdown)) {
             break;
         }
@@ -442,7 +442,7 @@ static bool worker_prepare_process_group(void) {
  */
 static void worker_containment_unavailable(void) {
     static const char message[] =
-        "CBM index worker could not start: process-tree containment unavailable\n";
+        "ANI index worker could not start: process-tree containment unavailable\n";
     (void)write(STDERR_FILENO, message, sizeof(message) - 1);
     (void)kill(-getpid(), SIGKILL);
     _exit(EXIT_FAILURE);
@@ -452,7 +452,7 @@ static void worker_containment_unavailable(void) {
  * created before the watchdog thread so fork never occurs in a multithreaded
  * worker, and inherits the worker's isolated process group.
  *
- * COMPILED OUT of ordinary builds (see TEST_SEAMS in Makefile.cbm). "Fork a
+ * COMPILED OUT of ordinary builds (see TEST_SEAMS in Makefile.ani). "Fork a
  * child that ignores SIGTERM and loops forever, then write its PID to a path
  * the caller chose" is a fine test probe and an appalling thing to find in a
  * shipped executable — it is precisely the shape a generic malware classifier
@@ -461,10 +461,10 @@ static void worker_containment_unavailable(void) {
  * suites that need it build with TEST_SEAMS=1, and
  * scripts/ci/check-binary-composition.sh fails the release if the marker
  * string ever reappears in an artifact. */
-#ifdef CBM_ENABLE_TEST_SEAMS
+#ifdef ANI_ENABLE_TEST_SEAMS
 static bool worker_start_watchdog_test_descendant(void) {
-    char pid_path[CBM_SZ_4K] = {0};
-    if (!cbm_safe_getenv("CBM_TEST_WORKER_DESCENDANT_PID_FILE", pid_path, sizeof(pid_path), NULL) ||
+    char pid_path[ANI_SZ_4K] = {0};
+    if (!ani_safe_getenv("ANI_TEST_WORKER_DESCENDANT_PID_FILE", pid_path, sizeof(pid_path), NULL) ||
         !pid_path[0]) {
         return true;
     }
@@ -475,7 +475,7 @@ static bool worker_start_watchdog_test_descendant(void) {
     if (descendant == 0) {
         (void)signal(SIGTERM, SIG_IGN);
         for (;;) {
-            cbm_usleep(100000);
+            ani_usleep(100000);
         }
     }
     int open_flags = O_WRONLY | O_CREAT | O_EXCL;
@@ -507,12 +507,12 @@ static bool worker_start_parent_watchdog(pid_t initial_ppid) {
     worker_config.initial_ppid = initial_ppid;
     worker_config.kill_worker_group = true;
     worker_config.exit_on_parent_death = true;
-    cbm_thread_t worker_watchdog_tid;
-    if (cbm_thread_create(&worker_watchdog_tid, PARENT_WATCHDOG_STACK_SIZE, parent_watchdog_thread,
+    ani_thread_t worker_watchdog_tid;
+    if (ani_thread_create(&worker_watchdog_tid, PARENT_WATCHDOG_STACK_SIZE, parent_watchdog_thread,
                           &worker_config) != 0) {
         return false;
     }
-    return cbm_thread_detach(&worker_watchdog_tid) == 0;
+    return ani_thread_detach(&worker_watchdog_tid) == 0;
 }
 
 static bool client_start_parent_watchdog(pid_t initial_ppid) {
@@ -523,14 +523,14 @@ static bool client_start_parent_watchdog(pid_t initial_ppid) {
     client_config.initial_ppid = initial_ppid;
     client_config.kill_worker_group = false;
     client_config.exit_on_parent_death = true;
-    cbm_thread_t watchdog;
-    if (cbm_thread_create(&watchdog, PARENT_WATCHDOG_STACK_SIZE, parent_watchdog_thread,
+    ani_thread_t watchdog;
+    if (ani_thread_create(&watchdog, PARENT_WATCHDOG_STACK_SIZE, parent_watchdog_thread,
                           &client_config) != 0) {
         return false;
     }
-    if (cbm_thread_detach(&watchdog) != 0) {
+    if (ani_thread_detach(&watchdog) != 0) {
         atomic_store(&g_shutdown, 1);
-        (void)cbm_thread_join(&watchdog);
+        (void)ani_thread_join(&watchdog);
         return false;
     }
     return true;
@@ -539,7 +539,7 @@ static bool client_start_parent_watchdog(pid_t initial_ppid) {
 
 /* ── CLI mode ───────────────────────────────────────────────────── */
 
-#define CLI_USAGE "Usage: codebase-memory-mcp cli [--progress] [--json] <tool_name> [json_args]\n"
+#define CLI_USAGE "Usage: ani cli [--progress] [--json] <tool_name> [json_args]\n"
 
 /* Extract text content from MCP tool result envelope and print it.
  * MCP results: {"content":[{"type":"text","text":"..."}],"isError":...}
@@ -667,7 +667,7 @@ static bool cli_first_nonspace_is_brace(const char *s) {
 
 static char *main_local_cli_daemon_execute(const char *tool_name, const char *args_json);
 
-static int run_cli(int argc, char **argv, cbm_project_lock_manager_t *project_locks,
+static int run_cli(int argc, char **argv, ani_project_lock_manager_t *project_locks,
                    main_local_maintenance_context_t *maintenance_context) {
     if (argc == 1 && argv && (strcmp(argv[0], "--help") == 0 || strcmp(argv[0], "-h") == 0)) {
         (void)fputs(CLI_USAGE, stdout);
@@ -686,16 +686,16 @@ static int run_cli(int argc, char **argv, cbm_project_lock_manager_t *project_lo
      * the given file for the parent to read back. Stripped here so the tool
      * dispatch below sees only the tool name + its args. */
     bool index_worker = cli_strip_flag(&argc, argv, "--index-worker");
-    (void)cli_strip_flag_value(&argc, argv, CBM_INDEX_WORKER_BUILD_ARG);
+    (void)cli_strip_flag_value(&argc, argv, ANI_INDEX_WORKER_BUILD_ARG);
     const char *response_out = cli_strip_flag_value(&argc, argv, "--response-out");
-    (void)cli_strip_flag_value(&argc, argv, CBM_INDEX_WORKER_MEMORY_BUDGET_ARG);
-    bool worker_single_thread = cli_strip_flag(&argc, argv, CBM_INDEX_WORKER_SINGLE_THREAD_ARG);
-    const char *worker_marker = cli_strip_flag_value(&argc, argv, CBM_INDEX_WORKER_MARKER_ARG);
+    (void)cli_strip_flag_value(&argc, argv, ANI_INDEX_WORKER_MEMORY_BUDGET_ARG);
+    bool worker_single_thread = cli_strip_flag(&argc, argv, ANI_INDEX_WORKER_SINGLE_THREAD_ARG);
+    const char *worker_marker = cli_strip_flag_value(&argc, argv, ANI_INDEX_WORKER_MARKER_ARG);
     const char *worker_quarantine =
-        cli_strip_flag_value(&argc, argv, CBM_INDEX_WORKER_QUARANTINE_ARG);
-    cbm_index_set_worker_role_options(index_worker, response_out, worker_single_thread,
+        cli_strip_flag_value(&argc, argv, ANI_INDEX_WORKER_QUARANTINE_ARG);
+    ani_index_set_worker_role_options(index_worker, response_out, worker_single_thread,
                                       worker_marker, worker_quarantine,
-                                      cbm_index_worker_memory_budget_bytes());
+                                      ani_index_worker_memory_budget_bytes());
 
     if (argc < MAIN_MIN_ARGC) {
         (void)fprintf(stderr, CLI_USAGE);
@@ -710,7 +710,7 @@ static int run_cli(int argc, char **argv, cbm_project_lock_manager_t *project_lo
      * before any server work. */
     for (int i = 0; i < rem_argc; i++) {
         if (strcmp(rem_argv[i], "--help") == 0 || strcmp(rem_argv[i], "-h") == 0) {
-            if (cbm_cli_print_tool_help(tool_name) != 0) {
+            if (ani_cli_print_tool_help(tool_name) != 0) {
                 (void)fprintf(stderr, "error: unknown tool '%s'\n", tool_name);
                 return SKIP_ONE;
             }
@@ -755,14 +755,14 @@ static int run_cli(int argc, char **argv, cbm_project_lock_manager_t *project_lo
     } else if (rem_argc >= SKIP_ONE && strncmp(rem_argv[0], "--", 2) == 0) {
         /* flag form: cli <tool> --flag value --bare-bool ... */
         char *err = NULL;
-        heap_args = cbm_cli_build_args_json(tool_name, rem_argc, rem_argv, &err);
+        heap_args = ani_cli_build_args_json(tool_name, rem_argc, rem_argv, &err);
         if (!heap_args) {
             (void)fprintf(stderr, "error: %s\n", err ? err : "invalid arguments");
             free(err);
             return SKIP_ONE;
         }
         args_json = heap_args;
-    } else if (cbm_cli_args_from_stdin_allowed(tool_name, cli_isatty(0) != 0)) {
+    } else if (ani_cli_args_from_stdin_allowed(tool_name, cli_isatty(0) != 0)) {
         /* piped stdin (UTF-8 clean, no shell quoting): cli <tool> < args.json.
          * Gated (#1359): a tool that declares no arguments must not read a pipe
          * nobody is going to write to or close — see the WHY on the predicate. */
@@ -777,17 +777,17 @@ static int run_cli(int argc, char **argv, cbm_project_lock_manager_t *project_lo
     }
 
     bool progress =
-        !index_worker && cbm_cli_progress_enabled(progress_requested, cli_isatty(2) != 0);
-    uint64_t progress_started_ms = cbm_now_ms();
+        !index_worker && ani_cli_progress_enabled(progress_requested, cli_isatty(2) != 0);
+    uint64_t progress_started_ms = ani_now_ms();
     if (progress) {
-        cbm_progress_sink_init(stderr);
-        cbm_cli_progress_start(stderr, tool_name);
+        ani_progress_sink_init(stderr);
+        ani_cli_progress_start(stderr, tool_name);
     }
 
     /* Indexing always executes daemon-side now (the daemon's supervisor
      * spawns and budgets the worker); no local supervision prep remains for
      * one-shot commands. */
-    cbm_mcp_server_t *srv = NULL;
+    ani_mcp_server_t *srv = NULL;
     char *result = NULL;
     main_local_cli_mutation_t mutation = {
         .manager = project_locks,
@@ -799,24 +799,24 @@ static int run_cli(int argc, char **argv, cbm_project_lock_manager_t *project_lo
     if (!index_worker) {
         result = main_local_cli_daemon_execute(tool_name, args_json);
     } else {
-        srv = cbm_mcp_server_new(NULL);
+        srv = ani_mcp_server_new(NULL);
         if (srv) {
             /* The in-process worker is a standalone instance: it may not
              * launch MCP-session background tasks. It receives project_locks
              * from its own process-level coordination setup and therefore
              * owns the mutation lease while it performs the physical write. */
-            cbm_mcp_server_set_background_tasks(srv, false);
+            ani_mcp_server_set_background_tasks(srv, false);
             if (project_locks) {
-                cbm_mcp_server_set_project_mutation_guard(srv, main_local_cli_mutation_begin,
+                ani_mcp_server_set_project_mutation_guard(srv, main_local_cli_mutation_begin,
                                                           main_local_cli_mutation_end, &mutation);
-                cbm_mcp_server_set_project_mutation_try_guard(srv,
+                ani_mcp_server_set_project_mutation_try_guard(srv,
                                                               main_local_cli_mutation_try_begin);
             }
         }
         maintenance_binding_failed = srv && !maintenance_context;
         if (srv && maintenance_context) {
             main_local_maintenance_server_bind(maintenance_context, srv);
-            result = cbm_mcp_handle_tool(srv, tool_name, args_json);
+            result = ani_mcp_handle_tool(srv, tool_name, args_json);
             /* Unbind under the same mutex used by cancellation before any
              * server teardown. The process-level monitor remains active
              * across all parsing and cleanup, but can no longer race a freed
@@ -833,11 +833,11 @@ static int run_cli(int argc, char **argv, cbm_project_lock_manager_t *project_lo
         } else if (index_worker) {
             (void)fprintf(stderr, "error: failed to run local worker server\n");
         }
-        cbm_mcp_server_free(srv);
+        ani_mcp_server_free(srv);
         main_local_cli_mutation_release_all(&mutation);
         if (progress) {
-            cbm_progress_sink_fini();
-            cbm_cli_progress_finish(stderr, tool_name, false, cbm_now_ms() - progress_started_ms);
+            ani_progress_sink_fini();
+            ani_cli_progress_finish(stderr, tool_name, false, ani_now_ms() - progress_started_ms);
         }
         free(heap_args);
         return SKIP_ONE;
@@ -847,10 +847,10 @@ static int run_cli(int argc, char **argv, cbm_project_lock_manager_t *project_lo
     {
         /* Supervised worker: hand the full result string to the parent via the
          * response file before printing (parent reads it back on a clean exit). */
-        const char *ro = cbm_index_worker_response_out();
+        const char *ro = ani_index_worker_response_out();
         bool worker_response_written = false;
         if (ro) {
-            FILE *rf = cbm_fopen(ro, "wb");
+            FILE *rf = ani_fopen(ro, "wb");
             if (rf) {
                 int write_rc = fputs(result, rf);
                 int close_rc = fclose(rf);
@@ -862,31 +862,31 @@ static int run_cli(int argc, char **argv, cbm_project_lock_manager_t *project_lo
             /* Raw JSON changes presentation only. Preserve a failing process
              * status for MCP tool errors so scripts and activation-driven
              * cancellation cannot be reported as successful work. */
-            exit_code = cbm_cli_mcp_result_is_error(result) ? SKIP_ONE : 0;
+            exit_code = ani_cli_mcp_result_is_error(result) ? SKIP_ONE : 0;
         } else {
             exit_code = cli_print_mcp_result(result);
         }
-        exit_code = cbm_cli_exit_status_after_maintenance(exit_code, maintenance_cancelled);
-        if (cbm_index_worker_active()) {
+        exit_code = ani_cli_exit_status_after_maintenance(exit_code, maintenance_cancelled);
+        if (ani_index_worker_active()) {
             /* The supervisor protocol classifies the PROCESS, not the tool
              * result: a valid MCP error response is a healthy worker outcome.
              * Propagating cli_print_mcp_result's isError exit code made the
              * parent discard that response and falsely report exit_nonzero as
              * "crashed on a file". Fail only when the response transport itself
              * failed. Skip multi-GB teardown; the OS reclaims it at exit. */
-            cbm_log_info("index.worker.fast_exit", "action", "_Exit");
+            ani_log_info("index.worker.fast_exit", "action", "_Exit");
             fflush(NULL);
             _Exit(worker_response_written ? 0 : SKIP_ONE);
         }
         free(result);
     }
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     main_local_cli_mutation_release_all(&mutation);
     if (progress) {
-        cbm_progress_sink_fini();
-        cbm_cli_progress_finish(stderr, tool_name, exit_code == 0,
-                                cbm_now_ms() - progress_started_ms);
+        ani_progress_sink_fini();
+        ani_cli_progress_finish(stderr, tool_name, exit_code == 0,
+                                ani_now_ms() - progress_started_ms);
     }
     free(heap_args);
     return exit_code;
@@ -895,20 +895,20 @@ static int run_cli(int argc, char **argv, cbm_project_lock_manager_t *project_lo
 /* ── Help ───────────────────────────────────────────────────────── */
 
 static void print_help(void) {
-    printf("codebase-memory-mcp %s\n\n", CBM_VERSION);
+    printf("ani %s\n\n", ANI_VERSION);
     printf("Usage:\n");
-    printf("  codebase-memory-mcp              Run MCP server on stdio\n");
-    printf("  codebase-memory-mcp cli [--progress] [--json] <tool> [args]\n");
+    printf("  ani              Run MCP server on stdio\n");
+    printf("  ani cli [--progress] [--json] <tool> [args]\n");
     printf("                                      Run one tool locally, then exit\n");
-    printf("  codebase-memory-mcp install [-y|-n] [--force] [--dry-run] "
+    printf("  ani install [-y|-n] [--force] [--dry-run] "
            "[--dir=<path>] [--skip-config]\n");
     printf("                                      [--clients=<tokens>]  Run "
            "'install --clients' to list tokens\n");
-    printf("  codebase-memory-mcp uninstall [-y|-n] [--dry-run]\n");
-    printf("  codebase-memory-mcp update [-y|-n]\n");
-    printf("  codebase-memory-mcp config <list|get|set|reset>\n");
-    printf("  codebase-memory-mcp --version    Print version\n");
-    printf("  codebase-memory-mcp --help       Print this help\n");
+    printf("  ani uninstall [-y|-n] [--dry-run]\n");
+    printf("  ani update [-y|-n]\n");
+    printf("  ani config <list|get|set|reset>\n");
+    printf("  ani --version    Print version\n");
+    printf("  ani --help       Print this help\n");
     printf("\nUI options:\n");
     printf("  --ui=true    Enable HTTP graph visualization (persisted)\n");
     printf("  --ui=false   Disable HTTP graph visualization (persisted)\n");
@@ -931,7 +931,7 @@ static void print_help(void) {
     printf("  CodeRabbit.\n");
     /* Rendered from the MCP tool registry: a hand-maintained copy here
      * omitted check_index_coverage (#1361) and could silently drift again. */
-    char *tools_help = cbm_mcp_tools_help_list();
+    char *tools_help = ani_mcp_tools_help_list();
     if (tools_help) {
         printf("\n%s", tools_help);
         free(tools_help);
@@ -972,15 +972,15 @@ static int main_run_allow_root(int argc, char **argv) {
         }
     }
 
-    const char *cache_dir = cbm_workspace_cache_dir();
+    const char *cache_dir = ani_workspace_cache_dir();
     if (!cache_dir || !cache_dir[0]) {
         (void)fprintf(stderr, "error: cache directory could not be resolved\n");
         return EXIT_FAILURE;
     }
 
     if (list_only || !path) {
-        char listing[CBM_SZ_8K];
-        if (cbm_workspace_grant_list(cache_dir, listing, sizeof(listing))) {
+        char listing[ANI_SZ_8K];
+        if (ani_workspace_grant_list(cache_dir, listing, sizeof(listing))) {
             printf("allowed roots:\n%s", listing);
         } else {
             printf("no allowed roots recorded — indexing is unconfined apart from the "
@@ -988,9 +988,9 @@ static int main_run_allow_root(int argc, char **argv) {
         }
         if (!path && !list_only) {
             (void)fprintf(stderr,
-                          "usage: codebase-memory-mcp allow-root [--approve-sensitive] <path>\n"
-                          "       codebase-memory-mcp allow-root --approve-manifest <project>\n"
-                          "       codebase-memory-mcp allow-root --list\n");
+                          "usage: ani allow-root [--approve-sensitive] <path>\n"
+                          "       ani allow-root --approve-manifest <project>\n"
+                          "       ani allow-root --list\n");
             return EXIT_FAILURE;
         }
         return 0;
@@ -999,38 +999,38 @@ static int main_run_allow_root(int argc, char **argv) {
     if (approve_manifest) {
         /* Approve the manifest a project ships, keyed to its current content. The
          * file only ever requests; this is the human action that grants. */
-        char canonical_project[CBM_PATH_MAX];
-        if (!cbm_canonical_path(path, canonical_project, sizeof(canonical_project))) {
+        char canonical_project[ANI_PATH_MAX];
+        if (!ani_canonical_path(path, canonical_project, sizeof(canonical_project))) {
             (void)fprintf(stderr, "error: cannot resolve path: %s\n", path);
             return EXIT_FAILURE;
         }
-        char merr[CBM_SZ_1K];
-        if (!cbm_workspace_manifest_approve(cache_dir, cbm_workspace_home_dir(), canonical_project,
+        char merr[ANI_SZ_1K];
+        if (!ani_workspace_manifest_approve(cache_dir, ani_workspace_home_dir(), canonical_project,
                                             merr, sizeof(merr))) {
             (void)fprintf(stderr, "refused: %s\n", merr[0] ? merr : "manifest not approvable");
             return EXIT_FAILURE;
         }
         printf("manifest approved for %s\n", canonical_project);
         printf("note: editing %s lapses this approval and it must be granted again.\n",
-               CBM_WS_MANIFEST_NAME);
+               ANI_WS_MANIFEST_NAME);
         return 0;
     }
 
     /* Canonicalize before recording: the policy is defined over resolved paths,
      * and a grant stored as a symlink would not match the resolved repo path the
      * indexer later presents. */
-    char canonical[CBM_PATH_MAX];
-    if (!cbm_canonical_path(path, canonical, sizeof(canonical))) {
+    char canonical[ANI_PATH_MAX];
+    if (!ani_canonical_path(path, canonical, sizeof(canonical))) {
         (void)fprintf(stderr, "error: cannot resolve path: %s\n", path);
         return EXIT_FAILURE;
     }
-    if (!cbm_is_dir(canonical)) {
+    if (!ani_is_dir(canonical)) {
         (void)fprintf(stderr, "error: not a directory: %s\n", canonical);
         return EXIT_FAILURE;
     }
 
-    char err[CBM_SZ_1K];
-    if (!cbm_workspace_grant_add(cache_dir, cbm_workspace_home_dir(), canonical, approve_sensitive,
+    char err[ANI_SZ_1K];
+    if (!ani_workspace_grant_add(cache_dir, ani_workspace_home_dir(), canonical, approve_sensitive,
                                  err, sizeof(err))) {
         (void)fprintf(stderr, "refused: %s\n", err[0] ? err : "not an allowable root");
         return EXIT_FAILURE;
@@ -1041,17 +1041,17 @@ static int main_run_allow_root(int argc, char **argv) {
     return 0;
 }
 
-static int handle_subcommand(int argc, char **argv, cbm_project_lock_manager_t *project_locks,
+static int handle_subcommand(int argc, char **argv, ani_project_lock_manager_t *project_locks,
                              main_local_maintenance_context_t *maintenance_context) {
     /* First scan: global flags */
     for (int i = SKIP_ONE; i < argc; i++) {
         if (strcmp(argv[i], "--profile") == 0) {
-            cbm_profile_enable();
+            ani_profile_enable();
         }
     }
     for (int i = SKIP_ONE; i < argc; i++) {
         if (strcmp(argv[i], "--version") == 0) {
-            printf("codebase-memory-mcp %s\n", CBM_VERSION);
+            printf("ani %s\n", ANI_VERSION);
             return 0;
         }
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -1062,29 +1062,29 @@ static int handle_subcommand(int argc, char **argv, cbm_project_lock_manager_t *
             return main_run_allow_root(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
         }
         if (strcmp(argv[i], "cli") == 0) {
-            cbm_mem_init_with_cap(cbm_mem_ram_fraction_for_total(cbm_system_info().total_ram),
-                                  cbm_index_worker_memory_budget_bytes());
+            ani_mem_init_with_cap(ani_mem_ram_fraction_for_total(ani_system_info().total_ram),
+                                  ani_index_worker_memory_budget_bytes());
             return run_cli(argc - i - SKIP_ONE, argv + i + SKIP_ONE, project_locks,
                            maintenance_context);
         }
         if (strcmp(argv[i], "hook-augment") == 0) {
-            cbm_mem_init(cbm_mem_ram_fraction_for_total(cbm_system_info().total_ram));
-            return cbm_cmd_hook_augment(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
+            ani_mem_init(ani_mem_ram_fraction_for_total(ani_system_info().total_ram));
+            return ani_cmd_hook_augment(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
         }
         if (strcmp(argv[i], "install") == 0) {
-            return cbm_cmd_install(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
+            return ani_cmd_install(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
         }
         if (strcmp(argv[i], "uninstall") == 0) {
-            return cbm_cmd_uninstall(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
+            return ani_cmd_uninstall(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
         }
         if (strcmp(argv[i], "update") == 0) {
-            return cbm_cmd_update(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
+            return ani_cmd_update(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
         }
         if (strcmp(argv[i], "config") == 0) {
-            return cbm_cmd_config(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
+            return ani_cmd_config(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
         }
     }
-    return CBM_NOT_FOUND;
+    return ANI_NOT_FOUND;
 }
 
 /* Parse --ui= and --port= into a per-field daemon mutation. */
@@ -1097,17 +1097,17 @@ static uint8_t parse_ui_flags(int argc, char **argv, bool *ui_enabled, int *ui_p
             if (explicit_enable && *ui_enabled) {
                 *explicit_enable = true;
             }
-            update_mask |= CBM_DAEMON_APPLICATION_UI_CONFIG_ENABLED;
+            update_mask |= ANI_DAEMON_APPLICATION_UI_CONFIG_ENABLED;
         }
         if (strncmp(argv[i], "--port=", SLEN("--port=")) == 0) {
             const char *value = argv[i] + MAIN_PORT_OFF;
             char *end = NULL;
             errno = 0;
-            long port = strtol(value, &end, CBM_DECIMAL_BASE);
+            long port = strtol(value, &end, ANI_DECIMAL_BASE);
             if (errno == 0 && end != value && end && *end == '\0' && port > 0 &&
                 port < MAIN_MAX_PORT) {
                 *ui_port = (int)port;
-                update_mask |= CBM_DAEMON_APPLICATION_UI_CONFIG_PORT;
+                update_mask |= ANI_DAEMON_APPLICATION_UI_CONFIG_PORT;
             }
         }
     }
@@ -1139,7 +1139,7 @@ static void setup_signal_handlers(void) {
  * NULL-terminated argv and sets *out_argc, or NULL on any failure (caller then keeps
  * the original narrow argv). The returned block lives for the whole process (argv must
  * stay valid until exit), so it is intentionally never freed. */
-static char **cbm_win_utf8_argv(int *out_argc) {
+static char **ani_win_utf8_argv(int *out_argc) {
     int wargc = 0;
     LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);
     if (!wargv) {
@@ -1155,7 +1155,7 @@ static char **cbm_win_utf8_argv(int *out_argc) {
         return NULL;
     }
     for (int i = 0; i < wargc; i++) {
-        u8argv[i] = cbm_wide_to_utf8(wargv[i]);
+        u8argv[i] = ani_wide_to_utf8(wargv[i]);
         if (!u8argv[i]) {
             for (int j = 0; j < i; j++) {
                 free(u8argv[j]);
@@ -1173,8 +1173,8 @@ static char **cbm_win_utf8_argv(int *out_argc) {
 
 static bool main_resolve_executable(const char *argv0, char out[MAIN_PATH_CAP]) {
     char resolved[MAIN_PATH_CAP];
-    return cbm_http_server_resolve_binary_path(argv0, resolved, sizeof(resolved)) &&
-           cbm_canonical_path(resolved, out, MAIN_PATH_CAP);
+    return ani_http_server_resolve_binary_path(argv0, resolved, sizeof(resolved)) &&
+           ani_canonical_path(resolved, out, MAIN_PATH_CAP);
 }
 
 typedef enum {
@@ -1207,20 +1207,20 @@ static const char *main_build_identity_status_name(main_build_identity_status_t 
     return "identity-unknown";
 }
 
-static main_build_identity_status_t main_build_identity(cbm_daemon_build_identity_t *identity) {
+static main_build_identity_status_t main_build_identity(ani_daemon_build_identity_t *identity) {
     if (!identity) {
         return MAIN_BUILD_IDENTITY_INVALID_OUTPUT;
     }
-    if (!cbm_index_supervisor_capture_build_fingerprint()) {
+    if (!ani_index_supervisor_capture_build_fingerprint()) {
         return MAIN_BUILD_IDENTITY_PROCESS_FINGERPRINT;
     }
-    const char *fingerprint = cbm_index_supervisor_build_fingerprint();
+    const char *fingerprint = ani_index_supervisor_build_fingerprint();
     if (!fingerprint) {
         return MAIN_BUILD_IDENTITY_PROCESS_FINGERPRINT;
     }
-    const char *cache = cbm_resolve_cache_dir();
+    const char *cache = ani_resolve_cache_dir();
     char canonical_cache[MAIN_PATH_CAP];
-    static char cache_fingerprint[CBM_SHA256_HEX_LEN + 1];
+    static char cache_fingerprint[ANI_SHA256_HEX_LEN + 1];
     if (!cache || !cache[0]) {
         return MAIN_BUILD_IDENTITY_CACHE_RESOLVE;
     }
@@ -1230,35 +1230,35 @@ static main_build_identity_status_t main_build_identity(cbm_daemon_build_identit
      * component-by-component no-follow creation path. The process then uses
      * only the resulting canonical path, so retargeting the original alias
      * cannot move storage after cohort admission. */
-    bool cache_ready = cbm_canonical_path(cache, canonical_cache, sizeof(canonical_cache));
-    if (!cache_ready && cbm_mkdir_p(cache, 0700)) {
-        cache_ready = cbm_canonical_path(cache, canonical_cache, sizeof(canonical_cache));
+    bool cache_ready = ani_canonical_path(cache, canonical_cache, sizeof(canonical_cache));
+    if (!cache_ready && ani_mkdir_p(cache, 0700)) {
+        cache_ready = ani_canonical_path(cache, canonical_cache, sizeof(canonical_cache));
     }
-    if (!cache_ready || !cbm_is_dir(canonical_cache)) {
+    if (!cache_ready || !ani_is_dir(canonical_cache)) {
         return MAIN_BUILD_IDENTITY_CACHE_CANONICALIZE;
     }
-    cbm_normalize_path_sep(canonical_cache);
+    ani_normalize_path_sep(canonical_cache);
     /* Admission is account-scoped, so its storage authority must be too.
      * Harden the canonical object before hashing it. Replacement of this
      * owner-only path by the same already-compromised OS account is outside
      * the v1 threat boundary; cross-account and unsafe filesystem states fail
      * here before any daemon/cohort state is opened. */
-    if (!cbm_daemon_ipc_private_directory_secure(canonical_cache)) {
+    if (!ani_daemon_ipc_private_directory_secure(canonical_cache)) {
         return MAIN_BUILD_IDENTITY_CACHE_PRIVATE;
     }
     /* Every cache consumer in this process must use the exact path whose
      * fingerprint joins the account-wide cohort. Keeping an original symlink
      * spelling in the environment would let a later retarget move storage
      * while the process still advertises the old canonical root. */
-    if (cbm_setenv("CBM_CACHE_DIR", canonical_cache, 1) != 0) {
+    if (ani_setenv("ANI_CACHE_DIR", canonical_cache, 1) != 0) {
         return MAIN_BUILD_IDENTITY_CACHE_ENVIRONMENT;
     }
-    cbm_sha256_hex(canonical_cache, strlen(canonical_cache), cache_fingerprint);
-    *identity = (cbm_daemon_build_identity_t){
-        .semantic_version = CBM_VERSION,
+    ani_sha256_hex(canonical_cache, strlen(canonical_cache), cache_fingerprint);
+    *identity = (ani_daemon_build_identity_t){
+        .semantic_version = ANI_VERSION,
         .build_fingerprint = fingerprint,
         .cache_fingerprint = cache_fingerprint,
-        .protocol_abi = CBM_DAEMON_RUNTIME_WIRE_ABI,
+        .protocol_abi = ANI_DAEMON_RUNTIME_WIRE_ABI,
         .store_abi = 1,
         .feature_abi = 1,
     };
@@ -1266,23 +1266,23 @@ static main_build_identity_status_t main_build_identity(cbm_daemon_build_identit
 }
 
 static uint64_t main_deadline_after(uint32_t timeout_ms) {
-    uint64_t now_ms = cbm_now_ms();
+    uint64_t now_ms = ani_now_ms();
     return now_ms > UINT64_MAX - timeout_ms ? UINT64_MAX : now_ms + timeout_ms;
 }
 
-static cbm_daemon_ipc_endpoint_t *main_daemon_endpoint_new(void) {
+static ani_daemon_ipc_endpoint_t *main_daemon_endpoint_new(void) {
     const char *runtime_parent = NULL;
-#ifdef CBM_ENABLE_TEST_SEAMS
+#ifdef ANI_ENABLE_TEST_SEAMS
     /* Product daemon coordination is deliberately account-wide. Product-level
      * lifecycle guards need an isolated rendezvous namespace so they cannot
      * attach to or retire a developer's real daemon while exercising exact
      * start/open/stop behavior. The seam is opt-in at compile time and the
      * detached child inherits the same environment value. */
     char seam_runtime_parent[MAIN_PATH_CAP];
-    runtime_parent = cbm_safe_getenv("CBM_TEST_DAEMON_RUNTIME_PARENT", seam_runtime_parent,
+    runtime_parent = ani_safe_getenv("ANI_TEST_DAEMON_RUNTIME_PARENT", seam_runtime_parent,
                                      sizeof(seam_runtime_parent), NULL);
 #endif
-    return cbm_daemon_bootstrap_endpoint_new(runtime_parent);
+    return ani_daemon_bootstrap_endpoint_new(runtime_parent);
 }
 
 static bool main_local_cli_feedback_enabled(int argc, char **argv) {
@@ -1293,7 +1293,7 @@ static bool main_local_cli_feedback_enabled(int argc, char **argv) {
             break;
         }
     }
-    return cbm_cli_progress_enabled(requested, cli_isatty(2) != 0);
+    return ani_cli_progress_enabled(requested, cli_isatty(2) != 0);
 }
 
 /* Acquire the exclusive startup transition, waiting out whatever currently holds it.
@@ -1326,78 +1326,78 @@ static bool main_local_cli_feedback_enabled(int argc, char **argv) {
  * never finishes, not a budget for healthy contention. Clean exits already
  * release through main_local_transition_close, so this path is only reached after
  * an abrupt termination or under genuine concurrency. */
-static int main_local_transition_acquire(const cbm_daemon_ipc_endpoint_t *endpoint, FILE *feedback,
-                                         cbm_daemon_ipc_local_transition_t **transition_out) {
+static int main_local_transition_acquire(const ani_daemon_ipc_endpoint_t *endpoint, FILE *feedback,
+                                         ani_daemon_ipc_local_transition_t **transition_out) {
     uint64_t ceiling = main_deadline_after(MAIN_STARTUP_CONTENTION_CEILING_MS);
     bool waiting_reported = false;
     for (;;) {
-        int status = cbm_daemon_ipc_local_transition_try_acquire(endpoint, transition_out);
+        int status = ani_daemon_ipc_local_transition_try_acquire(endpoint, transition_out);
         if (status != 0) {
             return status; /* acquired, or a genuine coordination failure */
         }
-        if (cbm_now_ms() >= ceiling) {
+        if (ani_now_ms() >= ceiling) {
             return 0; /* still busy after the backstop */
         }
         if (feedback && !waiting_reported) {
-            (void)fputs("Waiting for CBM startup coordination...\n", feedback);
+            (void)fputs("Waiting for ANI startup coordination...\n", feedback);
             (void)fflush(feedback);
             waiting_reported = true;
         }
-        cbm_usleep(10000);
+        ani_usleep(10000);
     }
 }
 
-static bool main_version_cohort_close(cbm_version_cohort_lease_t **lease,
-                                      cbm_version_cohort_manager_t **manager) {
+static bool main_version_cohort_close(ani_version_cohort_lease_t **lease,
+                                      ani_version_cohort_manager_t **manager) {
     bool ok = true;
     uint64_t deadline = main_deadline_after(MAIN_COORDINATION_CLEANUP_MS);
     while (lease && *lease) {
-        cbm_private_file_lock_status_t status = cbm_version_cohort_lease_release(lease);
-        if (status != CBM_PRIVATE_FILE_LOCK_OK) {
+        ani_private_file_lock_status_t status = ani_version_cohort_lease_release(lease);
+        if (status != ANI_PRIVATE_FILE_LOCK_OK) {
             ok = false;
         }
         if (*lease) {
-            if (cbm_now_ms() >= deadline) {
+            if (ani_now_ms() >= deadline) {
                 main_coordination_cleanup_fail_stop("cohort_lease_cleanup");
             }
-            cbm_usleep(1000);
+            ani_usleep(1000);
         }
     }
     deadline = main_deadline_after(MAIN_COORDINATION_CLEANUP_MS);
     while (manager && *manager) {
-        cbm_private_file_lock_status_t status = cbm_version_cohort_manager_free(manager);
-        if (status != CBM_PRIVATE_FILE_LOCK_OK) {
+        ani_private_file_lock_status_t status = ani_version_cohort_manager_free(manager);
+        if (status != ANI_PRIVATE_FILE_LOCK_OK) {
             ok = false;
         }
         if (*manager) {
-            if (cbm_now_ms() >= deadline) {
+            if (ani_now_ms() >= deadline) {
                 main_coordination_cleanup_fail_stop("cohort_manager_cleanup");
             }
-            cbm_usleep(1000);
+            ani_usleep(1000);
         }
     }
     return ok;
 }
 
-static bool main_project_lock_manager_close(cbm_project_lock_manager_t **manager) {
+static bool main_project_lock_manager_close(ani_project_lock_manager_t **manager) {
     bool ok = true;
     uint64_t deadline = main_deadline_after(MAIN_COORDINATION_CLEANUP_MS);
     while (manager && *manager) {
-        cbm_private_file_lock_status_t status = cbm_project_lock_manager_free(manager);
-        if (status != CBM_PRIVATE_FILE_LOCK_OK) {
+        ani_private_file_lock_status_t status = ani_project_lock_manager_free(manager);
+        if (status != ANI_PRIVATE_FILE_LOCK_OK) {
             ok = false;
         }
         if (*manager) {
-            if (cbm_now_ms() >= deadline) {
+            if (ani_now_ms() >= deadline) {
                 main_coordination_cleanup_fail_stop("project_lock_manager_cleanup");
             }
-            cbm_usleep(1000);
+            ani_usleep(1000);
         }
     }
     return ok;
 }
 
-static bool main_local_transition_close(cbm_daemon_ipc_local_transition_t **transition) {
+static bool main_local_transition_close(ani_daemon_ipc_local_transition_t **transition) {
     uint64_t deadline = main_deadline_after(MAIN_COORDINATION_CLEANUP_MS);
     while (transition && *transition) {
         /* A failed release always RETAINS the transition and is retriable by
@@ -1406,12 +1406,12 @@ static bool main_local_transition_close(cbm_daemon_ipc_local_transition_t **tran
          * legitimately collide and succeed on retry. Success consumes the
          * transition; only never-finishing cleanup is a failure, and the
          * deadline escalation below owns that. */
-        (void)cbm_daemon_ipc_local_transition_release(transition);
+        (void)ani_daemon_ipc_local_transition_release(transition);
         if (*transition) {
-            if (cbm_now_ms() >= deadline) {
+            if (ani_now_ms() >= deadline) {
                 main_coordination_cleanup_fail_stop("local_transition_cleanup");
             }
-            cbm_usleep(1000);
+            ani_usleep(1000);
         }
     }
     return true;
@@ -1420,13 +1420,13 @@ static bool main_local_transition_close(cbm_daemon_ipc_local_transition_t **tran
 static bool main_session_context(const char *preferred_root, char root_out[MAIN_PATH_CAP],
                                  char allowed_out[MAIN_PATH_CAP], const char **allowed_out_ptr) {
     const char *root = preferred_root && preferred_root[0] ? preferred_root : ".";
-    if (!cbm_canonical_path(root, root_out, MAIN_PATH_CAP)) {
+    if (!ani_canonical_path(root, root_out, MAIN_PATH_CAP)) {
         return false;
     }
     char configured[MAIN_PATH_CAP];
-    const char *allowed = cbm_safe_getenv("CBM_ALLOWED_ROOT", configured, sizeof(configured), NULL);
+    const char *allowed = ani_safe_getenv("ANI_ALLOWED_ROOT", configured, sizeof(configured), NULL);
     if (allowed && allowed[0]) {
-        if (!cbm_canonical_path(allowed, allowed_out, MAIN_PATH_CAP)) {
+        if (!ani_canonical_path(allowed, allowed_out, MAIN_PATH_CAP)) {
             return false;
         }
         *allowed_out_ptr = allowed_out;
@@ -1437,8 +1437,8 @@ static bool main_session_context(const char *preferred_root, char root_out[MAIN_
     return true;
 }
 
-static bool main_set_client_context(cbm_daemon_runtime_client_t *client, const char *preferred_root,
-                                    cbm_mcp_tool_profile_t tool_profile, const char *hook_event,
+static bool main_set_client_context(ani_daemon_runtime_client_t *client, const char *preferred_root,
+                                    ani_mcp_tool_profile_t tool_profile, const char *hook_event,
                                     const char *hook_dialect, uint32_t timeout_ms) {
     char root[MAIN_PATH_CAP];
     char allowed[MAIN_PATH_CAP];
@@ -1446,9 +1446,9 @@ static bool main_set_client_context(cbm_daemon_runtime_client_t *client, const c
     if (!main_session_context(preferred_root, root, allowed, &allowed_ptr)) {
         return false;
     }
-    return cbm_daemon_application_client_set_context(client, root, allowed_ptr, tool_profile,
+    return ani_daemon_application_client_set_context(client, root, allowed_ptr, tool_profile,
                                                      hook_event, hook_dialect, timeout_ms) ==
-           CBM_DAEMON_RUNTIME_APPLICATION_OK;
+           ANI_DAEMON_RUNTIME_APPLICATION_OK;
 }
 
 /* Parse a strict MAJOR.MINOR.PATCH triple; false for anything else (dev
@@ -1506,9 +1506,9 @@ static bool main_semver_newer(const char *candidate, const char *active) {
  * for what was a specific, nameable refusal. The guarantee is "a server that
  * cannot start always says why", so it belongs on every client-path exit, not
  * just the one that happened to be fixed first. */
-static void main_report_client_failure(cbm_daemon_process_role_t role, const char *detail) {
-    if (cbm_daemon_process_role_requires_client(role)) {
-        char escaped[CBM_DAEMON_CONFLICT_MESSAGE_SIZE * 2];
+static void main_report_client_failure(ani_daemon_process_role_t role, const char *detail) {
+    if (ani_daemon_process_role_requires_client(role)) {
+        char escaped[ANI_DAEMON_CONFLICT_MESSAGE_SIZE * 2];
         size_t out = 0;
         for (size_t i = 0; detail[i] && out + 2 < sizeof(escaped); i++) {
             unsigned char c = (unsigned char)detail[i];
@@ -1528,14 +1528,14 @@ static void main_report_client_failure(cbm_daemon_process_role_t role, const cha
                       escaped);
         (void)fflush(stdout);
     }
-    (void)fprintf(stderr, "codebase-memory-mcp: %s\n", detail);
+    (void)fprintf(stderr, "ani: %s\n", detail);
 }
 
-static void main_report_client_bootstrap_failure(cbm_daemon_process_role_t role,
-                                                 const cbm_daemon_bootstrap_result_t *result) {
+static void main_report_client_bootstrap_failure(ani_daemon_process_role_t role,
+                                                 const ani_daemon_bootstrap_result_t *result) {
     main_report_client_failure(role, (result && result->message[0])
                                          ? result->message
-                                         : "CBM daemon connection failed before the session was "
+                                         : "ANI daemon connection failed before the session was "
                                            "established");
 }
 
@@ -1545,34 +1545,34 @@ static void main_report_client_bootstrap_failure(cbm_daemon_process_role_t role,
  * manual binary swap therefore self-heals exactly like the ephemeral
  * lifecycle used to, instead of deadlocking behind the pinned daemon. Same-
  * or newer-build daemons and dev builds are never auto-drained. */
-static cbm_daemon_bootstrap_status_t main_client_bootstrap_with_upgrade(
-    const cbm_daemon_bootstrap_config_t *config, cbm_daemon_bootstrap_result_t *result) {
-    cbm_daemon_bootstrap_status_t status = cbm_daemon_bootstrap_execute(config, result);
-    if (status != CBM_DAEMON_BOOTSTRAP_CONFLICT) {
+static ani_daemon_bootstrap_status_t main_client_bootstrap_with_upgrade(
+    const ani_daemon_bootstrap_config_t *config, ani_daemon_bootstrap_result_t *result) {
+    ani_daemon_bootstrap_status_t status = ani_daemon_bootstrap_execute(config, result);
+    if (status != ANI_DAEMON_BOOTSTRAP_CONFLICT) {
         return status;
     }
-    cbm_daemon_runtime_status_t active;
-    if (!cbm_daemon_runtime_request_status(config->endpoint, config->identity,
+    ani_daemon_runtime_status_t active;
+    if (!ani_daemon_runtime_request_status(config->endpoint, config->identity,
                                            MAIN_CONNECT_TIMEOUT_MS, &active) ||
         !active.permanent ||
         !main_semver_newer(config->identity->semantic_version, active.semantic_version)) {
         return status;
     }
     (void)fprintf(stderr,
-                  "codebase-memory-mcp: retiring the active permanent daemon (%s, pid %lu) for "
+                  "ani: retiring the active permanent daemon (%s, pid %lu) for "
                   "this newer build (%s)\n",
                   active.semantic_version, (unsigned long)active.daemon_pid,
                   config->identity->semantic_version);
-    cbm_daemon_runtime_activation_result_t drain;
-    if (!cbm_daemon_runtime_request_activation_shutdown(config->endpoint, config->identity,
-                                                        CBM_DAEMON_RUNTIME_ACTIVATION_UPDATE,
+    ani_daemon_runtime_activation_result_t drain;
+    if (!ani_daemon_runtime_request_activation_shutdown(config->endpoint, config->identity,
+                                                        ANI_DAEMON_RUNTIME_ACTIVATION_UPDATE,
                                                         MAIN_MCP_STARTUP_TIMEOUT_MS, &drain) ||
         !drain.accepted) {
-        (void)fprintf(stderr, "codebase-memory-mcp: the active daemon did not accept the "
-                              "upgrade drain; run `codebase-memory-mcp daemon stop`\n");
+        (void)fprintf(stderr, "ani: the active daemon did not accept the "
+                              "upgrade drain; run `ani daemon stop`\n");
         return status;
     }
-    return cbm_daemon_bootstrap_execute(config, result);
+    return ani_daemon_bootstrap_execute(config, result);
 }
 
 /* One-shot CLI commands execute through the shared daemon, exactly like MCP
@@ -1580,38 +1580,38 @@ static cbm_daemon_bootstrap_status_t main_client_bootstrap_with_upgrade(
  * one is spawned for this command — with a hint that `daemon start` removes
  * that per-command cost. Only supervised index workers stay in-process. */
 static char *main_local_cli_daemon_execute(const char *tool_name, const char *args_json) {
-    cbm_daemon_ipc_endpoint_t *endpoint = cbm_daemon_bootstrap_endpoint_new(NULL);
+    ani_daemon_ipc_endpoint_t *endpoint = ani_daemon_bootstrap_endpoint_new(NULL);
     char executable_path[MAIN_PATH_CAP] = {0};
-    cbm_daemon_build_identity_t identity;
+    ani_daemon_build_identity_t identity;
     bool prepared =
         endpoint &&
-        cbm_http_server_resolve_binary_path(NULL, executable_path, sizeof(executable_path)) &&
+        ani_http_server_resolve_binary_path(NULL, executable_path, sizeof(executable_path)) &&
         main_build_identity(&identity) == MAIN_BUILD_IDENTITY_OK;
     if (!prepared) {
         (void)fprintf(stderr, "error: daemon-backed CLI coordination could not be prepared\n");
-        cbm_daemon_ipc_endpoint_free(endpoint);
+        ani_daemon_ipc_endpoint_free(endpoint);
         return NULL;
     }
-    cbm_daemon_bootstrap_config_t config = {
-        .role = CBM_DAEMON_PROCESS_MCP_CLIENT,
+    ani_daemon_bootstrap_config_t config = {
+        .role = ANI_DAEMON_PROCESS_MCP_CLIENT,
         .endpoint = endpoint,
         .identity = &identity,
         .executable_path = executable_path,
         .connect_timeout_ms = MAIN_CONNECT_TIMEOUT_MS,
         .startup_timeout_ms = MAIN_MCP_STARTUP_TIMEOUT_MS,
     };
-    cbm_daemon_bootstrap_result_t bootstrap;
-    cbm_daemon_bootstrap_status_t status = main_client_bootstrap_with_upgrade(&config, &bootstrap);
-    cbm_daemon_ipc_endpoint_free(endpoint);
-    if (status != CBM_DAEMON_BOOTSTRAP_CONNECTED || !bootstrap.client) {
+    ani_daemon_bootstrap_result_t bootstrap;
+    ani_daemon_bootstrap_status_t status = main_client_bootstrap_with_upgrade(&config, &bootstrap);
+    ani_daemon_ipc_endpoint_free(endpoint);
+    if (status != ANI_DAEMON_BOOTSTRAP_CONNECTED || !bootstrap.client) {
         (void)fprintf(stderr, "error: %s\n",
                       bootstrap.message[0] ? bootstrap.message
-                                           : "no CBM daemon connection for CLI execution");
+                                           : "no ANI daemon connection for CLI execution");
         return NULL;
     }
     if (bootstrap.daemon_spawned) {
-        (void)fprintf(stderr, "hint: this command started a temporary CBM daemon. "
-                              "`codebase-memory-mcp daemon start` keeps one warm and removes this "
+        (void)fprintf(stderr, "hint: this command started a temporary ANI daemon. "
+                              "`ani daemon start` keeps one warm and removes this "
                               "startup cost from every CLI command.\n");
     }
     char session_root[MAIN_PATH_CAP];
@@ -1622,12 +1622,12 @@ static char *main_local_cli_daemon_execute(const char *tool_name, const char *ar
     uint32_t response_length = 0;
     bool context_ok =
         main_session_context(NULL, session_root, allowed_root, &allowed_root_ptr) &&
-        main_set_client_context(bootstrap.client, session_root, CBM_MCP_TOOL_PROFILE_ALL, NULL,
+        main_set_client_context(bootstrap.client, session_root, ANI_MCP_TOOL_PROFILE_ALL, NULL,
                                 NULL, MAIN_CONNECT_TIMEOUT_MS);
     if (context_ok &&
-        cbm_daemon_application_client_tool(bootstrap.client, tool_name, args_json, &response,
+        ani_daemon_application_client_tool(bootstrap.client, tool_name, args_json, &response,
                                            &response_length, MAIN_REQUEST_TIMEOUT_MS) ==
-            CBM_DAEMON_RUNTIME_APPLICATION_OK &&
+            ANI_DAEMON_RUNTIME_APPLICATION_OK &&
         response && response_length > 0) {
         result = malloc((size_t)response_length + 1U);
         if (result) {
@@ -1639,7 +1639,7 @@ static char *main_local_cli_daemon_execute(const char *tool_name, const char *ar
     if (!result) {
         (void)fprintf(stderr, "error: daemon-backed CLI execution failed\n");
     }
-    (void)cbm_daemon_runtime_client_close(bootstrap.client, MAIN_CLOSE_TIMEOUT_MS);
+    (void)ani_daemon_runtime_client_close(bootstrap.client, MAIN_CLOSE_TIMEOUT_MS);
     return result;
 }
 
@@ -1652,7 +1652,7 @@ static char *main_hook_cwd(const char *input_json) {
     yyjson_val *cwd_value = yyjson_is_obj(root) ? yyjson_obj_get(root, "cwd") : NULL;
     const char *cwd = yyjson_is_str(cwd_value) ? yyjson_get_str(cwd_value) : NULL;
     char *copy = NULL;
-    if (cwd && cbm_hook_path_is_abs(cwd)) {
+    if (cwd && ani_hook_path_is_abs(cwd)) {
         size_t length = strlen(cwd);
         copy = malloc(length + 1U);
         if (copy) {
@@ -1670,7 +1670,7 @@ static char *main_hook_cwd(const char *input_json) {
  * brings one up. That state must be VISIBLE, not silent — but a notice per
  * tool call would nag, so a cache-scoped marker rate-limits it. */
 static bool main_hook_absent_notice_due(void) {
-    const char *cache_dir = cbm_resolve_cache_dir();
+    const char *cache_dir = ani_resolve_cache_dir();
     if (!cache_dir) {
         return false;
     }
@@ -1679,9 +1679,9 @@ static bool main_hook_absent_notice_due(void) {
     if (written <= 0 || (size_t)written >= sizeof(marker)) {
         return false;
     }
-    uint64_t now_seconds = cbm_now_ms() / 1000U;
+    uint64_t now_seconds = ani_now_ms() / 1000U;
     uint64_t stamp_seconds = 0;
-    FILE *stamp = cbm_fopen(marker, "r");
+    FILE *stamp = ani_fopen(marker, "r");
     if (stamp) {
         char text[32] = {0};
         if (fgets(text, sizeof(text), stamp)) {
@@ -1693,7 +1693,7 @@ static bool main_hook_absent_notice_due(void) {
         now_seconds - stamp_seconds < MAIN_HOOK_NOTICE_INTERVAL_SECONDS) {
         return false;
     }
-    FILE *update = cbm_fopen(marker, "w");
+    FILE *update = ani_fopen(marker, "w");
     if (update) {
         (void)fprintf(update, "%llu\n", (unsigned long long)now_seconds);
         (void)fclose(update);
@@ -1705,10 +1705,10 @@ static void main_hook_report_absent_daemon(const char *hook_dialect) {
     if (!main_hook_absent_notice_due()) {
         return;
     }
-    (void)fprintf(stderr, "codebase-memory-mcp: no CBM daemon is running, so graph "
+    (void)fprintf(stderr, "ani: no ANI daemon is running, so graph "
                           "augmentation is skipped. Start an MCP session or run "
-                          "`codebase-memory-mcp daemon start` to enable it.\n");
-    const char *notice = cbm_hook_admission_notice(CBM_HOOK_ADMISSION_DAEMON_ABSENT, hook_dialect);
+                          "`ani daemon start` to enable it.\n");
+    const char *notice = ani_hook_admission_notice(ANI_HOOK_ADMISSION_DAEMON_ABSENT, hook_dialect);
     if (notice) {
         (void)fputs(notice, stdout);
         (void)fflush(stdout);
@@ -1725,22 +1725,22 @@ static void main_hook_report_conflicted_daemon(const char *hook_dialect) {
     if (hook_dialect || !main_hook_absent_notice_due()) {
         return;
     }
-    const char *notice = cbm_hook_admission_notice(CBM_HOOK_ADMISSION_BUILD_CONFLICT, hook_dialect);
+    const char *notice = ani_hook_admission_notice(ANI_HOOK_ADMISSION_BUILD_CONFLICT, hook_dialect);
     if (notice) {
         (void)fputs(notice, stdout);
         (void)fflush(stdout);
     }
 }
 
-static int main_run_hook_frontend(cbm_daemon_runtime_client_t *client, const char *hook_event,
+static int main_run_hook_frontend(ani_daemon_runtime_client_t *client, const char *hook_event,
                                   const char *hook_dialect) {
-    char *input = cbm_hook_augment_read_stdin();
+    char *input = ani_hook_augment_read_stdin();
     if (!input) {
         return 0;
     }
     char *hook_cwd = main_hook_cwd(input);
     bool context_set =
-        main_set_client_context(client, hook_cwd, CBM_MCP_TOOL_PROFILE_ALL, hook_event,
+        main_set_client_context(client, hook_cwd, ANI_MCP_TOOL_PROFILE_ALL, hook_event,
                                 hook_dialect, MAIN_HOOK_CONNECT_TIMEOUT_MS);
     free(hook_cwd);
     if (!context_set) {
@@ -1749,10 +1749,10 @@ static int main_run_hook_frontend(cbm_daemon_runtime_client_t *client, const cha
     }
     uint8_t *response = NULL;
     uint32_t response_length = 0;
-    cbm_daemon_runtime_application_status_t status = cbm_daemon_application_client_hook_augment(
+    ani_daemon_runtime_application_status_t status = ani_daemon_application_client_hook_augment(
         client, input, &response, &response_length, MAIN_HOOK_REQUEST_TIMEOUT_MS);
     free(input);
-    if (status == CBM_DAEMON_RUNTIME_APPLICATION_OK && response && response_length > 0) {
+    if (status == ANI_DAEMON_RUNTIME_APPLICATION_OK && response && response_length > 0) {
         (void)fwrite(response, 1, response_length, stdout);
         (void)fflush(stdout);
     }
@@ -1786,7 +1786,7 @@ static bool main_hook_options(int argc, char **argv, const char **event_out,
             return false;
         }
     }
-    return cbm_hook_augment_invocation_supported(*event_out, *dialect_out);
+    return ani_hook_augment_invocation_supported(*event_out, *dialect_out);
 }
 
 enum {
@@ -1891,7 +1891,7 @@ static int main_daemon_ctl_socket_wait(main_daemon_ctl_socket_t socket_handle, b
 }
 
 static int main_daemon_ctl_socket_remaining_ms(uint64_t deadline_ms) {
-    uint64_t now_ms = cbm_now_ms();
+    uint64_t now_ms = ani_now_ms();
     if (now_ms >= deadline_ms) {
         return 0;
     }
@@ -1953,38 +1953,38 @@ static int main_daemon_ctl_socket_receive(main_daemon_ctl_socket_t socket_handle
 }
 
 typedef struct {
-    char challenge_hex[CBM_SHA256_HEX_LEN + 1U];
-    char proof_hex[CBM_SHA256_HEX_LEN + 1U];
+    char challenge_hex[ANI_SHA256_HEX_LEN + 1U];
+    char proof_hex[ANI_SHA256_HEX_LEN + 1U];
 } main_daemon_ctl_ui_readiness_t;
 
-static void main_daemon_ctl_hex_encode(const uint8_t bytes[CBM_SHA256_DIGEST_LEN],
-                                       char out[CBM_SHA256_HEX_LEN + 1U]) {
+static void main_daemon_ctl_hex_encode(const uint8_t bytes[ANI_SHA256_DIGEST_LEN],
+                                       char out[ANI_SHA256_HEX_LEN + 1U]) {
     static const char hex[] = "0123456789abcdef";
-    for (size_t i = 0; i < CBM_SHA256_DIGEST_LEN; i++) {
+    for (size_t i = 0; i < ANI_SHA256_DIGEST_LEN; i++) {
         out[i * 2U] = hex[bytes[i] >> 4];
         out[i * 2U + 1U] = hex[bytes[i] & 0x0fU];
     }
-    out[CBM_SHA256_HEX_LEN] = '\0';
+    out[ANI_SHA256_HEX_LEN] = '\0';
 }
 
-static bool main_daemon_ctl_ui_readiness_prepare(cbm_daemon_runtime_client_t *client,
+static bool main_daemon_ctl_ui_readiness_prepare(ani_daemon_runtime_client_t *client,
                                                  main_daemon_ctl_ui_readiness_t *readiness) {
-    uint8_t challenge[CBM_SHA256_DIGEST_LEN] = {0};
-    uint8_t proof[CBM_SHA256_DIGEST_LEN] = {0};
+    uint8_t challenge[ANI_SHA256_DIGEST_LEN] = {0};
+    uint8_t proof[ANI_SHA256_DIGEST_LEN] = {0};
     if (!client || !readiness) {
         return false;
     }
-    cbm_secure_zero(readiness, sizeof(*readiness));
-    bool prepared = cbm_secure_random(challenge, sizeof(challenge)) &&
-                    cbm_daemon_application_client_ui_readiness_proof(client, challenge, proof,
+    ani_secure_zero(readiness, sizeof(*readiness));
+    bool prepared = ani_secure_random(challenge, sizeof(challenge)) &&
+                    ani_daemon_application_client_ui_readiness_proof(client, challenge, proof,
                                                                      MAIN_CONNECT_TIMEOUT_MS) ==
-                        CBM_DAEMON_RUNTIME_APPLICATION_OK;
+                        ANI_DAEMON_RUNTIME_APPLICATION_OK;
     if (prepared) {
         main_daemon_ctl_hex_encode(challenge, readiness->challenge_hex);
         main_daemon_ctl_hex_encode(proof, readiness->proof_hex);
     }
-    cbm_secure_zero(challenge, sizeof(challenge));
-    cbm_secure_zero(proof, sizeof(proof));
+    ani_secure_zero(challenge, sizeof(challenge));
+    ani_secure_zero(proof, sizeof(proof));
     return prepared;
 }
 
@@ -2029,7 +2029,7 @@ static bool main_daemon_ctl_ui_endpoint_ready(int port,
     bool ready = main_daemon_ctl_socket_connected(socket_handle, port, deadline_ms);
     char request[384];
     int request_length = snprintf(request, sizeof(request),
-                                  "GET /__cbm/ui-readiness?challenge=%s HTTP/1.1\r\n"
+                                  "GET /__ani/ui-readiness?challenge=%s HTTP/1.1\r\n"
                                   "Host: 127.0.0.1:%d\r\nAccept: text/plain\r\n"
                                   "Connection: close\r\n\r\n",
                                   readiness->challenge_hex, port);
@@ -2077,16 +2077,16 @@ static bool main_daemon_ctl_ui_endpoint_ready(int port,
     ready = ready && received > 0U && strncmp(response, "HTTP/1.1 200 ", 13) == 0 &&
             strstr(response, "\r\nContent-Type: text/plain; charset=utf-8\r\n") != NULL &&
             strstr(response, "\r\nCache-Control: no-store\r\n") != NULL && body &&
-            strlen(body) == CBM_SHA256_HEX_LEN &&
-            main_daemon_ctl_constant_time_equal(body, readiness->proof_hex, CBM_SHA256_HEX_LEN);
+            strlen(body) == ANI_SHA256_HEX_LEN &&
+            main_daemon_ctl_constant_time_equal(body, readiness->proof_hex, ANI_SHA256_HEX_LEN);
     (void)main_daemon_ctl_socket_close(socket_handle);
     return ready;
 }
 
 static uint32_t main_daemon_ctl_ui_ready_timeout_ms(void) {
-#ifdef CBM_ENABLE_TEST_SEAMS
+#ifdef ANI_ENABLE_TEST_SEAMS
     char timeout_text[32];
-    const char *configured = cbm_safe_getenv("CBM_TEST_DAEMON_UI_READY_TIMEOUT_MS", timeout_text,
+    const char *configured = ani_safe_getenv("ANI_TEST_DAEMON_UI_READY_TIMEOUT_MS", timeout_text,
                                              sizeof(timeout_text), NULL);
     if (configured) {
         char *end = NULL;
@@ -2105,7 +2105,7 @@ static bool main_daemon_ctl_wait_for_ui(int port, const main_daemon_ctl_ui_readi
                                         uint32_t timeout_ms) {
     uint64_t deadline_ms = main_deadline_after(timeout_ms);
     for (;;) {
-        uint64_t now_ms = cbm_now_ms();
+        uint64_t now_ms = ani_now_ms();
         if (now_ms >= deadline_ms) {
             return false;
         }
@@ -2116,22 +2116,22 @@ static bool main_daemon_ctl_wait_for_ui(int port, const main_daemon_ctl_ui_readi
         if (main_daemon_ctl_ui_endpoint_ready(port, readiness, attempt_ms)) {
             return true;
         }
-        if (cbm_now_ms() >= deadline_ms) {
+        if (ani_now_ms() >= deadline_ms) {
             return false;
         }
-        cbm_usleep(MAIN_DAEMON_CTL_UI_PROBE_INTERVAL_US);
+        ani_usleep(MAIN_DAEMON_CTL_UI_PROBE_INTERVAL_US);
     }
 }
 
-static int main_daemon_ctl_finish_ui_open(cbm_daemon_runtime_client_t **client_io, int port,
+static int main_daemon_ctl_finish_ui_open(ani_daemon_runtime_client_t **client_io, int port,
                                           bool open_browser);
 
 static void main_daemon_ctl_print_ui_configuration(void) {
-    if (!(CBM_EMBEDDED_FILE_COUNT > 0)) {
+    if (!(ANI_EMBEDDED_FILE_COUNT > 0)) {
         return;
     }
-    cbm_ui_config_t ui_config;
-    cbm_ui_config_load(&ui_config);
+    ani_ui_config_t ui_config;
+    ani_ui_config_load(&ui_config);
     if (ui_config.ui_enabled) {
         printf("  ui: configured at http://127.0.0.1:%d (readiness not checked; "
                "`daemon start --open` verifies it)\n",
@@ -2144,10 +2144,10 @@ static void main_daemon_ctl_print_ui_configuration(void) {
 static void main_daemon_ctl_open_browser(int port) {
     char url[64];
     (void)snprintf(url, sizeof(url), "http://127.0.0.1:%d", port);
-#ifdef CBM_ENABLE_TEST_SEAMS
+#ifdef ANI_ENABLE_TEST_SEAMS
     char marker_path[MAIN_PATH_CAP];
-    if (cbm_safe_getenv("CBM_TEST_DAEMON_OPEN_MARKER", marker_path, sizeof(marker_path), NULL)) {
-        FILE *marker = cbm_fopen(marker_path, "wb");
+    if (ani_safe_getenv("ANI_TEST_DAEMON_OPEN_MARKER", marker_path, sizeof(marker_path), NULL)) {
+        FILE *marker = ani_fopen(marker_path, "wb");
         bool opened = marker && fwrite(url, 1, strlen(url), marker) == strlen(url);
         if (marker && fclose(marker) != 0) {
             opened = false;
@@ -2161,30 +2161,30 @@ static void main_daemon_ctl_open_browser(int port) {
 #if defined(_WIN32)
     /* ShellExecuteW resolves the http protocol association directly — no
      * command shell interprets the argument. Values > 32 signal success. */
-    wchar_t *wide_url = cbm_utf8_to_wide(url);
+    wchar_t *wide_url = ani_utf8_to_wide(url);
     bool opened =
         wide_url && (INT_PTR)ShellExecuteW(NULL, L"open", wide_url, NULL, NULL, SW_SHOWNORMAL) > 32;
     free(wide_url);
 #elif defined(__APPLE__)
     const char *open_argv[] = {"open", url, NULL};
-    bool opened = cbm_exec_no_shell(open_argv) == 0;
+    bool opened = ani_exec_no_shell(open_argv) == 0;
 #else
     const char *open_argv[] = {"xdg-open", url, NULL};
-    bool opened = cbm_exec_no_shell(open_argv) == 0;
+    bool opened = ani_exec_no_shell(open_argv) == 0;
 #endif
     if (!opened) {
         (void)fprintf(stderr, "hint: could not open a browser automatically; visit %s\n", url);
     }
 }
 
-static int main_daemon_ctl_finish_ui_open(cbm_daemon_runtime_client_t **client_io, int port,
+static int main_daemon_ctl_finish_ui_open(ani_daemon_runtime_client_t **client_io, int port,
                                           bool open_browser) {
     if (!open_browser) {
         printf("  ui: warming asynchronously on configured port %d\n", port);
         return EXIT_SUCCESS;
     }
     main_daemon_ctl_ui_readiness_t readiness = {0};
-    cbm_daemon_runtime_client_t *client = client_io ? *client_io : NULL;
+    ani_daemon_runtime_client_t *client = client_io ? *client_io : NULL;
     if (!main_daemon_ctl_ui_readiness_prepare(client, &readiness)) {
         (void)fprintf(stderr,
                       "error: the active daemon generation could not provide an authenticated "
@@ -2197,13 +2197,13 @@ static int main_daemon_ctl_finish_ui_open(cbm_daemon_runtime_client_t **client_i
      * make `daemon status` and other control probes wait for the whole UI
      * deadline.  EOF/disconnect cannot weaken the HMAC proof we already hold. */
     if (client_io && *client_io) {
-        cbm_daemon_runtime_client_t *owned_client = *client_io;
+        ani_daemon_runtime_client_t *owned_client = *client_io;
         *client_io = NULL;
-        (void)cbm_daemon_runtime_client_close(owned_client, MAIN_CLOSE_TIMEOUT_MS);
+        (void)ani_daemon_runtime_client_close(owned_client, MAIN_CLOSE_TIMEOUT_MS);
     }
     uint32_t timeout_ms = main_daemon_ctl_ui_ready_timeout_ms();
     bool ready = main_daemon_ctl_wait_for_ui(port, &readiness, timeout_ms);
-    cbm_secure_zero(&readiness, sizeof(readiness));
+    ani_secure_zero(&readiness, sizeof(readiness));
     if (!ready) {
         (void)fprintf(stderr,
                       "error: UI endpoint did not become ready within %u ms; browser was not "
@@ -2220,8 +2220,8 @@ static int main_daemon_ctl_finish_ui_open(cbm_daemon_runtime_client_t **client_i
     return EXIT_SUCCESS;
 }
 
-static int main_run_daemon_ctl(int argc, char **argv, const cbm_daemon_ipc_endpoint_t *endpoint,
-                               const cbm_daemon_build_identity_t *identity,
+static int main_run_daemon_ctl(int argc, char **argv, const ani_daemon_ipc_endpoint_t *endpoint,
+                               const ani_daemon_build_identity_t *identity,
                                const char *executable_path) {
     const char *subcommand = NULL;
     bool open_browser = false;
@@ -2249,13 +2249,13 @@ static int main_run_daemon_ctl(int argc, char **argv, const cbm_daemon_ipc_endpo
         }
     }
     if (!arguments_valid || !subcommand) {
-        (void)fprintf(stderr, "usage: codebase-memory-mcp daemon <start|stop|status> "
+        (void)fprintf(stderr, "usage: ani daemon <start|stop|status> "
                               "[--open] [--port=N]\n");
         return EXIT_FAILURE;
     }
 
-    cbm_daemon_runtime_status_t status;
-    bool active = cbm_daemon_runtime_request_status(endpoint, identity,
+    ani_daemon_runtime_status_t status;
+    bool active = ani_daemon_runtime_request_status(endpoint, identity,
                                                     MAIN_DAEMON_CTL_PROBE_TIMEOUT_MS, &status);
 
     if (strcmp(subcommand, "status") == 0) {
@@ -2269,12 +2269,12 @@ static int main_run_daemon_ctl(int argc, char **argv, const cbm_daemon_ipc_endpo
                        (unsigned long long)status.muted_endpoint_holder_pid);
                 printf("hint: that process holds the daemon endpoint but answered nothing; "
                        "its runtime is likely dead. Terminate pid %llu, then run "
-                       "`codebase-memory-mcp daemon start`.\n",
+                       "`ani daemon start`.\n",
                        (unsigned long long)status.muted_endpoint_holder_pid);
                 return EXIT_FAILURE;
             }
             printf("daemon: not running\n");
-            printf("hint: `codebase-memory-mcp daemon start` keeps a daemon warm so CLI "
+            printf("hint: `ani daemon start` keeps a daemon warm so CLI "
                    "commands and hooks skip the per-command startup cost.\n");
             return EXIT_FAILURE;
         }
@@ -2295,8 +2295,8 @@ static int main_run_daemon_ctl(int argc, char **argv, const cbm_daemon_ipc_endpo
             printf("daemon: not running (nothing to stop)\n");
             return EXIT_SUCCESS;
         }
-        cbm_daemon_runtime_stop_result_t stop_result;
-        if (!cbm_daemon_runtime_request_stop(endpoint, identity, MAIN_DAEMON_CTL_STOP_TIMEOUT_MS,
+        ani_daemon_runtime_stop_result_t stop_result;
+        if (!ani_daemon_runtime_request_stop(endpoint, identity, MAIN_DAEMON_CTL_STOP_TIMEOUT_MS,
                                              &stop_result)) {
             (void)fprintf(stderr,
                           "error: the active daemon did not answer the stop request; "
@@ -2330,15 +2330,15 @@ static int main_run_daemon_ctl(int argc, char **argv, const cbm_daemon_ipc_endpo
                    "last session; run `daemon stop` first if you want a permanent one\n",
                    (unsigned long)status.daemon_pid);
         }
-        if (!(CBM_EMBEDDED_FILE_COUNT > 0)) {
+        if (!(ANI_EMBEDDED_FILE_COUNT > 0)) {
             if (requested_port > 0 || open_browser) {
                 (void)fprintf(stderr, "warning: this binary was built without UI support; "
                                       "--port/--open have no effect\n");
             }
             return EXIT_SUCCESS;
         }
-        cbm_ui_config_t ui_config;
-        cbm_ui_config_load(&ui_config);
+        ani_ui_config_t ui_config;
+        ani_ui_config_load(&ui_config);
         if (!ui_config.ui_enabled) {
             (void)fprintf(stderr, "error: UI is disabled for the active daemon; browser was not "
                                   "opened\n");
@@ -2350,10 +2350,10 @@ static int main_run_daemon_ctl(int argc, char **argv, const cbm_daemon_ipc_endpo
                           "before starting on --port=%d\n",
                           ui_config.ui_port, requested_port);
         }
-        cbm_daemon_runtime_client_t *ui_client = NULL;
-        cbm_daemon_runtime_connect_result_t connect_result;
+        ani_daemon_runtime_client_t *ui_client = NULL;
+        ani_daemon_runtime_connect_result_t connect_result;
         if (open_browser) {
-            ui_client = cbm_daemon_runtime_client_connect(endpoint, identity,
+            ui_client = ani_daemon_runtime_client_connect(endpoint, identity,
                                                           MAIN_CONNECT_TIMEOUT_MS, &connect_result);
             if (!ui_client) {
                 (void)fprintf(stderr,
@@ -2364,13 +2364,13 @@ static int main_run_daemon_ctl(int argc, char **argv, const cbm_daemon_ipc_endpo
         }
         int ui_result = main_daemon_ctl_finish_ui_open(&ui_client, ui_config.ui_port, open_browser);
         if (ui_client) {
-            (void)cbm_daemon_runtime_client_close(ui_client, MAIN_CLOSE_TIMEOUT_MS);
+            (void)ani_daemon_runtime_client_close(ui_client, MAIN_CLOSE_TIMEOUT_MS);
         }
         return ui_result;
     }
 
-    cbm_daemon_bootstrap_config_t start_config = {
-        .role = CBM_DAEMON_PROCESS_MCP_CLIENT,
+    ani_daemon_bootstrap_config_t start_config = {
+        .role = ANI_DAEMON_PROCESS_MCP_CLIENT,
         .endpoint = endpoint,
         .identity = identity,
         .executable_path = executable_path,
@@ -2378,16 +2378,16 @@ static int main_run_daemon_ctl(int argc, char **argv, const cbm_daemon_ipc_endpo
         .startup_timeout_ms = MAIN_DAEMON_CTL_START_TIMEOUT_MS,
         .spawn_permanent = true,
     };
-    cbm_daemon_bootstrap_result_t start_result;
-    cbm_daemon_bootstrap_status_t start_status =
+    ani_daemon_bootstrap_result_t start_result;
+    ani_daemon_bootstrap_status_t start_status =
         main_client_bootstrap_with_upgrade(&start_config, &start_result);
-    if (start_status != CBM_DAEMON_BOOTSTRAP_CONNECTED || !start_result.client) {
+    if (start_status != ANI_DAEMON_BOOTSTRAP_CONNECTED || !start_result.client) {
         (void)fprintf(stderr, "error: %s\n",
                       start_result.message[0] ? start_result.message
                                               : "the permanent daemon could not be started");
-        if (start_status == CBM_DAEMON_BOOTSTRAP_CONFLICT) {
+        if (start_status == ANI_DAEMON_BOOTSTRAP_CONFLICT) {
             (void)fprintf(stderr, "hint: a daemon of a different build is active; "
-                                  "`codebase-memory-mcp daemon stop` retires it.\n");
+                                  "`ani daemon stop` retires it.\n");
         }
         return EXIT_FAILURE;
     }
@@ -2395,21 +2395,21 @@ static int main_run_daemon_ctl(int argc, char **argv, const cbm_daemon_ipc_endpo
     /* The committed control connection satisfied the daemon's no-client
      * startup window; configure the UI before departing. */
     int ui_port = 0;
-    if ((CBM_EMBEDDED_FILE_COUNT > 0)) {
-        cbm_ui_config_t ui_config;
-        cbm_ui_config_load(&ui_config);
+    if ((ANI_EMBEDDED_FILE_COUNT > 0)) {
+        ani_ui_config_t ui_config;
+        ani_ui_config_load(&ui_config);
         ui_port = requested_port > 0 ? requested_port : ui_config.ui_port;
         uint8_t update_mask = 0x03U; /* enabled + port */
         bool context_set =
-            main_set_client_context(start_result.client, ".", CBM_MCP_TOOL_PROFILE_ALL, NULL, NULL,
+            main_set_client_context(start_result.client, ".", ANI_MCP_TOOL_PROFILE_ALL, NULL, NULL,
                                     MAIN_CONNECT_TIMEOUT_MS);
-        if (!context_set || cbm_daemon_application_client_set_ui_config(
+        if (!context_set || ani_daemon_application_client_set_ui_config(
                                 start_result.client, update_mask, true, ui_port,
-                                MAIN_CONNECT_TIMEOUT_MS) != CBM_DAEMON_RUNTIME_APPLICATION_OK) {
+                                MAIN_CONNECT_TIMEOUT_MS) != ANI_DAEMON_RUNTIME_APPLICATION_OK) {
             (void)fprintf(stderr,
                           "error: the daemon did not accept the UI configuration; browser was "
                           "not opened\n");
-            (void)cbm_daemon_runtime_client_close(start_result.client, MAIN_CLOSE_TIMEOUT_MS);
+            (void)ani_daemon_runtime_client_close(start_result.client, MAIN_CLOSE_TIMEOUT_MS);
             return EXIT_FAILURE;
         }
     } else if (requested_port > 0 || open_browser) {
@@ -2417,75 +2417,75 @@ static int main_run_daemon_ctl(int argc, char **argv, const cbm_daemon_ipc_endpo
                               "--port/--open have no effect\n");
     }
 
-    cbm_daemon_runtime_status_t started;
-    bool started_ok = cbm_daemon_runtime_request_status(endpoint, identity,
+    ani_daemon_runtime_status_t started;
+    bool started_ok = ani_daemon_runtime_request_status(endpoint, identity,
                                                         MAIN_DAEMON_CTL_PROBE_TIMEOUT_MS, &started);
     if (started_ok) {
         printf("daemon: started (permanent, pid %lu)\n", (unsigned long)started.daemon_pid);
     } else {
         printf("daemon: started (permanent)\n");
     }
-    printf("It survives idle periods and session ends; `codebase-memory-mcp daemon stop` "
+    printf("It survives idle periods and session ends; `ani daemon stop` "
            "retires it.\n");
     int ui_result =
-        (CBM_EMBEDDED_FILE_COUNT > 0)
+        (ANI_EMBEDDED_FILE_COUNT > 0)
             ? main_daemon_ctl_finish_ui_open(&start_result.client, ui_port, open_browser)
             : EXIT_SUCCESS;
     if (start_result.client) {
-        (void)cbm_daemon_runtime_client_close(start_result.client, MAIN_CLOSE_TIMEOUT_MS);
+        (void)ani_daemon_runtime_client_close(start_result.client, MAIN_CLOSE_TIMEOUT_MS);
     }
     return ui_result;
 }
 
 int main(int argc, char **argv) {
     /* Must remain the first statement: see allocator binding contract above. */
-    cbm_alloc_init();
+    ani_alloc_init();
 #ifndef _WIN32
     pid_t process_initial_ppid = getppid();
 #endif
 #ifdef _WIN32
     {
         int win_argc = 0;
-        char **win_argv = cbm_win_utf8_argv(&win_argc);
+        char **win_argv = ani_win_utf8_argv(&win_argc);
         if (win_argv) {
             argc = win_argc;
             argv = win_argv;
         }
     }
 #endif
-    cbm_daemon_process_role_t role = cbm_daemon_process_role(argc, argv);
-    if (role == CBM_DAEMON_PROCESS_WORKER) {
+    ani_daemon_process_role_t role = ani_daemon_process_role(argc, argv);
+    if (role == ANI_DAEMON_PROCESS_WORKER) {
         /* Before this process writes ANYTHING. A worker's stderr is a file the
          * supervisor keeps for post-mortem, and setvbuf only binds before a
          * stream's first operation — claim it here so even the "could not
          * start" messages below reach disk. The header follows once the argv
          * grammar has been validated. */
-        cbm_log_set_crash_durable(true);
+        ani_log_set_crash_durable(true);
     }
-    if (role == CBM_DAEMON_PROCESS_INVALID) {
-        (void)fprintf(stderr, "codebase-memory-mcp: invalid internal process arguments\n");
+    if (role == ANI_DAEMON_PROCESS_INVALID) {
+        (void)fprintf(stderr, "ani: invalid internal process arguments\n");
         return EXIT_FAILURE;
     }
 #ifndef _WIN32
-    if (role == CBM_DAEMON_PROCESS_DAEMON) {
+    if (role == ANI_DAEMON_PROCESS_DAEMON) {
         (void)umask(077);
     }
 #endif
 
-    cbm_cli_set_version(CBM_VERSION);
-    cbm_profile_init();
-    cbm_log_init_from_env();
+    ani_cli_set_version(ANI_VERSION);
+    ani_profile_init();
+    ani_log_init_from_env();
 
-    cbm_mcp_tool_profile_t tool_profile = CBM_MCP_TOOL_PROFILE_ALL;
-    if (role == CBM_DAEMON_PROCESS_MCP_CLIENT &&
-        cbm_mcp_parse_tool_profile_args(argc, (const char *const *)argv, &tool_profile) != 0) {
-        (void)fprintf(stderr, "codebase-memory-mcp: --tool-profile requires the supported value "
+    ani_mcp_tool_profile_t tool_profile = ANI_MCP_TOOL_PROFILE_ALL;
+    if (role == ANI_DAEMON_PROCESS_MCP_CLIENT &&
+        ani_mcp_parse_tool_profile_args(argc, (const char *const *)argv, &tool_profile) != 0) {
+        (void)fprintf(stderr, "ani: --tool-profile requires the supported value "
                               "'analysis' or 'scout'\n");
         return 2;
     }
     const char *hook_event = NULL;
     const char *hook_dialect = NULL;
-    if (role == CBM_DAEMON_PROCESS_HOOK_CLIENT &&
+    if (role == ANI_DAEMON_PROCESS_HOOK_CLIENT &&
         !main_hook_options(argc, argv, &hook_event, &hook_dialect)) {
         return EXIT_SUCCESS; /* hook adapters are contractually fail-open */
     }
@@ -2496,9 +2496,9 @@ int main(int argc, char **argv) {
      * last-client-exit teardown), it recycles whichever daemon an MCP
      * session or `daemon start` already brought up. Arm the deadline before
      * hashing and IPC. */
-    if (role == CBM_DAEMON_PROCESS_HOOK_CLIENT) {
+    if (role == ANI_DAEMON_PROCESS_HOOK_CLIENT) {
 #ifndef _WIN32
-        cbm_hook_augment_arm_deadline();
+        ani_hook_augment_arm_deadline();
 #endif
         /* Read stdin now and bail before executable-identity hashing when the
          * event can never produce output (an un-forced PreToolUse Bash call
@@ -2508,46 +2508,46 @@ int main(int argc, char **argv) {
          * state, so it needs no identity. Anything else is handed back via
          * the prefetch so downstream readers see stdin exactly once. */
         if (!hook_event) {
-            char *hook_input = cbm_hook_augment_read_stdin();
+            char *hook_input = ani_hook_augment_read_stdin();
             if (!hook_input) {
                 return EXIT_SUCCESS; /* fail open, nothing to augment */
             }
-            if (cbm_hook_augment_input_is_noop_bash(hook_input)) {
+            if (ani_hook_augment_input_is_noop_bash(hook_input)) {
                 free(hook_input);
                 return EXIT_SUCCESS;
             }
-            cbm_hook_augment_prefetch_stdin(hook_input);
+            ani_hook_augment_prefetch_stdin(hook_input);
         }
     }
 
-    if (role == CBM_DAEMON_PROCESS_STATELESS) {
+    if (role == ANI_DAEMON_PROCESS_STATELESS) {
         int result = handle_subcommand(argc, argv, NULL, NULL);
         return result >= 0 ? result : EXIT_FAILURE;
     }
 
-    if (role == CBM_DAEMON_PROCESS_LOCAL_CLI) {
+    if (role == ANI_DAEMON_PROCESS_LOCAL_CLI) {
         bool feedback_enabled = main_local_cli_feedback_enabled(argc, argv);
         FILE *feedback = feedback_enabled ? stderr : NULL;
         if (feedback) {
-            (void)fputs("Preparing one-shot local CBM command...\n", feedback);
+            (void)fputs("Preparing one-shot local ANI command...\n", feedback);
             (void)fflush(feedback);
         }
-        cbm_daemon_ipc_endpoint_t *local_endpoint = cbm_daemon_bootstrap_endpoint_new(NULL);
+        ani_daemon_ipc_endpoint_t *local_endpoint = ani_daemon_bootstrap_endpoint_new(NULL);
         char local_executable[MAIN_PATH_CAP];
-        cbm_daemon_build_identity_t local_identity;
-        cbm_project_lock_manager_t *project_locks =
-            local_endpoint ? cbm_project_lock_manager_new(local_endpoint) : NULL;
-        cbm_version_cohort_manager_t *cohort_manager =
-            local_endpoint ? cbm_version_cohort_manager_new(local_endpoint) : NULL;
-        cbm_version_cohort_lease_t *cohort_lease = NULL;
-        cbm_daemon_ipc_local_transition_t *local_transition = NULL;
+        ani_daemon_build_identity_t local_identity;
+        ani_project_lock_manager_t *project_locks =
+            local_endpoint ? ani_project_lock_manager_new(local_endpoint) : NULL;
+        ani_version_cohort_manager_t *cohort_manager =
+            local_endpoint ? ani_version_cohort_manager_new(local_endpoint) : NULL;
+        ani_version_cohort_lease_t *cohort_lease = NULL;
+        ani_daemon_ipc_local_transition_t *local_transition = NULL;
         main_local_maintenance_context_t maintenance_context;
         bool maintenance_context_initialized = false;
-        cbm_daemon_maintenance_monitor_t *maintenance_monitor = NULL;
-        cbm_daemon_conflict_t cohort_conflict;
-        cbm_version_cohort_status_t cohort_status = CBM_VERSION_COHORT_IO;
+        ani_daemon_maintenance_monitor_t *maintenance_monitor = NULL;
+        ani_daemon_conflict_t cohort_conflict;
+        ani_version_cohort_status_t cohort_status = ANI_VERSION_COHORT_IO;
         main_build_identity_status_t local_identity_status = MAIN_BUILD_IDENTITY_OK;
-        int result = CBM_NOT_FOUND;
+        int result = ANI_NOT_FOUND;
         int exit_code = EXIT_FAILURE;
         bool cleanup_ok = true;
         const char *coordination_failure = NULL;
@@ -2569,45 +2569,45 @@ int main(int argc, char **argv) {
              * "(endpoint)" alone is what four separate reporters in #1533 and
              * #1574 were left with: every mode fails, `config list` included,
              * so the product cannot even be reconfigured out of it, and
-             * CBM_LOG_LEVEL=debug adds nothing. One of them had to build an
+             * ANI_LOG_LEVEL=debug adds nothing. One of them had to build an
              * instrumented binary to discover that a single ACE on an ancestor
              * of %LOCALAPPDATA% was the cause. The validation detail already
              * holds that — it names the directory, the offending SID and the
              * right it granted — and the daemon-endpoint path a few hundred
              * lines below has printed it since #1582. This path did not. */
-            const char *why = cbm_daemon_ipc_validation_detail();
+            const char *why = ani_daemon_ipc_validation_detail();
             (void)fprintf(
                 stderr,
-                "codebase-memory-mcp: secure CLI coordination could not be created (%s)%s%s\n",
+                "ani: secure CLI coordination could not be created (%s)%s%s\n",
                 coordination_failure, (why && why[0]) ? ": " : "", (why && why[0]) ? why : "");
             goto local_cli_cleanup;
         }
-        cbm_http_server_set_binary_path(local_executable);
+        ani_http_server_set_binary_path(local_executable);
 
-        cohort_status = cbm_version_cohort_acquire(cohort_manager, &local_identity,
+        cohort_status = ani_version_cohort_acquire(cohort_manager, &local_identity,
                                                    main_deadline_after(MAIN_STARTUP_TIMEOUT_MS),
                                                    &cohort_lease, &cohort_conflict);
-        if (cohort_status != CBM_VERSION_COHORT_OK) {
-            char message[CBM_DAEMON_CONFLICT_MESSAGE_SIZE];
-            bool formatted = cohort_status == CBM_VERSION_COHORT_CONFLICT &&
-                             cbm_daemon_conflict_format(&cohort_conflict, message, sizeof(message));
-            if (cohort_status == CBM_VERSION_COHORT_CONFLICT) {
-                (void)cbm_version_cohort_log_conflict(&cohort_conflict);
+        if (cohort_status != ANI_VERSION_COHORT_OK) {
+            char message[ANI_DAEMON_CONFLICT_MESSAGE_SIZE];
+            bool formatted = cohort_status == ANI_VERSION_COHORT_CONFLICT &&
+                             ani_daemon_conflict_format(&cohort_conflict, message, sizeof(message));
+            if (cohort_status == ANI_VERSION_COHORT_CONFLICT) {
+                (void)ani_version_cohort_log_conflict(&cohort_conflict);
             }
-            (void)fprintf(stderr, "codebase-memory-mcp: %s\n",
+            (void)fprintf(stderr, "ani: %s\n",
                           formatted ? message
                                     : "CLI exact-build admission could not be verified; retry "
-                                      "after active CBM operations exit");
+                                      "after active ANI operations exit");
             goto local_cli_cleanup;
         }
         main_local_maintenance_context_init(&maintenance_context);
         maintenance_context_initialized = true;
         maintenance_monitor =
-            cbm_daemon_maintenance_monitor_start(cohort_manager, main_local_command_cancel,
+            ani_daemon_maintenance_monitor_start(cohort_manager, main_local_command_cancel,
                                                  &maintenance_context, EXIT_FAILURE, "CLI command");
         if (!maintenance_monitor) {
             (void)fprintf(stderr,
-                          "codebase-memory-mcp: CLI maintenance observer could not start safely\n");
+                          "ani: CLI maintenance observer could not start safely\n");
             goto local_cli_cleanup;
         }
 
@@ -2619,52 +2619,52 @@ int main(int argc, char **argv) {
                  * waiting the likely causes are a peer that is genuinely stuck,
                  * or (on Windows) a lock left behind by a force-killed process
                  * that the OS has not reclaimed. "Busy" alone sent reporters
-                 * hunting for a CBM session that had already exited. */
+                 * hunting for a ANI session that had already exited. */
                 (void)fprintf(stderr,
-                              "codebase-memory-mcp: CLI startup coordination stayed busy for "
-                              "%d seconds. Either another CBM command is still running, or a "
+                              "ani: CLI startup coordination stayed busy for "
+                              "%d seconds. Either another ANI command is still running, or a "
                               "previous one was force-killed and the operating system has not "
-                              "released its lock yet. Check for running CBM processes; if there "
+                              "released its lock yet. Check for running ANI processes; if there "
                               "are none, retry shortly.\n",
                               MAIN_STARTUP_CONTENTION_CEILING_MS / 1000);
             } else {
-                (void)fprintf(stderr, "codebase-memory-mcp: CLI startup coordination could not "
-                                      "be verified safely; retry after active CBM sessions "
+                (void)fprintf(stderr, "ani: CLI startup coordination could not "
+                                      "be verified safely; retry after active ANI sessions "
                                       "exit\n");
             }
             goto local_cli_cleanup;
         }
-        int seal_status = cbm_daemon_ipc_local_transition_seal_legacy(local_transition);
+        int seal_status = ani_daemon_ipc_local_transition_seal_legacy(local_transition);
         if (seal_status != 1) {
             if (seal_status == 0) {
-                (void)cbm_version_cohort_log_uncoordinated_daemon(&local_identity);
+                (void)ani_version_cohort_log_uncoordinated_daemon(&local_identity);
             }
-            (void)fprintf(stderr, "codebase-memory-mcp: CBM CLI could not start because a "
-                                  "pre-coordination or unverified CBM generation is active; close "
-                                  "all CBM sessions and commands, then retry\n");
+            (void)fprintf(stderr, "ani: ANI CLI could not start because a "
+                                  "pre-coordination or unverified ANI generation is active; close "
+                                  "all ANI sessions and commands, then retry\n");
             goto local_cli_cleanup;
         }
 
-        cbm_version_cohort_daemon_presence_t daemon_presence =
-            cbm_version_cohort_daemon_presence_under_transition(cohort_manager, local_endpoint,
+        ani_version_cohort_daemon_presence_t daemon_presence =
+            ani_version_cohort_daemon_presence_under_transition(cohort_manager, local_endpoint,
                                                                 local_transition);
-        if (daemon_presence != CBM_VERSION_COHORT_DAEMON_ABSENT &&
-            daemon_presence != CBM_VERSION_COHORT_DAEMON_COORDINATED) {
-            if (daemon_presence == CBM_VERSION_COHORT_DAEMON_UNCOORDINATED) {
-                (void)cbm_version_cohort_log_uncoordinated_daemon(&local_identity);
-                (void)fprintf(stderr, "codebase-memory-mcp: CBM CLI could not start because "
-                                      "an active pre-coordination or unverified CBM daemon is "
-                                      "running. Close all CBM sessions and commands, then "
+        if (daemon_presence != ANI_VERSION_COHORT_DAEMON_ABSENT &&
+            daemon_presence != ANI_VERSION_COHORT_DAEMON_COORDINATED) {
+            if (daemon_presence == ANI_VERSION_COHORT_DAEMON_UNCOORDINATED) {
+                (void)ani_version_cohort_log_uncoordinated_daemon(&local_identity);
+                (void)fprintf(stderr, "ani: ANI CLI could not start because "
+                                      "an active pre-coordination or unverified ANI daemon is "
+                                      "running. Close all ANI sessions and commands, then "
                                       "retry.\n");
             } else {
-                (void)fprintf(stderr, "codebase-memory-mcp: active daemon coordination could "
-                                      "not be verified safely; retry after active CBM sessions "
+                (void)fprintf(stderr, "ani: active daemon coordination could "
+                                      "not be verified safely; retry after active ANI sessions "
                                       "exit\n");
             }
             goto local_cli_cleanup;
         }
-        if (!cbm_daemon_ipc_local_transition_begin_work(local_transition)) {
-            (void)fprintf(stderr, "codebase-memory-mcp: CLI startup coordination could not enter "
+        if (!ani_daemon_ipc_local_transition_begin_work(local_transition)) {
+            (void)fprintf(stderr, "ani: CLI startup coordination could not enter "
                                   "local work safely\n");
             goto local_cli_cleanup;
         }
@@ -2681,7 +2681,7 @@ int main(int argc, char **argv) {
          * barrier must not prove every old participant gone while this process
          * still owns a local transition or project mutation lease. */
         cleanup_ok = main_version_cohort_close(&cohort_lease, &cohort_manager) && cleanup_ok;
-        cbm_daemon_ipc_endpoint_free(local_endpoint);
+        ani_daemon_ipc_endpoint_free(local_endpoint);
         if (!cleanup_ok) {
             main_report_client_failure(role, "CLI coordination cleanup failed");
             return EXIT_FAILURE;
@@ -2690,118 +2690,118 @@ int main(int argc, char **argv) {
     }
 
     char executable_path[MAIN_PATH_CAP];
-    cbm_daemon_build_identity_t identity;
+    ani_daemon_build_identity_t identity;
     if (!main_resolve_executable(argv[0], executable_path)) {
         (void)fprintf(stderr,
-                      "codebase-memory-mcp: exact executable identity could not be verified "
+                      "ani: exact executable identity could not be verified "
                       "(executable-path)\n");
-        return role == CBM_DAEMON_PROCESS_HOOK_CLIENT ? EXIT_SUCCESS : EXIT_FAILURE;
+        return role == ANI_DAEMON_PROCESS_HOOK_CLIENT ? EXIT_SUCCESS : EXIT_FAILURE;
     }
     main_build_identity_status_t identity_status = main_build_identity(&identity);
     if (identity_status != MAIN_BUILD_IDENTITY_OK) {
-        const char *validation_detail = cbm_daemon_ipc_validation_detail();
+        const char *validation_detail = ani_daemon_ipc_validation_detail();
         (void)fprintf(stderr,
-                      "codebase-memory-mcp: exact executable identity could not be verified "
+                      "ani: exact executable identity could not be verified "
                       "(%s)%s%s\n",
                       main_build_identity_status_name(identity_status),
                       validation_detail[0] ? " - " : "", validation_detail);
-        return role == CBM_DAEMON_PROCESS_HOOK_CLIENT ? EXIT_SUCCESS : EXIT_FAILURE;
+        return role == ANI_DAEMON_PROCESS_HOOK_CLIENT ? EXIT_SUCCESS : EXIT_FAILURE;
     }
-    cbm_http_server_set_binary_path(executable_path);
+    ani_http_server_set_binary_path(executable_path);
 
-    if (role == CBM_DAEMON_PROCESS_WORKER) {
-        cbm_index_worker_invocation_t invocation;
-        cbm_index_worker_argv_status_t worker_status =
-            cbm_index_worker_parse_process_argv(argc, argv, &invocation);
-        if (worker_status != CBM_INDEX_WORKER_ARGV_VALID) {
-            (void)fprintf(stderr, "CBM index worker could not start: %s\n",
-                          cbm_index_worker_argv_status_message(worker_status));
+    if (role == ANI_DAEMON_PROCESS_WORKER) {
+        ani_index_worker_invocation_t invocation;
+        ani_index_worker_argv_status_t worker_status =
+            ani_index_worker_parse_process_argv(argc, argv, &invocation);
+        if (worker_status != ANI_INDEX_WORKER_ARGV_VALID) {
+            (void)fprintf(stderr, "ANI index worker could not start: %s\n",
+                          ani_index_worker_argv_status_message(worker_status));
             return EXIT_FAILURE;
         }
         /* First thing a worker records, and the only thing six 0-byte-log
          * reports were missing: who I am, what I was asked to index, with what
          * arguments. Everything below here can crash and the log still names
          * the run. */
-        char *worker_repo_path = cbm_mcp_get_string_arg(invocation.args_json, "repo_path");
-        cbm_index_worker_log_begin(invocation.args_json, worker_repo_path);
+        char *worker_repo_path = ani_mcp_get_string_arg(invocation.args_json, "repo_path");
+        ani_index_worker_log_begin(invocation.args_json, worker_repo_path);
         free(worker_repo_path);
-        cbm_daemon_ipc_endpoint_t *worker_endpoint = cbm_daemon_bootstrap_endpoint_new(NULL);
-        cbm_project_lock_manager_t *worker_project_locks =
-            worker_endpoint ? cbm_project_lock_manager_new(worker_endpoint) : NULL;
-        cbm_version_cohort_manager_t *worker_cohort_manager =
-            worker_endpoint ? cbm_version_cohort_manager_new(worker_endpoint) : NULL;
-        cbm_version_cohort_lease_t *worker_cohort_lease = NULL;
-        cbm_daemon_ipc_local_transition_t *worker_transition = NULL;
+        ani_daemon_ipc_endpoint_t *worker_endpoint = ani_daemon_bootstrap_endpoint_new(NULL);
+        ani_project_lock_manager_t *worker_project_locks =
+            worker_endpoint ? ani_project_lock_manager_new(worker_endpoint) : NULL;
+        ani_version_cohort_manager_t *worker_cohort_manager =
+            worker_endpoint ? ani_version_cohort_manager_new(worker_endpoint) : NULL;
+        ani_version_cohort_lease_t *worker_cohort_lease = NULL;
+        ani_daemon_ipc_local_transition_t *worker_transition = NULL;
         main_local_maintenance_context_t worker_maintenance_context;
         bool worker_maintenance_context_initialized = false;
-        cbm_daemon_maintenance_monitor_t *worker_maintenance_monitor = NULL;
-        cbm_daemon_conflict_t worker_conflict;
-        int result = CBM_NOT_FOUND;
+        ani_daemon_maintenance_monitor_t *worker_maintenance_monitor = NULL;
+        ani_daemon_conflict_t worker_conflict;
+        int result = ANI_NOT_FOUND;
         bool worker_cleanup_ok = true;
-        cbm_version_cohort_status_t worker_cohort_status =
+        ani_version_cohort_status_t worker_cohort_status =
             worker_project_locks && worker_cohort_manager
-                ? cbm_version_cohort_acquire(worker_cohort_manager, &identity,
+                ? ani_version_cohort_acquire(worker_cohort_manager, &identity,
                                              main_deadline_after(MAIN_STARTUP_TIMEOUT_MS),
                                              &worker_cohort_lease, &worker_conflict)
-                : CBM_VERSION_COHORT_IO;
-        if (worker_cohort_status != CBM_VERSION_COHORT_OK) {
-            char message[CBM_DAEMON_CONFLICT_MESSAGE_SIZE];
-            bool formatted = worker_cohort_status == CBM_VERSION_COHORT_CONFLICT &&
-                             cbm_daemon_conflict_format(&worker_conflict, message, sizeof(message));
-            if (worker_cohort_status == CBM_VERSION_COHORT_CONFLICT) {
-                (void)cbm_version_cohort_log_conflict(&worker_conflict);
+                : ANI_VERSION_COHORT_IO;
+        if (worker_cohort_status != ANI_VERSION_COHORT_OK) {
+            char message[ANI_DAEMON_CONFLICT_MESSAGE_SIZE];
+            bool formatted = worker_cohort_status == ANI_VERSION_COHORT_CONFLICT &&
+                             ani_daemon_conflict_format(&worker_conflict, message, sizeof(message));
+            if (worker_cohort_status == ANI_VERSION_COHORT_CONFLICT) {
+                (void)ani_version_cohort_log_conflict(&worker_conflict);
             }
-            (void)fprintf(stderr, "CBM index worker could not start: %s\n",
+            (void)fprintf(stderr, "ANI index worker could not start: %s\n",
                           formatted ? message : "exact-build admission failed");
             goto worker_cleanup;
         }
 
         main_local_maintenance_context_init(&worker_maintenance_context);
         worker_maintenance_context_initialized = true;
-        worker_maintenance_monitor = cbm_daemon_maintenance_monitor_start(
+        worker_maintenance_monitor = ani_daemon_maintenance_monitor_start(
             worker_cohort_manager, main_local_command_cancel, &worker_maintenance_context,
             EXIT_FAILURE, "index worker");
         if (!worker_maintenance_monitor) {
             (void)fprintf(stderr,
-                          "CBM index worker could not start: maintenance observer unavailable\n");
+                          "ANI index worker could not start: maintenance observer unavailable\n");
             goto worker_cleanup;
         }
 
         int worker_transition_status =
             main_local_transition_acquire(worker_endpoint, NULL, &worker_transition);
         if (worker_transition_status != 1 || !worker_transition) {
-            (void)fprintf(stderr, "CBM index worker could not start: local coordination %s\n",
+            (void)fprintf(stderr, "ANI index worker could not start: local coordination %s\n",
                           worker_transition_status == 0 ? "remained busy"
                                                         : "could not be verified safely");
             goto worker_cleanup;
         }
-        int worker_seal_status = cbm_daemon_ipc_local_transition_seal_legacy(worker_transition);
+        int worker_seal_status = ani_daemon_ipc_local_transition_seal_legacy(worker_transition);
         if (worker_seal_status != 1) {
             if (worker_seal_status == 0) {
-                (void)cbm_version_cohort_log_uncoordinated_daemon(&identity);
+                (void)ani_version_cohort_log_uncoordinated_daemon(&identity);
             }
-            (void)fprintf(stderr, "CBM index worker could not start: a pre-coordination or "
-                                  "unverified CBM generation is active\n");
+            (void)fprintf(stderr, "ANI index worker could not start: a pre-coordination or "
+                                  "unverified ANI generation is active\n");
             goto worker_cleanup;
         }
-        cbm_version_cohort_daemon_presence_t worker_daemon_presence =
-            cbm_version_cohort_daemon_presence_under_transition(worker_cohort_manager,
+        ani_version_cohort_daemon_presence_t worker_daemon_presence =
+            ani_version_cohort_daemon_presence_under_transition(worker_cohort_manager,
                                                                 worker_endpoint, worker_transition);
-        if (worker_daemon_presence != CBM_VERSION_COHORT_DAEMON_ABSENT &&
-            worker_daemon_presence != CBM_VERSION_COHORT_DAEMON_COORDINATED) {
-            if (worker_daemon_presence == CBM_VERSION_COHORT_DAEMON_UNCOORDINATED) {
-                (void)cbm_version_cohort_log_uncoordinated_daemon(&identity);
+        if (worker_daemon_presence != ANI_VERSION_COHORT_DAEMON_ABSENT &&
+            worker_daemon_presence != ANI_VERSION_COHORT_DAEMON_COORDINATED) {
+            if (worker_daemon_presence == ANI_VERSION_COHORT_DAEMON_UNCOORDINATED) {
+                (void)ani_version_cohort_log_uncoordinated_daemon(&identity);
             }
-            (void)fprintf(stderr, "CBM index worker could not start: active daemon coordination "
+            (void)fprintf(stderr, "ANI index worker could not start: active daemon coordination "
                                   "could not be verified safely\n");
             goto worker_cleanup;
         }
-        if (!cbm_daemon_ipc_local_transition_begin_work(worker_transition)) {
-            (void)fprintf(stderr, "CBM index worker could not start: local coordination could not "
+        if (!ani_daemon_ipc_local_transition_begin_work(worker_transition)) {
+            (void)fprintf(stderr, "ANI index worker could not start: local coordination could not "
                                   "enter worker execution\n");
             goto worker_cleanup;
         }
-        cbm_index_set_worker_role_options(true, invocation.response_out, invocation.single_thread,
+        ani_index_set_worker_role_options(true, invocation.response_out, invocation.single_thread,
                                           invocation.marker_file, invocation.quarantine_file,
                                           invocation.memory_budget_bytes);
 #ifndef _WIN32
@@ -2820,7 +2820,7 @@ int main(int argc, char **argv) {
             getppid() != process_initial_ppid) {
             worker_containment_unavailable();
         }
-#ifdef CBM_ENABLE_TEST_SEAMS
+#ifdef ANI_ENABLE_TEST_SEAMS
         if (!worker_start_watchdog_test_descendant()) {
             worker_containment_unavailable();
         }
@@ -2829,7 +2829,7 @@ int main(int argc, char **argv) {
             worker_containment_unavailable();
         }
 #endif
-        cbm_index_supervisor_mark_host();
+        ani_index_supervisor_mark_host();
         result = handle_subcommand(argc, argv, worker_project_locks, &worker_maintenance_context);
 
     worker_cleanup:
@@ -2843,36 +2843,36 @@ int main(int argc, char **argv) {
         worker_cleanup_ok =
             main_version_cohort_close(&worker_cohort_lease, &worker_cohort_manager) &&
             worker_cleanup_ok;
-        cbm_daemon_ipc_endpoint_free(worker_endpoint);
-        if (!worker_cleanup_ok || worker_cohort_status != CBM_VERSION_COHORT_OK || result < 0) {
+        ani_daemon_ipc_endpoint_free(worker_endpoint);
+        if (!worker_cleanup_ok || worker_cohort_status != ANI_VERSION_COHORT_OK || result < 0) {
             return EXIT_FAILURE;
         }
         return result;
     }
 
-    cbm_daemon_ipc_endpoint_t *endpoint = main_daemon_endpoint_new();
+    ani_daemon_ipc_endpoint_t *endpoint = main_daemon_endpoint_new();
     if (!endpoint) {
         /* #1582: this is where an ownership/ancestry refusal lands, and it was
          * the silent one — stderr only, so an MCP client saw a transport that
          * closed with no explanation. Include the validation detail, which
          * names the directory and the rule that refused. */
-        const char *why = cbm_daemon_ipc_validation_detail();
-        char message[CBM_DAEMON_CONFLICT_MESSAGE_SIZE];
+        const char *why = ani_daemon_ipc_validation_detail();
+        char message[ANI_DAEMON_CONFLICT_MESSAGE_SIZE];
         (void)snprintf(message, sizeof(message), "secure daemon endpoint could not be created%s%s",
                        (why && why[0]) ? ": " : "", (why && why[0]) ? why : "");
         main_report_client_failure(role, message);
         return EXIT_FAILURE;
     }
 
-    if (role == CBM_DAEMON_PROCESS_DAEMON_CTL) {
+    if (role == ANI_DAEMON_PROCESS_DAEMON_CTL) {
         int ctl_result = main_run_daemon_ctl(argc, argv, endpoint, &identity, executable_path);
-        cbm_daemon_ipc_endpoint_free(endpoint);
+        ani_daemon_ipc_endpoint_free(endpoint);
         return ctl_result;
     }
 
-    if (role == CBM_DAEMON_PROCESS_DAEMON) {
+    if (role == ANI_DAEMON_PROCESS_DAEMON) {
         setup_signal_handlers();
-        cbm_daemon_host_config_t host_config = {
+        ani_daemon_host_config_t host_config = {
             .endpoint = endpoint,
             .identity = identity,
             .executable_path = executable_path,
@@ -2881,65 +2881,65 @@ int main(int argc, char **argv) {
              * argc==3 can only be the permanent spawn shape. */
             .permanent = argc == 3,
         };
-        int result = cbm_daemon_host_run(&host_config);
-        cbm_daemon_ipc_endpoint_free(endpoint);
+        int result = ani_daemon_host_run(&host_config);
+        ani_daemon_ipc_endpoint_free(endpoint);
         return result == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
-#ifdef CBM_ENABLE_TEST_SEAMS
+#ifdef ANI_ENABLE_TEST_SEAMS
     /* #1388 test seam: let one binary present a foreign build fingerprint as a
      * hook client, so the daemon-conflict reporting path is testable without
      * building a second binary. */
-    static char seam_hook_build[CBM_DAEMON_BUILD_FINGERPRINT_SIZE];
-    const char *seam_forced_build = cbm_safe_getenv("CBM_TEST_HOOK_CLIENT_BUILD", seam_hook_build,
+    static char seam_hook_build[ANI_DAEMON_BUILD_FINGERPRINT_SIZE];
+    const char *seam_forced_build = ani_safe_getenv("ANI_TEST_HOOK_CLIENT_BUILD", seam_hook_build,
                                                     sizeof(seam_hook_build), NULL);
-    if (role == CBM_DAEMON_PROCESS_HOOK_CLIENT && seam_forced_build && seam_forced_build[0]) {
+    if (role == ANI_DAEMON_PROCESS_HOOK_CLIENT && seam_forced_build && seam_forced_build[0]) {
         identity.build_fingerprint = seam_hook_build;
     }
 #endif
 
-    cbm_version_cohort_manager_t *client_cohort_manager = cbm_version_cohort_manager_new(endpoint);
-    cbm_version_cohort_lease_t *client_cohort_lease = NULL;
-    cbm_daemon_conflict_t client_cohort_conflict;
-    cbm_version_cohort_status_t client_cohort_status =
+    ani_version_cohort_manager_t *client_cohort_manager = ani_version_cohort_manager_new(endpoint);
+    ani_version_cohort_lease_t *client_cohort_lease = NULL;
+    ani_daemon_conflict_t client_cohort_conflict;
+    ani_version_cohort_status_t client_cohort_status =
         client_cohort_manager
-            ? cbm_version_cohort_acquire(client_cohort_manager, &identity,
-                                         main_deadline_after(role == CBM_DAEMON_PROCESS_HOOK_CLIENT
+            ? ani_version_cohort_acquire(client_cohort_manager, &identity,
+                                         main_deadline_after(role == ANI_DAEMON_PROCESS_HOOK_CLIENT
                                                                  ? MAIN_HOOK_REQUEST_TIMEOUT_MS
                                                                  : MAIN_MCP_STARTUP_TIMEOUT_MS),
                                          &client_cohort_lease, &client_cohort_conflict)
-            : CBM_VERSION_COHORT_IO;
-    if (client_cohort_status != CBM_VERSION_COHORT_OK) {
-        char message[CBM_DAEMON_CONFLICT_MESSAGE_SIZE];
+            : ANI_VERSION_COHORT_IO;
+    if (client_cohort_status != ANI_VERSION_COHORT_OK) {
+        char message[ANI_DAEMON_CONFLICT_MESSAGE_SIZE];
         bool formatted =
-            client_cohort_status == CBM_VERSION_COHORT_CONFLICT &&
-            cbm_daemon_conflict_format(&client_cohort_conflict, message, sizeof(message));
-        if (client_cohort_status == CBM_VERSION_COHORT_CONFLICT) {
-            (void)cbm_version_cohort_log_conflict(&client_cohort_conflict);
+            client_cohort_status == ANI_VERSION_COHORT_CONFLICT &&
+            ani_daemon_conflict_format(&client_cohort_conflict, message, sizeof(message));
+        if (client_cohort_status == ANI_VERSION_COHORT_CONFLICT) {
+            (void)ani_version_cohort_log_conflict(&client_cohort_conflict);
         }
-        (void)fprintf(stderr, "codebase-memory-mcp: %s\n",
+        (void)fprintf(stderr, "ani: %s\n",
                       formatted ? message : "client exact-build admission failed");
-        if (role == CBM_DAEMON_PROCESS_HOOK_CLIENT &&
-            client_cohort_status == CBM_VERSION_COHORT_CONFLICT) {
+        if (role == ANI_DAEMON_PROCESS_HOOK_CLIENT &&
+            client_cohort_status == ANI_VERSION_COHORT_CONFLICT) {
             main_hook_report_conflicted_daemon(hook_dialect);
         }
         (void)main_version_cohort_close(&client_cohort_lease, &client_cohort_manager);
-        cbm_daemon_ipc_endpoint_free(endpoint);
-        return role == CBM_DAEMON_PROCESS_HOOK_CLIENT ? EXIT_SUCCESS : EXIT_FAILURE;
+        ani_daemon_ipc_endpoint_free(endpoint);
+        return role == ANI_DAEMON_PROCESS_HOOK_CLIENT ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
-    if (role == CBM_DAEMON_PROCESS_HOOK_CLIENT) {
+    if (role == ANI_DAEMON_PROCESS_HOOK_CLIENT) {
         /* Connect-only: recycle an active daemon or fail open fast. */
-        cbm_daemon_runtime_connect_result_t hook_connect;
-        cbm_daemon_runtime_client_t *hook_client = cbm_daemon_runtime_client_connect(
+        ani_daemon_runtime_connect_result_t hook_connect;
+        ani_daemon_runtime_client_t *hook_client = ani_daemon_runtime_client_connect(
             endpoint, &identity, MAIN_HOOK_CONNECT_TIMEOUT_MS, &hook_connect);
-        cbm_daemon_ipc_endpoint_free(endpoint);
+        ani_daemon_ipc_endpoint_free(endpoint);
         if (!hook_client) {
-            if (hook_connect.status == CBM_DAEMON_RUNTIME_CONNECT_CONFLICT) {
-                char conflict_detail[CBM_DAEMON_CONFLICT_MESSAGE_SIZE];
-                if (cbm_daemon_conflict_format(&hook_connect.conflict, conflict_detail,
+            if (hook_connect.status == ANI_DAEMON_RUNTIME_CONNECT_CONFLICT) {
+                char conflict_detail[ANI_DAEMON_CONFLICT_MESSAGE_SIZE];
+                if (ani_daemon_conflict_format(&hook_connect.conflict, conflict_detail,
                                                sizeof(conflict_detail))) {
-                    (void)fprintf(stderr, "codebase-memory-mcp: %s\n", conflict_detail);
+                    (void)fprintf(stderr, "ani: %s\n", conflict_detail);
                 }
                 main_hook_report_conflicted_daemon(hook_dialect);
             } else {
@@ -2951,18 +2951,18 @@ int main(int argc, char **argv) {
 #ifdef _WIN32
         /* Windows keeps the upstream fixed augmentation budget, armed only
          * after the authenticated connection. */
-        cbm_hook_augment_arm_deadline();
+        ani_hook_augment_arm_deadline();
 #endif
         /* Fail-open: a hook must never block the caller's tool use, so the
          * exit code is EXIT_SUCCESS even when augmentation failed — the
          * frontend already emitted any visible notice. */
         (void)main_run_hook_frontend(hook_client, hook_event, hook_dialect);
-        (void)cbm_daemon_runtime_client_close(hook_client, MAIN_HOOK_CLOSE_TIMEOUT_MS);
+        (void)ani_daemon_runtime_client_close(hook_client, MAIN_HOOK_CLOSE_TIMEOUT_MS);
         (void)main_version_cohort_close(&client_cohort_lease, &client_cohort_manager);
         return EXIT_SUCCESS;
     }
 
-    cbm_daemon_bootstrap_config_t bootstrap_config = {
+    ani_daemon_bootstrap_config_t bootstrap_config = {
         .role = role,
         .endpoint = endpoint,
         .identity = &identity,
@@ -2970,11 +2970,11 @@ int main(int argc, char **argv) {
         .connect_timeout_ms = MAIN_CONNECT_TIMEOUT_MS,
         .startup_timeout_ms = MAIN_MCP_STARTUP_TIMEOUT_MS,
     };
-    cbm_daemon_bootstrap_result_t bootstrap_result;
-    cbm_daemon_bootstrap_status_t bootstrap_status =
+    ani_daemon_bootstrap_result_t bootstrap_result;
+    ani_daemon_bootstrap_status_t bootstrap_status =
         main_client_bootstrap_with_upgrade(&bootstrap_config, &bootstrap_result);
-    cbm_daemon_ipc_endpoint_free(endpoint);
-    if (bootstrap_status != CBM_DAEMON_BOOTSTRAP_CONNECTED || !bootstrap_result.client) {
+    ani_daemon_ipc_endpoint_free(endpoint);
+    if (bootstrap_status != ANI_DAEMON_BOOTSTRAP_CONNECTED || !bootstrap_result.client) {
         main_report_client_bootstrap_failure(role, &bootstrap_result);
         (void)main_version_cohort_close(&client_cohort_lease, &client_cohort_manager);
         return EXIT_FAILURE;
@@ -2982,11 +2982,11 @@ int main(int argc, char **argv) {
 
     g_daemon_client = bootstrap_result.client;
 
-    if (role == CBM_DAEMON_PROCESS_MCP_CLIENT &&
+    if (role == ANI_DAEMON_PROCESS_MCP_CLIENT &&
         !main_set_client_context(g_daemon_client, NULL, tool_profile, NULL, NULL,
                                  MAIN_CONNECT_TIMEOUT_MS)) {
-        (void)fprintf(stderr, "codebase-memory-mcp: daemon session context was rejected\n");
-        (void)cbm_daemon_runtime_client_close(g_daemon_client, MAIN_CLOSE_TIMEOUT_MS);
+        (void)fprintf(stderr, "ani: daemon session context was rejected\n");
+        (void)ani_daemon_runtime_client_close(g_daemon_client, MAIN_CLOSE_TIMEOUT_MS);
         g_daemon_client = NULL;
         (void)main_version_cohort_close(&client_cohort_lease, &client_cohort_manager);
         return EXIT_FAILURE;
@@ -2996,31 +2996,31 @@ int main(int argc, char **argv) {
      * conflicting binary must be observationally read-only: applying its
      * flags before bootstrap could reconfigure the already-running daemon
      * even though that client was then rejected. */
-    if (role == CBM_DAEMON_PROCESS_MCP_CLIENT && cbm_mcp_tool_profile_allows_http(tool_profile)) {
+    if (role == ANI_DAEMON_PROCESS_MCP_CLIENT && ani_mcp_tool_profile_allows_http(tool_profile)) {
         bool ui_enabled = false;
         int ui_port = 0;
         bool explicitly_enabled = false;
         uint8_t update_mask =
             parse_ui_flags(argc, argv, &ui_enabled, &ui_port, &explicitly_enabled);
-        if (update_mask != 0 && cbm_daemon_application_client_set_ui_config(
+        if (update_mask != 0 && ani_daemon_application_client_set_ui_config(
                                     g_daemon_client, update_mask, ui_enabled, ui_port,
-                                    MAIN_CONNECT_TIMEOUT_MS) != CBM_DAEMON_RUNTIME_APPLICATION_OK) {
-            (void)fprintf(stderr, "codebase-memory-mcp: daemon UI configuration update failed\n");
-            (void)cbm_daemon_runtime_client_close(g_daemon_client, MAIN_CLOSE_TIMEOUT_MS);
+                                    MAIN_CONNECT_TIMEOUT_MS) != ANI_DAEMON_RUNTIME_APPLICATION_OK) {
+            (void)fprintf(stderr, "ani: daemon UI configuration update failed\n");
+            (void)ani_daemon_runtime_client_close(g_daemon_client, MAIN_CLOSE_TIMEOUT_MS);
             g_daemon_client = NULL;
             (void)main_version_cohort_close(&client_cohort_lease, &client_cohort_manager);
             return EXIT_FAILURE;
         }
-        if (explicitly_enabled && !(CBM_EMBEDDED_FILE_COUNT > 0)) {
-            (void)fprintf(stderr, "codebase-memory-mcp: --ui requested, but this binary was built "
-                                  "without UI support; rebuild with `make -f Makefile.cbm "
-                                  "cbm-with-ui`.\n");
+        if (explicitly_enabled && !(ANI_EMBEDDED_FILE_COUNT > 0)) {
+            (void)fprintf(stderr, "ani: --ui requested, but this binary was built "
+                                  "without UI support; rebuild with `make -f Makefile.ani "
+                                  "ani-with-ui`.\n");
         }
     }
 #ifndef _WIN32
     if (!client_start_parent_watchdog(process_initial_ppid)) {
-        (void)fprintf(stderr, "codebase-memory-mcp: parent-death watchdog could not start\n");
-        (void)cbm_daemon_runtime_client_close(g_daemon_client, MAIN_CLOSE_TIMEOUT_MS);
+        (void)fprintf(stderr, "ani: parent-death watchdog could not start\n");
+        (void)ani_daemon_runtime_client_close(g_daemon_client, MAIN_CLOSE_TIMEOUT_MS);
         g_daemon_client = NULL;
         (void)main_version_cohort_close(&client_cohort_lease, &client_cohort_manager);
         return EXIT_FAILURE;
@@ -3028,7 +3028,7 @@ int main(int argc, char **argv) {
 #endif
 
     setup_signal_handlers();
-    int result = cbm_daemon_frontend_mcp_run(g_daemon_client, client_cohort_manager, stdin, stdout);
+    int result = ani_daemon_frontend_mcp_run(g_daemon_client, client_cohort_manager, stdin, stdout);
     g_daemon_client = NULL; /* frontend consumed the handle */
     bool client_cohort_cleanup =
         main_version_cohort_close(&client_cohort_lease, &client_cohort_manager);

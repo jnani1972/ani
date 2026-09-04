@@ -38,8 +38,8 @@ static bool agent_command_exists(const char *value, const void *context) {
     return agent_probe_contains(value, context, true);
 }
 
-static cbm_agent_client_resolve_options_t agent_options(agent_probe_t *probe) {
-    cbm_agent_client_resolve_options_t options = {
+static ani_agent_client_resolve_options_t agent_options(agent_probe_t *probe) {
+    ani_agent_client_resolve_options_t options = {
         .home_dir = "/home/tester",
         .xdg_config_home = NULL,
         .appdata_dir = NULL,
@@ -59,7 +59,7 @@ static cbm_agent_client_resolve_options_t agent_options(agent_probe_t *probe) {
 }
 
 static char *agent_fixture(const char *initial, char **dir_out) {
-    char *dir = th_mktempdir("cbm_agent_clients");
+    char *dir = th_mktempdir("ani_agent_clients");
     if (!dir) {
         return NULL;
     }
@@ -131,7 +131,7 @@ static int agent_write_rovo_override(const char *config_path, const char *mcp_pa
 
 static char *agent_deep_same_name_json(size_t depth) {
     static const char prefix[] = "{\"mcpServers\":";
-    static const char leaf[] = "{\"codebase-memory-mcp\":{\"command\":\"foreign\",\"args\":[]}}";
+    static const char leaf[] = "{\"ani\":{\"command\":\"foreign\",\"args\":[]}}";
     size_t prefix_length = strlen(prefix);
     size_t leaf_length = strlen(leaf);
     if (depth > (SIZE_MAX - leaf_length - 2U) / (prefix_length + 1U)) {
@@ -165,70 +165,70 @@ TEST(agent_clients_registry_is_stable_and_callback_driven) {
         "omp",
     };
     static const uint32_t expected_capabilities[] = {
-        CBM_AGENT_CAP_MCP | CBM_AGENT_CAP_SKILL | CBM_AGENT_CAP_AGENT | CBM_AGENT_CAP_HOOK,
-        CBM_AGENT_CAP_MCP | CBM_AGENT_CAP_INSTRUCTIONS | CBM_AGENT_CAP_SKILL | CBM_AGENT_CAP_HOOK,
-        CBM_AGENT_CAP_MCP | CBM_AGENT_CAP_HOOK,
-        CBM_AGENT_CAP_MCP | CBM_AGENT_CAP_INSTRUCTIONS | CBM_AGENT_CAP_SKILL | CBM_AGENT_CAP_AGENT,
-        CBM_AGENT_CAP_MCP | CBM_AGENT_CAP_INSTRUCTIONS | CBM_AGENT_CAP_SKILL,
-        CBM_AGENT_CAP_MCP | CBM_AGENT_CAP_INSTRUCTIONS | CBM_AGENT_CAP_SKILL | CBM_AGENT_CAP_HOOK,
-        CBM_AGENT_CAP_MCP,
-        CBM_AGENT_CAP_MCP,
-        CBM_AGENT_CAP_MCP,
-        CBM_AGENT_CAP_MCP,
-        CBM_AGENT_CAP_MCP,
-        CBM_AGENT_CAP_MCP,
-        CBM_AGENT_CAP_MCP | CBM_AGENT_CAP_INSTRUCTIONS | CBM_AGENT_CAP_SKILL | CBM_AGENT_CAP_AGENT,
-        CBM_AGENT_CAP_MCP | CBM_AGENT_CAP_INSTRUCTIONS | CBM_AGENT_CAP_SKILL,
-        CBM_AGENT_CAP_MCP | CBM_AGENT_CAP_INSTRUCTIONS,
-        CBM_AGENT_CAP_MCP | CBM_AGENT_CAP_INSTRUCTIONS | CBM_AGENT_CAP_SKILL | CBM_AGENT_CAP_AGENT,
-        CBM_AGENT_CAP_INSTRUCTIONS | CBM_AGENT_CAP_SKILL,
-        CBM_AGENT_CAP_MCP,
-        CBM_AGENT_CAP_MCP | CBM_AGENT_CAP_SKILL | CBM_AGENT_CAP_AGENT,
+        ANI_AGENT_CAP_MCP | ANI_AGENT_CAP_SKILL | ANI_AGENT_CAP_AGENT | ANI_AGENT_CAP_HOOK,
+        ANI_AGENT_CAP_MCP | ANI_AGENT_CAP_INSTRUCTIONS | ANI_AGENT_CAP_SKILL | ANI_AGENT_CAP_HOOK,
+        ANI_AGENT_CAP_MCP | ANI_AGENT_CAP_HOOK,
+        ANI_AGENT_CAP_MCP | ANI_AGENT_CAP_INSTRUCTIONS | ANI_AGENT_CAP_SKILL | ANI_AGENT_CAP_AGENT,
+        ANI_AGENT_CAP_MCP | ANI_AGENT_CAP_INSTRUCTIONS | ANI_AGENT_CAP_SKILL,
+        ANI_AGENT_CAP_MCP | ANI_AGENT_CAP_INSTRUCTIONS | ANI_AGENT_CAP_SKILL | ANI_AGENT_CAP_HOOK,
+        ANI_AGENT_CAP_MCP,
+        ANI_AGENT_CAP_MCP,
+        ANI_AGENT_CAP_MCP,
+        ANI_AGENT_CAP_MCP,
+        ANI_AGENT_CAP_MCP,
+        ANI_AGENT_CAP_MCP,
+        ANI_AGENT_CAP_MCP | ANI_AGENT_CAP_INSTRUCTIONS | ANI_AGENT_CAP_SKILL | ANI_AGENT_CAP_AGENT,
+        ANI_AGENT_CAP_MCP | ANI_AGENT_CAP_INSTRUCTIONS | ANI_AGENT_CAP_SKILL,
+        ANI_AGENT_CAP_MCP | ANI_AGENT_CAP_INSTRUCTIONS,
+        ANI_AGENT_CAP_MCP | ANI_AGENT_CAP_INSTRUCTIONS | ANI_AGENT_CAP_SKILL | ANI_AGENT_CAP_AGENT,
+        ANI_AGENT_CAP_INSTRUCTIONS | ANI_AGENT_CAP_SKILL,
+        ANI_AGENT_CAP_MCP,
+        ANI_AGENT_CAP_MCP | ANI_AGENT_CAP_SKILL | ANI_AGENT_CAP_AGENT,
     };
-    ASSERT_EQ(cbm_agent_client_count(), CBM_AGENT_CLIENT_COUNT);
-    ASSERT_EQ(CBM_AGENT_CLIENT_COUNT, sizeof(expected) / sizeof(expected[0]));
-    ASSERT_EQ(CBM_AGENT_CLIENT_COUNT,
+    ASSERT_EQ(ani_agent_client_count(), ANI_AGENT_CLIENT_COUNT);
+    ASSERT_EQ(ANI_AGENT_CLIENT_COUNT, sizeof(expected) / sizeof(expected[0]));
+    ASSERT_EQ(ANI_AGENT_CLIENT_COUNT,
               sizeof(expected_capabilities) / sizeof(expected_capabilities[0]));
-    for (size_t i = 0U; i < CBM_AGENT_CLIENT_COUNT; i++) {
-        const cbm_agent_client_profile_t *profile = cbm_agent_client_at(i);
+    for (size_t i = 0U; i < ANI_AGENT_CLIENT_COUNT; i++) {
+        const ani_agent_client_profile_t *profile = ani_agent_client_at(i);
         ASSERT_NOT_NULL(profile);
-        ASSERT_EQ(profile->id, (cbm_agent_client_id_t)i);
+        ASSERT_EQ(profile->id, (ani_agent_client_id_t)i);
         ASSERT_STR_EQ(profile->stable_id, expected[i]);
         ASSERT_EQ(profile->capabilities, expected_capabilities[i]);
         ASSERT_NOT_NULL(profile->display_name);
-        if (profile->id == CBM_AGENT_CLIENT_PI) {
-            ASSERT(!(profile->capabilities & CBM_AGENT_CAP_MCP));
+        if (profile->id == ANI_AGENT_CLIENT_PI) {
+            ASSERT(!(profile->capabilities & ANI_AGENT_CAP_MCP));
             ASSERT_NULL(profile->install_mcp);
             ASSERT_NULL(profile->remove_mcp);
         } else {
-            ASSERT(profile->capabilities & CBM_AGENT_CAP_MCP);
+            ASSERT(profile->capabilities & ANI_AGENT_CAP_MCP);
             ASSERT_NOT_NULL(profile->install_mcp);
             ASSERT_NOT_NULL(profile->remove_mcp);
         }
-        ASSERT(cbm_agent_client_by_id(profile->id) == profile);
-        ASSERT(cbm_agent_client_by_stable_id(profile->stable_id) == profile);
+        ASSERT(ani_agent_client_by_id(profile->id) == profile);
+        ASSERT(ani_agent_client_by_stable_id(profile->stable_id) == profile);
     }
-    ASSERT_NULL(cbm_agent_client_by_id(CBM_AGENT_CLIENT_COUNT));
-    ASSERT_NULL(cbm_agent_client_by_stable_id("glab"));
-    ASSERT_EQ(cbm_agent_client_by_id(CBM_AGENT_CLIENT_TRAE)->stability, CBM_AGENT_CONDITIONAL);
+    ASSERT_NULL(ani_agent_client_by_id(ANI_AGENT_CLIENT_COUNT));
+    ASSERT_NULL(ani_agent_client_by_stable_id("glab"));
+    ASSERT_EQ(ani_agent_client_by_id(ANI_AGENT_CLIENT_TRAE)->stability, ANI_AGENT_CONDITIONAL);
     PASS();
 }
 
 TEST(agent_clients_visual_studio_cleanup_survives_missing_command) {
     agent_probe_t probe = {.paths = {"/home/tester/.mcp.json"}, .path_count = 1U};
-    cbm_agent_client_resolve_options_t options = agent_options(&probe);
+    ani_agent_client_resolve_options_t options = agent_options(&probe);
     options.is_windows = true;
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_VISUAL_STUDIO, &options));
-    ASSERT(cbm_agent_client_cleanup_candidate(CBM_AGENT_CLIENT_VISUAL_STUDIO, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_VISUAL_STUDIO, &options));
+    ASSERT(ani_agent_client_cleanup_candidate(ANI_AGENT_CLIENT_VISUAL_STUDIO, &options));
 
-    const char *foreign = "{\"servers\":{\"codebase-memory-mcp\":{\"type\":\"stdio\","
+    const char *foreign = "{\"servers\":{\"ani\":{\"type\":\"stdio\","
                           "\"command\":\"C:/User/tool.exe\",\"args\":[]}}}\n";
     char *dir = NULL;
     char *path = agent_fixture(foreign, &dir);
     ASSERT_NOT_NULL(path);
-    ASSERT_EQ(cbm_agent_client_remove_mcp(CBM_AGENT_CLIENT_VISUAL_STUDIO, path,
-                                          "C:/Tools/codebase-memory-mcp.exe"),
-              CBM_AGENT_EDIT_FOREIGN);
+    ASSERT_EQ(ani_agent_client_remove_mcp(ANI_AGENT_CLIENT_VISUAL_STUDIO, path,
+                                          "C:/Tools/ani.exe"),
+              ANI_AGENT_EDIT_FOREIGN);
     char *after = agent_read(path);
     ASSERT_NOT_NULL(after);
     ASSERT_STR_EQ(after, foreign);
@@ -239,25 +239,25 @@ TEST(agent_clients_visual_studio_cleanup_survives_missing_command) {
 }
 
 TEST(agent_clients_next_wave_metadata_matches_supported_surfaces) {
-    const cbm_agent_client_profile_t *continue_profile =
-        cbm_agent_client_by_id(CBM_AGENT_CLIENT_CONTINUE);
-    const cbm_agent_client_profile_t *visual_studio =
-        cbm_agent_client_by_id(CBM_AGENT_CLIENT_VISUAL_STUDIO);
-    const cbm_agent_client_profile_t *rovo = cbm_agent_client_by_id(CBM_AGENT_CLIENT_ROVO_DEV);
-    const cbm_agent_client_profile_t *gitlab = cbm_agent_client_by_id(CBM_AGENT_CLIENT_GITLAB_DUO);
-    const cbm_agent_client_profile_t *devin = cbm_agent_client_by_id(CBM_AGENT_CLIENT_DEVIN);
-    const cbm_agent_client_profile_t *roo = cbm_agent_client_by_id(CBM_AGENT_CLIENT_ROO_CODE);
-    const cbm_agent_client_profile_t *amazon_q = cbm_agent_client_by_id(CBM_AGENT_CLIENT_AMAZON_Q);
-    const cbm_agent_client_profile_t *codebuddy =
-        cbm_agent_client_by_id(CBM_AGENT_CLIENT_CODEBUDDY);
-    const cbm_agent_client_profile_t *ibm_bob_ide =
-        cbm_agent_client_by_id(CBM_AGENT_CLIENT_IBM_BOB_IDE);
-    const cbm_agent_client_profile_t *ibm_bob_shell =
-        cbm_agent_client_by_id(CBM_AGENT_CLIENT_IBM_BOB_SHELL);
-    const cbm_agent_client_profile_t *pochi = cbm_agent_client_by_id(CBM_AGENT_CLIENT_POCHI);
-    const cbm_agent_client_profile_t *pi = cbm_agent_client_by_id(CBM_AGENT_CLIENT_PI);
-    const cbm_agent_client_profile_t *cody =
-        cbm_agent_client_by_id(CBM_AGENT_CLIENT_SOURCEGRAPH_CODY);
+    const ani_agent_client_profile_t *continue_profile =
+        ani_agent_client_by_id(ANI_AGENT_CLIENT_CONTINUE);
+    const ani_agent_client_profile_t *visual_studio =
+        ani_agent_client_by_id(ANI_AGENT_CLIENT_VISUAL_STUDIO);
+    const ani_agent_client_profile_t *rovo = ani_agent_client_by_id(ANI_AGENT_CLIENT_ROVO_DEV);
+    const ani_agent_client_profile_t *gitlab = ani_agent_client_by_id(ANI_AGENT_CLIENT_GITLAB_DUO);
+    const ani_agent_client_profile_t *devin = ani_agent_client_by_id(ANI_AGENT_CLIENT_DEVIN);
+    const ani_agent_client_profile_t *roo = ani_agent_client_by_id(ANI_AGENT_CLIENT_ROO_CODE);
+    const ani_agent_client_profile_t *amazon_q = ani_agent_client_by_id(ANI_AGENT_CLIENT_AMAZON_Q);
+    const ani_agent_client_profile_t *codebuddy =
+        ani_agent_client_by_id(ANI_AGENT_CLIENT_CODEBUDDY);
+    const ani_agent_client_profile_t *ibm_bob_ide =
+        ani_agent_client_by_id(ANI_AGENT_CLIENT_IBM_BOB_IDE);
+    const ani_agent_client_profile_t *ibm_bob_shell =
+        ani_agent_client_by_id(ANI_AGENT_CLIENT_IBM_BOB_SHELL);
+    const ani_agent_client_profile_t *pochi = ani_agent_client_by_id(ANI_AGENT_CLIENT_POCHI);
+    const ani_agent_client_profile_t *pi = ani_agent_client_by_id(ANI_AGENT_CLIENT_PI);
+    const ani_agent_client_profile_t *cody =
+        ani_agent_client_by_id(ANI_AGENT_CLIENT_SOURCEGRAPH_CODY);
     ASSERT_NOT_NULL(continue_profile);
     ASSERT_NOT_NULL(visual_studio);
     ASSERT_NOT_NULL(rovo);
@@ -271,37 +271,37 @@ TEST(agent_clients_next_wave_metadata_matches_supported_surfaces) {
     ASSERT_NOT_NULL(pochi);
     ASSERT_NOT_NULL(pi);
     ASSERT_NOT_NULL(cody);
-    ASSERT_EQ(continue_profile->stability, CBM_AGENT_CONDITIONAL);
-    ASSERT_EQ(visual_studio->stability, CBM_AGENT_CONDITIONAL);
-    ASSERT(rovo->capabilities & CBM_AGENT_CAP_SKILL);
-    ASSERT(rovo->capabilities & CBM_AGENT_CAP_AGENT);
-    ASSERT(gitlab->capabilities & CBM_AGENT_CAP_HOOK);
-    ASSERT(!(devin->capabilities & CBM_AGENT_CAP_AGENT));
-    ASSERT_EQ(roo->stability, CBM_AGENT_CONDITIONAL);
-    ASSERT(roo->capabilities & CBM_AGENT_CAP_MCP);
-    ASSERT(amazon_q->capabilities & CBM_AGENT_CAP_MCP);
+    ASSERT_EQ(continue_profile->stability, ANI_AGENT_CONDITIONAL);
+    ASSERT_EQ(visual_studio->stability, ANI_AGENT_CONDITIONAL);
+    ASSERT(rovo->capabilities & ANI_AGENT_CAP_SKILL);
+    ASSERT(rovo->capabilities & ANI_AGENT_CAP_AGENT);
+    ASSERT(gitlab->capabilities & ANI_AGENT_CAP_HOOK);
+    ASSERT(!(devin->capabilities & ANI_AGENT_CAP_AGENT));
+    ASSERT_EQ(roo->stability, ANI_AGENT_CONDITIONAL);
+    ASSERT(roo->capabilities & ANI_AGENT_CAP_MCP);
+    ASSERT(amazon_q->capabilities & ANI_AGENT_CAP_MCP);
     ASSERT_STR_EQ(amazon_q->display_name, "Amazon Q Developer IDE");
-    ASSERT_EQ(codebuddy->stability, CBM_AGENT_STABLE);
-    ASSERT(codebuddy->capabilities & CBM_AGENT_CAP_AGENT);
-    ASSERT(codebuddy->capabilities & CBM_AGENT_CAP_SKILL);
+    ASSERT_EQ(codebuddy->stability, ANI_AGENT_STABLE);
+    ASSERT(codebuddy->capabilities & ANI_AGENT_CAP_AGENT);
+    ASSERT(codebuddy->capabilities & ANI_AGENT_CAP_SKILL);
     ASSERT_STR_EQ(codebuddy->display_name, "CodeBuddy Code CLI");
     ASSERT_STR_EQ(codebuddy->detection_command, "codebuddy");
-    ASSERT_EQ(ibm_bob_ide->stability, CBM_AGENT_CONDITIONAL);
+    ASSERT_EQ(ibm_bob_ide->stability, ANI_AGENT_CONDITIONAL);
     ASSERT_STR_EQ(ibm_bob_ide->display_name, "IBM Bob IDE");
     ASSERT_NULL(ibm_bob_ide->detection_command);
-    ASSERT_EQ(ibm_bob_shell->stability, CBM_AGENT_STABLE);
+    ASSERT_EQ(ibm_bob_shell->stability, ANI_AGENT_STABLE);
     ASSERT_STR_EQ(ibm_bob_shell->display_name, "IBM Bob Shell");
     ASSERT_STR_EQ(ibm_bob_shell->detection_command, "bob");
-    ASSERT_EQ(pochi->stability, CBM_AGENT_STABLE);
-    ASSERT(pochi->capabilities & CBM_AGENT_CAP_AGENT);
+    ASSERT_EQ(pochi->stability, ANI_AGENT_STABLE);
+    ASSERT(pochi->capabilities & ANI_AGENT_CAP_AGENT);
     ASSERT_STR_EQ(pochi->detection_command, "pochi");
-    ASSERT(!(pi->capabilities & CBM_AGENT_CAP_MCP));
-    ASSERT(pi->capabilities & CBM_AGENT_CAP_INSTRUCTIONS);
-    ASSERT(pi->capabilities & CBM_AGENT_CAP_SKILL);
+    ASSERT(!(pi->capabilities & ANI_AGENT_CAP_MCP));
+    ASSERT(pi->capabilities & ANI_AGENT_CAP_INSTRUCTIONS);
+    ASSERT(pi->capabilities & ANI_AGENT_CAP_SKILL);
     ASSERT_NULL(pi->install_mcp);
     ASSERT_NULL(pi->remove_mcp);
-    ASSERT_EQ(cody->stability, CBM_AGENT_OPT_IN);
-    ASSERT_EQ(cody->capabilities, CBM_AGENT_CAP_MCP);
+    ASSERT_EQ(cody->stability, ANI_AGENT_OPT_IN);
+    ASSERT_EQ(cody->capabilities, ANI_AGENT_CAP_MCP);
     ASSERT_NOT_NULL(cody->install_mcp);
     ASSERT_NOT_NULL(cody->remove_mcp);
     PASS();
@@ -309,51 +309,51 @@ TEST(agent_clients_next_wave_metadata_matches_supported_surfaces) {
 
 TEST(agent_clients_resolve_documented_paths_and_precedence) {
     agent_probe_t probe = {0};
-    cbm_agent_client_resolve_options_t options = agent_options(&probe);
+    ani_agent_client_resolve_options_t options = agent_options(&probe);
     char path[512];
 
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_QODER, &options, path, sizeof(path)),
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_QODER, &options, path, sizeof(path)),
               0);
     ASSERT_STR_EQ(path, "/home/tester/.qoder/settings.json");
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_KIMI, &options, path, sizeof(path)),
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_KIMI, &options, path, sizeof(path)),
               0);
     ASSERT_STR_EQ(path, "/home/tester/.kimi-code/mcp.json");
     ASSERT_EQ(
-        cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_GITLAB_DUO, &options, path, sizeof(path)),
+        ani_agent_client_resolve_path(ANI_AGENT_CLIENT_GITLAB_DUO, &options, path, sizeof(path)),
         0);
     ASSERT_STR_EQ(path, "/home/tester/.gitlab/duo/mcp.json");
 
     options.kimi_code_home = "/opt/kimi home";
     options.glab_config_dir = "/opt/gitlab";
     options.xdg_config_home = "/xdg";
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_KIMI, &options, path, sizeof(path)),
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_KIMI, &options, path, sizeof(path)),
               0);
     ASSERT_STR_EQ(path, "/opt/kimi home/mcp.json");
     ASSERT_EQ(
-        cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_GITLAB_DUO, &options, path, sizeof(path)),
+        ani_agent_client_resolve_path(ANI_AGENT_CLIENT_GITLAB_DUO, &options, path, sizeof(path)),
         0);
     ASSERT_STR_EQ(path, "/opt/gitlab/duo/mcp.json");
     options.glab_config_dir = NULL;
     ASSERT_EQ(
-        cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_GITLAB_DUO, &options, path, sizeof(path)),
+        ani_agent_client_resolve_path(ANI_AGENT_CLIENT_GITLAB_DUO, &options, path, sizeof(path)),
         0);
     ASSERT_STR_EQ(path, "/xdg/gitlab/duo/mcp.json");
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_AMP, &options, path, sizeof(path)), 0);
-    ASSERT_STR_EQ(path, "/home/tester/.config/agents/skills/codebase-memory/mcp.json");
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_DEVIN, &options, path, sizeof(path)),
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_AMP, &options, path, sizeof(path)), 0);
+    ASSERT_STR_EQ(path, "/home/tester/.config/agents/skills/ani/mcp.json");
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_DEVIN, &options, path, sizeof(path)),
               0);
     ASSERT_STR_EQ(path, "/home/tester/.config/devin/config.json");
 
     options.is_windows = true;
     options.appdata_dir = "/roaming";
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_DEVIN, &options, path, sizeof(path)),
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_DEVIN, &options, path, sizeof(path)),
               0);
     ASSERT_STR_EQ(path, "/roaming/devin/config.json");
     PASS();
 }
 
 TEST(agent_clients_resolve_rovo_override_and_conditional_paths) {
-    char *dir = th_mktempdir("cbm_agent_clients_rovo");
+    char *dir = th_mktempdir("ani_agent_clients_rovo");
     ASSERT_NOT_NULL(dir);
     char config[1024];
     char safe_override[1024];
@@ -362,29 +362,29 @@ TEST(agent_clients_resolve_rovo_override_and_conditional_paths) {
            0);
     ASSERT_EQ(agent_write_rovo_override(config, safe_override), 0);
     agent_probe_t probe = {.paths = {config}, .path_count = 1U};
-    cbm_agent_client_resolve_options_t options = agent_options(&probe);
+    ani_agent_client_resolve_options_t options = agent_options(&probe);
     options.home_dir = dir;
 #ifdef _WIN32
     options.is_windows = true;
 #endif
     char path[1024];
     ASSERT_EQ(
-        cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_ROVO_DEV, &options, path, sizeof(path)), 0);
+        ani_agent_client_resolve_path(ANI_AGENT_CLIENT_ROVO_DEV, &options, path, sizeof(path)), 0);
     ASSERT_STR_EQ(path, safe_override);
 
     ASSERT_EQ(
-        cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_CONTINUE, &options, path, sizeof(path)), 1);
+        ani_agent_client_resolve_path(ANI_AGENT_CLIENT_CONTINUE, &options, path, sizeof(path)), 1);
     options.continue_config_path = config;
     ASSERT_EQ(
-        cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_CONTINUE, &options, path, sizeof(path)), 0);
+        ani_agent_client_resolve_path(ANI_AGENT_CLIENT_CONTINUE, &options, path, sizeof(path)), 0);
     ASSERT_STR_EQ(path, config);
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_TRAE, &options, path, sizeof(path)),
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_TRAE, &options, path, sizeof(path)),
               1);
     options.trae_config_path = "/missing/trae.json";
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_TRAE, &options, path, sizeof(path)),
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_TRAE, &options, path, sizeof(path)),
               1);
     probe.paths[probe.path_count++] = options.trae_config_path;
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_TRAE, &options, path, sizeof(path)),
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_TRAE, &options, path, sizeof(path)),
               0);
     ASSERT_STR_EQ(path, options.trae_config_path);
     th_cleanup(dir);
@@ -397,12 +397,12 @@ TEST(agent_clients_rovo_override_rejects_relative_and_traversal_paths) {
         "../outside.json",
         "~/.rovodev/../outside.json",
     };
-    char *dir = th_mktempdir("cbm_agent_clients_rovo_relative");
+    char *dir = th_mktempdir("ani_agent_clients_rovo_relative");
     ASSERT_NOT_NULL(dir);
     char config[1024];
     ASSERT(snprintf(config, sizeof(config), "%s/.rovodev/config.yml", dir) > 0);
     agent_probe_t probe = {.paths = {config}, .path_count = 1U};
-    cbm_agent_client_resolve_options_t options = agent_options(&probe);
+    ani_agent_client_resolve_options_t options = agent_options(&probe);
     options.home_dir = dir;
 #ifdef _WIN32
     options.is_windows = true;
@@ -411,7 +411,7 @@ TEST(agent_clients_rovo_override_rejects_relative_and_traversal_paths) {
     for (size_t i = 0U; i < sizeof(invalid_paths) / sizeof(invalid_paths[0]); i++) {
         ASSERT_EQ(agent_write_rovo_override(config, invalid_paths[i]), 0);
         char resolved[1024] = "untouched-on-rejection";
-        ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_ROVO_DEV, &options, resolved,
+        ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_ROVO_DEV, &options, resolved,
                                                 sizeof(resolved)),
                   -1);
         ASSERT_STR_EQ(resolved, "untouched-on-rejection");
@@ -421,7 +421,7 @@ TEST(agent_clients_rovo_override_rejects_relative_and_traversal_paths) {
 }
 
 TEST(agent_clients_rovo_override_rejects_absolute_paths_outside_user_root) {
-    char *dir = th_mktempdir("cbm_agent_clients_rovo_absolute");
+    char *dir = th_mktempdir("ani_agent_clients_rovo_absolute");
     ASSERT_NOT_NULL(dir);
     char config[1024];
     char outside[1024];
@@ -435,7 +435,7 @@ TEST(agent_clients_rovo_override_rejects_absolute_paths_outside_user_root) {
                     "%s/.rovodev/nested/../../outside.json", dir) > 0);
     const char *invalid_paths[] = {outside, prefix_collision, absolute_traversal};
     agent_probe_t probe = {.paths = {config}, .path_count = 1U};
-    cbm_agent_client_resolve_options_t options = agent_options(&probe);
+    ani_agent_client_resolve_options_t options = agent_options(&probe);
     options.home_dir = dir;
 #ifdef _WIN32
     options.is_windows = true;
@@ -444,7 +444,7 @@ TEST(agent_clients_rovo_override_rejects_absolute_paths_outside_user_root) {
     for (size_t i = 0U; i < sizeof(invalid_paths) / sizeof(invalid_paths[0]); i++) {
         ASSERT_EQ(agent_write_rovo_override(config, invalid_paths[i]), 0);
         char resolved[1024] = "untouched-on-rejection";
-        ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_ROVO_DEV, &options, resolved,
+        ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_ROVO_DEV, &options, resolved,
                                                 sizeof(resolved)),
                   -1);
         ASSERT_STR_EQ(resolved, "untouched-on-rejection");
@@ -455,104 +455,104 @@ TEST(agent_clients_rovo_override_rejects_absolute_paths_outside_user_root) {
 
 TEST(agent_clients_rovo_compatibility_prefers_existing_documented_filename) {
     agent_probe_t probe = {0};
-    cbm_agent_client_resolve_options_t options = agent_options(&probe);
+    ani_agent_client_resolve_options_t options = agent_options(&probe);
     char path[512];
     probe.paths[probe.path_count++] = "/home/tester/.rovodev/mcp_config.json";
     ASSERT_EQ(
-        cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_ROVO_DEV, &options, path, sizeof(path)), 0);
+        ani_agent_client_resolve_path(ANI_AGENT_CLIENT_ROVO_DEV, &options, path, sizeof(path)), 0);
     ASSERT_STR_EQ(path, "/home/tester/.rovodev/mcp_config.json");
     probe.paths[probe.path_count++] = "/home/tester/.rovodev/mcp.json";
     ASSERT_EQ(
-        cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_ROVO_DEV, &options, path, sizeof(path)), 0);
+        ani_agent_client_resolve_path(ANI_AGENT_CLIENT_ROVO_DEV, &options, path, sizeof(path)), 0);
     ASSERT_STR_EQ(path, "/home/tester/.rovodev/mcp.json");
     probe.path_count = 0U;
     ASSERT_EQ(
-        cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_ROVO_DEV, &options, path, sizeof(path)), 0);
+        ani_agent_client_resolve_path(ANI_AGENT_CLIENT_ROVO_DEV, &options, path, sizeof(path)), 0);
     ASSERT_STR_EQ(path, "/home/tester/.rovodev/mcp.json");
     PASS();
 }
 
 TEST(agent_clients_detection_avoids_generic_binary_false_positives) {
     agent_probe_t probe = {.commands = {"glab", "acli"}, .command_count = 2U};
-    cbm_agent_client_resolve_options_t options = agent_options(&probe);
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_GITLAB_DUO, &options));
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_ROVO_DEV, &options));
+    ani_agent_client_resolve_options_t options = agent_options(&probe);
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_GITLAB_DUO, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_ROVO_DEV, &options));
     probe.commands[probe.command_count++] = "duo";
     probe.commands[probe.command_count++] = "rovodev";
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_GITLAB_DUO, &options));
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_ROVO_DEV, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_GITLAB_DUO, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_ROVO_DEV, &options));
 
     probe.commands[probe.command_count++] = "cn";
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_CONTINUE, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_CONTINUE, &options));
     options.is_windows = false;
     probe.commands[probe.command_count++] = "devenv";
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_VISUAL_STUDIO, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_VISUAL_STUDIO, &options));
     options.is_windows = true;
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_VISUAL_STUDIO, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_VISUAL_STUDIO, &options));
     PASS();
 }
 
 TEST(agent_clients_detect_installed_client_directories_before_mcp_exists) {
     agent_probe_t probe = {0};
-    cbm_agent_client_resolve_options_t options = agent_options(&probe);
+    ani_agent_client_resolve_options_t options = agent_options(&probe);
 
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_QODER, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_QODER, &options));
     probe.paths[0] = "/home/tester/.qoder";
     probe.path_count = 1U;
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_QODER, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_QODER, &options));
 
     probe.path_count = 0U;
     options.kimi_code_home = "/opt/kimi-code-home";
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_KIMI, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_KIMI, &options));
     probe.paths[0] = options.kimi_code_home;
     probe.path_count = 1U;
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_KIMI, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_KIMI, &options));
 
     probe.path_count = 0U;
     options.glab_config_dir = "/opt/gitlab";
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_GITLAB_DUO, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_GITLAB_DUO, &options));
     probe.paths[0] = "/opt/gitlab/duo";
     probe.path_count = 1U;
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_GITLAB_DUO, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_GITLAB_DUO, &options));
 
     probe.path_count = 0U;
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_ROVO_DEV, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_ROVO_DEV, &options));
     probe.paths[0] = "/home/tester/.rovodev";
     probe.path_count = 1U;
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_ROVO_DEV, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_ROVO_DEV, &options));
 
     probe.path_count = 0U;
     options.glab_config_dir = NULL;
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_AMP, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_AMP, &options));
     probe.paths[0] = "/home/tester/.config/amp";
     probe.path_count = 1U;
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_AMP, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_AMP, &options));
 
     probe.path_count = 0U;
     options.xdg_config_home = "/xdg";
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_DEVIN, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_DEVIN, &options));
     probe.paths[0] = "/home/tester/.config/devin";
     probe.path_count = 1U;
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_DEVIN, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_DEVIN, &options));
 
     probe.path_count = 0U;
     options.xdg_config_home = NULL;
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_TABNINE, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_TABNINE, &options));
     probe.paths[0] = "/home/tester/.tabnine";
     probe.path_count = 1U;
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_TABNINE, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_TABNINE, &options));
 
     probe.path_count = 0U;
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_AMAZON_Q, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_AMAZON_Q, &options));
     probe.paths[0] = "/home/tester/.aws/amazonq";
     probe.path_count = 1U;
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_AMAZON_Q, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_AMAZON_Q, &options));
 
     probe.path_count = 0U;
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_PI, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_PI, &options));
     probe.paths[0] = "/home/tester/.pi/agent";
     probe.path_count = 1U;
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_PI, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_PI, &options));
     PASS();
 }
 
@@ -564,63 +564,63 @@ TEST(agent_clients_marker_detection_remains_fail_closed_for_conditional_clients)
         .commands = {"glab", "acli", "code", "cody", "cn", "roo", "trae"},
         .command_count = 7U,
     };
-    cbm_agent_client_resolve_options_t options = agent_options(&probe);
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_GITLAB_DUO, &options));
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_ROVO_DEV, &options));
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_AMP, &options));
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_CONTINUE, &options));
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_ROO_CODE, &options));
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_TRAE, &options));
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_SOURCEGRAPH_CODY, &options));
+    ani_agent_client_resolve_options_t options = agent_options(&probe);
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_GITLAB_DUO, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_ROVO_DEV, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_AMP, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_CONTINUE, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_ROO_CODE, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_TRAE, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_SOURCEGRAPH_CODY, &options));
 
     options.continue_config_path = "/active/continue.yaml";
     options.roo_config_path = "/active/roo.json";
     options.trae_config_path = "/active/trae.json";
     options.cody_config_path = "/active/cody-settings.json";
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_CONTINUE, &options));
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_ROO_CODE, &options));
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_TRAE, &options));
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_SOURCEGRAPH_CODY, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_CONTINUE, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_ROO_CODE, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_TRAE, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_SOURCEGRAPH_CODY, &options));
     probe.paths[probe.path_count++] = options.continue_config_path;
     probe.paths[probe.path_count++] = options.roo_config_path;
     probe.paths[probe.path_count++] = options.trae_config_path;
     probe.paths[probe.path_count++] = options.cody_config_path;
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_CONTINUE, &options));
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_ROO_CODE, &options));
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_TRAE, &options));
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_SOURCEGRAPH_CODY, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_CONTINUE, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_ROO_CODE, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_TRAE, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_SOURCEGRAPH_CODY, &options));
 
     options.is_windows = true;
     probe.paths[probe.path_count++] = "/home/tester/.mcp.json";
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_VISUAL_STUDIO, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_VISUAL_STUDIO, &options));
     probe.commands[probe.command_count++] = "devenv";
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_VISUAL_STUDIO, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_VISUAL_STUDIO, &options));
     PASS();
 }
 
 TEST(agent_clients_roo_code_requires_an_explicit_existing_config) {
     agent_probe_t probe = {0};
-    cbm_agent_client_resolve_options_t options = agent_options(&probe);
+    ani_agent_client_resolve_options_t options = agent_options(&probe);
     char resolved[512];
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_ROO_CODE, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_ROO_CODE, &options, resolved,
                                             sizeof(resolved)),
               1);
     options.roo_config_path = "/work/project/.roo/mcp.json";
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_ROO_CODE, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_ROO_CODE, &options, resolved,
                                             sizeof(resolved)),
               1);
     probe.paths[probe.path_count++] = options.roo_config_path;
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_ROO_CODE, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_ROO_CODE, &options, resolved,
                                             sizeof(resolved)),
               0);
     ASSERT_STR_EQ(resolved, options.roo_config_path);
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_ROO_CODE, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_ROO_CODE, &options));
 
     char *dir = NULL;
     char *path = agent_fixture("{}\n", &dir);
     ASSERT_NOT_NULL(path);
-    ASSERT_EQ(cbm_agent_client_install_mcp(CBM_AGENT_CLIENT_ROO_CODE, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_OK);
+    ASSERT_EQ(ani_agent_client_install_mcp(ANI_AGENT_CLIENT_ROO_CODE, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_OK);
     char *installed = agent_read(path);
     ASSERT_NOT_NULL(installed);
     ASSERT_NOT_NULL(strstr(installed, "\"mcpServers\""));
@@ -633,25 +633,25 @@ TEST(agent_clients_roo_code_requires_an_explicit_existing_config) {
 
 TEST(agent_clients_amazon_q_prefers_current_then_existing_legacy_config) {
     agent_probe_t probe = {0};
-    cbm_agent_client_resolve_options_t options = agent_options(&probe);
+    ani_agent_client_resolve_options_t options = agent_options(&probe);
     char resolved[512];
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_AMAZON_Q, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_AMAZON_Q, &options, resolved,
                                             sizeof(resolved)),
               0);
     ASSERT_STR_EQ(resolved, "/home/tester/.aws/amazonq/default.json");
 
     probe.paths[probe.path_count++] = "/home/tester/.aws/amazonq/mcp.json";
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_AMAZON_Q, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_AMAZON_Q, &options, resolved,
                                             sizeof(resolved)),
               0);
     ASSERT_STR_EQ(resolved, "/home/tester/.aws/amazonq/mcp.json");
     probe.paths[probe.path_count++] = "/home/tester/.aws/amazonq/agents/default.json";
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_AMAZON_Q, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_AMAZON_Q, &options, resolved,
                                             sizeof(resolved)),
               0);
     ASSERT_STR_EQ(resolved, "/home/tester/.aws/amazonq/agents/default.json");
     probe.paths[probe.path_count++] = "/home/tester/.aws/amazonq/default.json";
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_AMAZON_Q, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_AMAZON_Q, &options, resolved,
                                             sizeof(resolved)),
               0);
     ASSERT_STR_EQ(resolved, "/home/tester/.aws/amazonq/default.json");
@@ -659,8 +659,8 @@ TEST(agent_clients_amazon_q_prefers_current_then_existing_legacy_config) {
     char *dir = NULL;
     char *path = agent_fixture("{\"permissions\":{\"keep\":true}}\n", &dir);
     ASSERT_NOT_NULL(path);
-    ASSERT_EQ(cbm_agent_client_install_mcp(CBM_AGENT_CLIENT_AMAZON_Q, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_OK);
+    ASSERT_EQ(ani_agent_client_install_mcp(ANI_AGENT_CLIENT_AMAZON_Q, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_OK);
     char *installed = agent_read(path);
     ASSERT_NOT_NULL(installed);
     ASSERT_NOT_NULL(strstr(installed, "\"mcpServers\""));
@@ -676,78 +676,78 @@ TEST(agent_clients_amazon_q_prefers_current_then_existing_legacy_config) {
 
 TEST(agent_clients_codebuddy_bob_and_pochi_use_documented_global_paths) {
     agent_probe_t probe = {0};
-    cbm_agent_client_resolve_options_t options = agent_options(&probe);
+    ani_agent_client_resolve_options_t options = agent_options(&probe);
     char resolved[512];
 
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_CODEBUDDY, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_CODEBUDDY, &options, resolved,
                                             sizeof(resolved)),
               0);
     ASSERT_STR_EQ(resolved, "/home/tester/.codebuddy/.mcp.json");
     probe.paths[probe.path_count++] = "/home/tester/.codebuddy.json";
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_CODEBUDDY, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_CODEBUDDY, &options, resolved,
                                             sizeof(resolved)),
               0);
     ASSERT_STR_EQ(resolved, "/home/tester/.codebuddy.json");
     probe.paths[probe.path_count++] = "/home/tester/.codebuddy/mcp.json";
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_CODEBUDDY, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_CODEBUDDY, &options, resolved,
                                             sizeof(resolved)),
               0);
     ASSERT_STR_EQ(resolved, "/home/tester/.codebuddy/mcp.json");
     probe.paths[probe.path_count++] = "/home/tester/.codebuddy/.mcp.json";
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_CODEBUDDY, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_CODEBUDDY, &options, resolved,
                                             sizeof(resolved)),
               0);
     ASSERT_STR_EQ(resolved, "/home/tester/.codebuddy/.mcp.json");
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_IBM_BOB_IDE, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_IBM_BOB_IDE, &options, resolved,
                                             sizeof(resolved)),
               0);
     ASSERT_STR_EQ(resolved, "/home/tester/.bob/mcp.json");
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_IBM_BOB_SHELL, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_IBM_BOB_SHELL, &options, resolved,
                                             sizeof(resolved)),
               0);
     ASSERT_STR_EQ(resolved, "/home/tester/.bob/mcp_settings.json");
     ASSERT_EQ(
-        cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_POCHI, &options, resolved, sizeof(resolved)),
+        ani_agent_client_resolve_path(ANI_AGENT_CLIENT_POCHI, &options, resolved, sizeof(resolved)),
         0);
     ASSERT_STR_EQ(resolved, "/home/tester/.pochi/config.jsonc");
 
     probe.path_count = 0U;
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_CODEBUDDY, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_CODEBUDDY, &options));
     probe.commands[probe.command_count++] = "codebuddy";
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_CODEBUDDY, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_CODEBUDDY, &options));
     probe.command_count = 0U;
     probe.paths[probe.path_count++] = "/home/tester/.codebuddy";
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_CODEBUDDY, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_CODEBUDDY, &options));
 
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_IBM_BOB_IDE, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_IBM_BOB_IDE, &options));
     probe.paths[probe.path_count++] = "/home/tester/.bob";
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_IBM_BOB_IDE, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_IBM_BOB_IDE, &options));
     probe.paths[probe.path_count++] = "/home/tester/.bob/mcp.json";
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_IBM_BOB_IDE, &options));
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_IBM_BOB_SHELL, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_IBM_BOB_IDE, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_IBM_BOB_SHELL, &options));
     probe.commands[probe.command_count++] = "bob";
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_IBM_BOB_SHELL, &options));
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_POCHI, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_IBM_BOB_SHELL, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_POCHI, &options));
     probe.commands[probe.command_count++] = "pochi";
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_POCHI, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_POCHI, &options));
     PASS();
 }
 
 TEST(agent_clients_pi_has_no_mcp_path_or_mutation) {
     agent_probe_t probe = {.commands = {"pi"}, .command_count = 1U};
-    cbm_agent_client_resolve_options_t options = agent_options(&probe);
+    ani_agent_client_resolve_options_t options = agent_options(&probe);
     char resolved[512];
     ASSERT_EQ(
-        cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_PI, &options, resolved, sizeof(resolved)),
+        ani_agent_client_resolve_path(ANI_AGENT_CLIENT_PI, &options, resolved, sizeof(resolved)),
         1);
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_PI, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_PI, &options));
 
     const char *original = "{\"keep\":true}\n";
     char *dir = NULL;
     char *path = agent_fixture(original, &dir);
     ASSERT_NOT_NULL(path);
-    ASSERT_EQ(cbm_agent_client_install_mcp(CBM_AGENT_CLIENT_PI, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_NOT_APPLICABLE);
+    ASSERT_EQ(ani_agent_client_install_mcp(ANI_AGENT_CLIENT_PI, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_NOT_APPLICABLE);
     char *after = agent_read(path);
     ASSERT_STR_EQ(after, original);
     free(after);
@@ -758,23 +758,23 @@ TEST(agent_clients_pi_has_no_mcp_path_or_mutation) {
 
 TEST(agent_clients_cody_is_opt_in_and_requires_explicit_existing_settings) {
     agent_probe_t probe = {.commands = {"code", "cody"}, .command_count = 2U};
-    cbm_agent_client_resolve_options_t options = agent_options(&probe);
+    ani_agent_client_resolve_options_t options = agent_options(&probe);
     char resolved[512];
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_SOURCEGRAPH_CODY, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_SOURCEGRAPH_CODY, &options, resolved,
                                             sizeof(resolved)),
               1);
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_SOURCEGRAPH_CODY, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_SOURCEGRAPH_CODY, &options));
     options.cody_config_path = "/home/tester/.config/Code/User/settings.json";
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_SOURCEGRAPH_CODY, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_SOURCEGRAPH_CODY, &options, resolved,
                                             sizeof(resolved)),
               1);
-    ASSERT(!cbm_agent_client_detect(CBM_AGENT_CLIENT_SOURCEGRAPH_CODY, &options));
+    ASSERT(!ani_agent_client_detect(ANI_AGENT_CLIENT_SOURCEGRAPH_CODY, &options));
     probe.paths[probe.path_count++] = options.cody_config_path;
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_SOURCEGRAPH_CODY, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_SOURCEGRAPH_CODY, &options, resolved,
                                             sizeof(resolved)),
               0);
     ASSERT_STR_EQ(resolved, options.cody_config_path);
-    ASSERT(cbm_agent_client_detect(CBM_AGENT_CLIENT_SOURCEGRAPH_CODY, &options));
+    ASSERT(ani_agent_client_detect(ANI_AGENT_CLIENT_SOURCEGRAPH_CODY, &options));
     PASS();
 }
 
@@ -785,8 +785,8 @@ TEST(agent_clients_cody_uses_literal_dotted_key_without_feature_or_permission_ed
     char *dir = NULL;
     char *path = agent_fixture(initial, &dir);
     ASSERT_NOT_NULL(path);
-    ASSERT_EQ(cbm_agent_client_install_mcp(CBM_AGENT_CLIENT_SOURCEGRAPH_CODY, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_OK);
+    ASSERT_EQ(ani_agent_client_install_mcp(ANI_AGENT_CLIENT_SOURCEGRAPH_CODY, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_OK);
     char *installed = agent_read(path);
     ASSERT_NOT_NULL(installed);
     ASSERT_NOT_NULL(strstr(installed, "\"cody.mcpServers\""));
@@ -801,11 +801,11 @@ TEST(agent_clients_cody_uses_literal_dotted_key_without_feature_or_permission_ed
     ASSERT_NULL(strstr(installed, "autoApprove"));
     free(installed);
 
-    const char *foreign = "{\"cody.mcpServers\":{\"codebase-memory-mcp\":{\"command\":\"foreign\","
+    const char *foreign = "{\"cody.mcpServers\":{\"ani\":{\"command\":\"foreign\","
                           "\"args\":[]}},\"cody.enabled\":false}\n";
     ASSERT_EQ(th_write_file(path, foreign), 0);
-    ASSERT_EQ(cbm_agent_client_install_mcp(CBM_AGENT_CLIENT_SOURCEGRAPH_CODY, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_FOREIGN);
+    ASSERT_EQ(ani_agent_client_install_mcp(ANI_AGENT_CLIENT_SOURCEGRAPH_CODY, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_FOREIGN);
     char *after = agent_read(path);
     ASSERT_STR_EQ(after, foreign);
     free(after);
@@ -816,30 +816,30 @@ TEST(agent_clients_cody_uses_literal_dotted_key_without_feature_or_permission_ed
 
 TEST(agent_clients_json_schemas_are_exact_and_policy_neutral) {
     static const struct {
-        cbm_agent_client_id_t id;
+        ani_agent_client_id_t id;
         const char *required;
     } cases[] = {
-        {CBM_AGENT_CLIENT_QODER, "\"mcpServers\""},
-        {CBM_AGENT_CLIENT_KIMI, "\"mcpServers\""},
-        {CBM_AGENT_CLIENT_GITLAB_DUO, "\"type\": \"stdio\""},
-        {CBM_AGENT_CLIENT_ROVO_DEV, "\"transport\": \"stdio\""},
-        {CBM_AGENT_CLIENT_AMP, "\"codebase-memory-mcp\""},
-        {CBM_AGENT_CLIENT_DEVIN, "\"mcpServers\""},
-        {CBM_AGENT_CLIENT_TABNINE, "\"mcpServers\""},
-        {CBM_AGENT_CLIENT_VISUAL_STUDIO, "\"servers\""},
-        {CBM_AGENT_CLIENT_TRAE, "\"mcpServers\""},
-        {CBM_AGENT_CLIENT_CODEBUDDY, "\"mcpServers\""},
-        {CBM_AGENT_CLIENT_IBM_BOB_IDE, "\"mcpServers\""},
-        {CBM_AGENT_CLIENT_IBM_BOB_SHELL, "\"mcpServers\""},
-        {CBM_AGENT_CLIENT_POCHI, "\"mcp\""},
-        {CBM_AGENT_CLIENT_OMP, "\"type\": \"stdio\""},
+        {ANI_AGENT_CLIENT_QODER, "\"mcpServers\""},
+        {ANI_AGENT_CLIENT_KIMI, "\"mcpServers\""},
+        {ANI_AGENT_CLIENT_GITLAB_DUO, "\"type\": \"stdio\""},
+        {ANI_AGENT_CLIENT_ROVO_DEV, "\"transport\": \"stdio\""},
+        {ANI_AGENT_CLIENT_AMP, "\"ani\""},
+        {ANI_AGENT_CLIENT_DEVIN, "\"mcpServers\""},
+        {ANI_AGENT_CLIENT_TABNINE, "\"mcpServers\""},
+        {ANI_AGENT_CLIENT_VISUAL_STUDIO, "\"servers\""},
+        {ANI_AGENT_CLIENT_TRAE, "\"mcpServers\""},
+        {ANI_AGENT_CLIENT_CODEBUDDY, "\"mcpServers\""},
+        {ANI_AGENT_CLIENT_IBM_BOB_IDE, "\"mcpServers\""},
+        {ANI_AGENT_CLIENT_IBM_BOB_SHELL, "\"mcpServers\""},
+        {ANI_AGENT_CLIENT_POCHI, "\"mcp\""},
+        {ANI_AGENT_CLIENT_OMP, "\"type\": \"stdio\""},
     };
-    const char *binary = "/opt/Codebase Memory/bin/cbm\\\"special";
+    const char *binary = "/opt/Ani/bin/ani\\\"special";
     for (size_t i = 0U; i < sizeof(cases) / sizeof(cases[0]); i++) {
         char *dir = NULL;
         char *path = agent_fixture("{\n  // user-owned\n  \"keep\": true,\n}\n", &dir);
         ASSERT_NOT_NULL(path);
-        ASSERT_EQ(cbm_agent_client_install_mcp(cases[i].id, path, binary), CBM_AGENT_EDIT_OK);
+        ASSERT_EQ(ani_agent_client_install_mcp(cases[i].id, path, binary), ANI_AGENT_EDIT_OK);
         char *first = agent_read(path);
         ASSERT_NOT_NULL(first);
         ASSERT_NOT_NULL(strstr(first, cases[i].required));
@@ -852,7 +852,7 @@ TEST(agent_clients_json_schemas_are_exact_and_policy_neutral) {
         ASSERT_NULL(strstr(first, "alwaysAllow"));
         ASSERT_NULL(strstr(first, "allowlist"));
         ASSERT_NULL(strstr(first, "permissions"));
-        ASSERT_EQ(cbm_agent_client_install_mcp(cases[i].id, path, binary), CBM_AGENT_EDIT_OK);
+        ASSERT_EQ(ani_agent_client_install_mcp(cases[i].id, path, binary), ANI_AGENT_EDIT_OK);
         char *second = agent_read(path);
         ASSERT_NOT_NULL(second);
         ASSERT_STR_EQ(first, second);
@@ -865,25 +865,25 @@ TEST(agent_clients_json_schemas_are_exact_and_policy_neutral) {
 }
 
 TEST(agent_clients_new_standard_json_profiles_preserve_foreign_entries) {
-    static const cbm_agent_client_id_t clients[] = {
-        CBM_AGENT_CLIENT_CODEBUDDY,
-        CBM_AGENT_CLIENT_IBM_BOB_IDE,
-        CBM_AGENT_CLIENT_IBM_BOB_SHELL,
-        CBM_AGENT_CLIENT_POCHI,
-        CBM_AGENT_CLIENT_OMP,
+    static const ani_agent_client_id_t clients[] = {
+        ANI_AGENT_CLIENT_CODEBUDDY,
+        ANI_AGENT_CLIENT_IBM_BOB_IDE,
+        ANI_AGENT_CLIENT_IBM_BOB_SHELL,
+        ANI_AGENT_CLIENT_POCHI,
+        ANI_AGENT_CLIENT_OMP,
     };
     for (size_t i = 0U; i < sizeof(clients) / sizeof(clients[0]); i++) {
         const char *foreign =
-            clients[i] == CBM_AGENT_CLIENT_POCHI
-                ? "{\"mcp\":{\"codebase-memory-mcp\":{\"command\":\"foreign\","
+            clients[i] == ANI_AGENT_CLIENT_POCHI
+                ? "{\"mcp\":{\"ani\":{\"command\":\"foreign\","
                   "\"args\":[]}}}\n"
-                : "{\"mcpServers\":{\"codebase-memory-mcp\":{\"command\":\"foreign\","
+                : "{\"mcpServers\":{\"ani\":{\"command\":\"foreign\","
                   "\"args\":[]}}}\n";
         char *dir = NULL;
         char *path = agent_fixture(foreign, &dir);
         ASSERT_NOT_NULL(path);
-        ASSERT_EQ(cbm_agent_client_install_mcp(clients[i], path, "/usr/bin/cbm"),
-                  CBM_AGENT_EDIT_FOREIGN);
+        ASSERT_EQ(ani_agent_client_install_mcp(clients[i], path, "/usr/bin/ani"),
+                  ANI_AGENT_EDIT_FOREIGN);
         char *after = agent_read(path);
         ASSERT_NOT_NULL(after);
         ASSERT_STR_EQ(after, foreign);
@@ -896,12 +896,12 @@ TEST(agent_clients_new_standard_json_profiles_preserve_foreign_entries) {
 
 TEST(agent_clients_refuse_foreign_and_preserve_modified_entries) {
     const char *foreign =
-        "{\"mcpServers\":{\"codebase-memory-mcp\":{\"command\":\"foreign\",\"args\":[]}}}\n";
+        "{\"mcpServers\":{\"ani\":{\"command\":\"foreign\",\"args\":[]}}}\n";
     char *dir = NULL;
     char *path = agent_fixture(foreign, &dir);
     ASSERT_NOT_NULL(path);
-    ASSERT_EQ(cbm_agent_client_install_mcp(CBM_AGENT_CLIENT_QODER, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_FOREIGN);
+    ASSERT_EQ(ani_agent_client_install_mcp(ANI_AGENT_CLIENT_QODER, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_FOREIGN);
     char *after = agent_read(path);
     ASSERT_STR_EQ(after, foreign);
     free(after);
@@ -909,23 +909,23 @@ TEST(agent_clients_refuse_foreign_and_preserve_modified_entries) {
     const char *escaped_foreign =
         "{mcpServers:{\"codebase\\u002dmemory-mcp\":{command:'foreign',args:[]}}}\n";
     ASSERT_EQ(th_write_file(path, escaped_foreign), 0);
-    ASSERT_EQ(cbm_agent_client_install_mcp(CBM_AGENT_CLIENT_QODER, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_FOREIGN);
+    ASSERT_EQ(ani_agent_client_install_mcp(ANI_AGENT_CLIENT_QODER, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_FOREIGN);
     after = agent_read(path);
     ASSERT_STR_EQ(after, escaped_foreign);
     free(after);
 
     ASSERT_EQ(th_write_file(path, "{}\n"), 0);
-    ASSERT_EQ(cbm_agent_client_install_mcp(CBM_AGENT_CLIENT_QODER, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_OK);
+    ASSERT_EQ(ani_agent_client_install_mcp(ANI_AGENT_CLIENT_QODER, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_OK);
     char *canonical = agent_read(path);
     ASSERT_NOT_NULL(canonical);
-    char *command = strstr(canonical, "/usr/bin/cbm");
+    char *command = strstr(canonical, "/usr/bin/ani");
     ASSERT_NOT_NULL(command);
     command[0] = 'X';
     ASSERT_EQ(th_write_file(path, canonical), 0);
-    ASSERT_EQ(cbm_agent_client_remove_mcp(CBM_AGENT_CLIENT_QODER, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_FOREIGN);
+    ASSERT_EQ(ani_agent_client_remove_mcp(ANI_AGENT_CLIENT_QODER, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_FOREIGN);
     after = agent_read(path);
     ASSERT_STR_EQ(after, canonical);
     free(after);
@@ -937,25 +937,25 @@ TEST(agent_clients_refuse_foreign_and_preserve_modified_entries) {
 
 TEST(agent_clients_omp_resolves_to_injected_agent_dir_when_provided) {
     agent_probe_t probe = {0};
-    cbm_agent_client_resolve_options_t options = agent_options(&probe);
+    ani_agent_client_resolve_options_t options = agent_options(&probe);
     char resolved[512];
 
     /* Default (no env) keeps the documented ~/.omp/agent path. */
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_OMP, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_OMP, &options, resolved,
                                             sizeof(resolved)),
               0);
     ASSERT_STR_EQ(resolved, "/home/tester/.omp/agent/mcp.json");
 
     /* Named profile directory takes precedence over the home-relative default. */
     options.omp_agent_dir = "/home/tester/.omp/profiles/work/agent";
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_OMP, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_OMP, &options, resolved,
                                             sizeof(resolved)),
               0);
     ASSERT_STR_EQ(resolved, "/home/tester/.omp/profiles/work/agent/mcp.json");
 
     /* PI_CODING_AGENT_DIR relocations also flow through the resolved option. */
     options.omp_agent_dir = "/srv/omp-shared/agent";
-    ASSERT_EQ(cbm_agent_client_resolve_path(CBM_AGENT_CLIENT_OMP, &options, resolved,
+    ASSERT_EQ(ani_agent_client_resolve_path(ANI_AGENT_CLIENT_OMP, &options, resolved,
                                             sizeof(resolved)),
               0);
     ASSERT_STR_EQ(resolved, "/srv/omp-shared/agent/mcp.json");
@@ -963,13 +963,13 @@ TEST(agent_clients_omp_resolves_to_injected_agent_dir_when_provided) {
 }
 
 TEST(agent_clients_omp_profile_does_not_register_global_instructions_capability) {
-    const cbm_agent_client_profile_t *profile =
-        cbm_agent_client_by_id(CBM_AGENT_CLIENT_OMP);
+    const ani_agent_client_profile_t *profile =
+        ani_agent_client_by_id(ANI_AGENT_CLIENT_OMP);
     ASSERT_NOT_NULL(profile);
-    ASSERT_EQ(profile->capabilities & CBM_AGENT_CAP_INSTRUCTIONS, 0U);
-    ASSERT_NEQ(profile->capabilities & CBM_AGENT_CAP_MCP, 0U);
-    ASSERT_NEQ(profile->capabilities & CBM_AGENT_CAP_SKILL, 0U);
-    ASSERT_NEQ(profile->capabilities & CBM_AGENT_CAP_AGENT, 0U);
+    ASSERT_EQ(profile->capabilities & ANI_AGENT_CAP_INSTRUCTIONS, 0U);
+    ASSERT_NEQ(profile->capabilities & ANI_AGENT_CAP_MCP, 0U);
+    ASSERT_NEQ(profile->capabilities & ANI_AGENT_CAP_SKILL, 0U);
+    ASSERT_NEQ(profile->capabilities & ANI_AGENT_CAP_AGENT, 0U);
     PASS();
 }
 
@@ -978,15 +978,15 @@ TEST(agent_clients_remove_only_canonical_and_missing_is_noop) {
     char *dir = NULL;
     char *path = agent_fixture("{\"keep\":true}\n", &dir);
     ASSERT_NOT_NULL(path);
-    ASSERT_EQ(cbm_agent_client_remove_mcp(CBM_AGENT_CLIENT_GITLAB_DUO, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_OK);
-    ASSERT_EQ(cbm_agent_client_install_mcp(CBM_AGENT_CLIENT_GITLAB_DUO, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_OK);
-    ASSERT_EQ(cbm_agent_client_remove_mcp(CBM_AGENT_CLIENT_GITLAB_DUO, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_OK);
+    ASSERT_EQ(ani_agent_client_remove_mcp(ANI_AGENT_CLIENT_GITLAB_DUO, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_OK);
+    ASSERT_EQ(ani_agent_client_install_mcp(ANI_AGENT_CLIENT_GITLAB_DUO, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_OK);
+    ASSERT_EQ(ani_agent_client_remove_mcp(ANI_AGENT_CLIENT_GITLAB_DUO, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_OK);
     char *after = agent_read(path);
     ASSERT_NOT_NULL(after);
-    ASSERT_NULL(strstr(after, "codebase-memory-mcp"));
+    ASSERT_NULL(strstr(after, "ani"));
     ASSERT_NOT_NULL(strstr(after, "\"keep\":true"));
     free(after);
     free(path);
@@ -998,16 +998,16 @@ TEST(agent_clients_registry_callbacks_apply_the_selected_schema) {
     char *dir = NULL;
     char *path = agent_fixture("{}\n", &dir);
     ASSERT_NOT_NULL(path);
-    const cbm_agent_client_profile_t *profile =
-        cbm_agent_client_by_id(CBM_AGENT_CLIENT_VISUAL_STUDIO);
+    const ani_agent_client_profile_t *profile =
+        ani_agent_client_by_id(ANI_AGENT_CLIENT_VISUAL_STUDIO);
     ASSERT_NOT_NULL(profile);
-    ASSERT_EQ(profile->install_mcp(profile->id, path, "C:/Tools/cbm.exe"), CBM_AGENT_EDIT_OK);
+    ASSERT_EQ(profile->install_mcp(profile->id, path, "C:/Tools/ani.exe"), ANI_AGENT_EDIT_OK);
     char *installed = agent_read(path);
     ASSERT_NOT_NULL(installed);
     ASSERT_NOT_NULL(strstr(installed, "\"servers\""));
     ASSERT_NOT_NULL(strstr(installed, "\"type\": \"stdio\""));
     free(installed);
-    ASSERT_EQ(profile->remove_mcp(profile->id, path, "C:/Tools/cbm.exe"), CBM_AGENT_EDIT_OK);
+    ASSERT_EQ(profile->remove_mcp(profile->id, path, "C:/Tools/ani.exe"), ANI_AGENT_EDIT_OK);
     free(path);
     th_cleanup(dir);
     PASS();
@@ -1018,8 +1018,8 @@ TEST(agent_clients_malformed_json_fails_byte_identically) {
     char *dir = NULL;
     char *path = agent_fixture(malformed, &dir);
     ASSERT_NOT_NULL(path);
-    ASSERT_EQ(cbm_agent_client_install_mcp(CBM_AGENT_CLIENT_TABNINE, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_ERROR);
+    ASSERT_EQ(ani_agent_client_install_mcp(ANI_AGENT_CLIENT_TABNINE, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_ERROR);
     char *after = agent_read(path);
     ASSERT_STR_EQ(after, malformed);
     free(after);
@@ -1034,15 +1034,15 @@ TEST(agent_clients_deep_same_name_json_fails_closed_byte_identically) {
     char *dir = NULL;
     char *path = agent_fixture(deep, &dir);
     ASSERT_NOT_NULL(path);
-    ASSERT_EQ(cbm_agent_client_install_mcp(CBM_AGENT_CLIENT_QODER, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_ERROR);
+    ASSERT_EQ(ani_agent_client_install_mcp(ANI_AGENT_CLIENT_QODER, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_ERROR);
     char *after_install = agent_read(path);
     ASSERT_NOT_NULL(after_install);
     ASSERT_STR_EQ(after_install, deep);
     free(after_install);
 
-    ASSERT_EQ(cbm_agent_client_remove_mcp(CBM_AGENT_CLIENT_QODER, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_ERROR);
+    ASSERT_EQ(ani_agent_client_remove_mcp(ANI_AGENT_CLIENT_QODER, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_ERROR);
     char *after_remove = agent_read(path);
     ASSERT_NOT_NULL(after_remove);
     ASSERT_STR_EQ(after_remove, deep);
@@ -1059,23 +1059,23 @@ TEST(agent_clients_continue_uses_owned_yaml_sequence_item) {
     char *path = agent_fixture(initial, &dir);
     ASSERT_NOT_NULL(path);
     ASSERT_EQ(
-        cbm_agent_client_install_mcp(CBM_AGENT_CLIENT_CONTINUE, path, "/opt/cbm path/#quoted"),
-        CBM_AGENT_EDIT_OK);
+        ani_agent_client_install_mcp(ANI_AGENT_CLIENT_CONTINUE, path, "/opt/ani path/#quoted"),
+        ANI_AGENT_EDIT_OK);
     char *first = agent_read(path);
     ASSERT_NOT_NULL(first);
-    ASSERT_NOT_NULL(strstr(first, "  - name: codebase-memory-mcp\n"));
-    ASSERT_NOT_NULL(strstr(first, "    command: \"/opt/cbm path/#quoted\"\n"));
+    ASSERT_NOT_NULL(strstr(first, "  - name: ani\n"));
+    ASSERT_NOT_NULL(strstr(first, "    command: \"/opt/ani path/#quoted\"\n"));
     ASSERT_NOT_NULL(strstr(first, "  - name: other\n"));
-    ASSERT_EQ(agent_occurrences(first, "name: codebase-memory-mcp"), 1U);
+    ASSERT_EQ(agent_occurrences(first, "name: ani"), 1U);
     ASSERT_EQ(
-        cbm_agent_client_install_mcp(CBM_AGENT_CLIENT_CONTINUE, path, "/opt/cbm path/#quoted"),
-        CBM_AGENT_EDIT_OK);
+        ani_agent_client_install_mcp(ANI_AGENT_CLIENT_CONTINUE, path, "/opt/ani path/#quoted"),
+        ANI_AGENT_EDIT_OK);
     char *second = agent_read(path);
     ASSERT_STR_EQ(first, second);
-    ASSERT_EQ(cbm_agent_client_remove_mcp(CBM_AGENT_CLIENT_CONTINUE, path, "/opt/cbm path/#quoted"),
-              CBM_AGENT_EDIT_OK);
+    ASSERT_EQ(ani_agent_client_remove_mcp(ANI_AGENT_CLIENT_CONTINUE, path, "/opt/ani path/#quoted"),
+              ANI_AGENT_EDIT_OK);
     char *removed = agent_read(path);
-    ASSERT_NULL(strstr(removed, "name: codebase-memory-mcp"));
+    ASSERT_NULL(strstr(removed, "name: ani"));
     ASSERT_NOT_NULL(strstr(removed, "name: other"));
     free(first);
     free(second);
@@ -1086,21 +1086,21 @@ TEST(agent_clients_continue_uses_owned_yaml_sequence_item) {
 }
 
 TEST(agent_clients_continue_refuses_foreign_same_name_and_nonsequence_section) {
-    const char *foreign = "mcpServers:\n  - name: \"codebase-memory-mcp\"\n"
+    const char *foreign = "mcpServers:\n  - name: \"ani\"\n"
                           "    command: foreign\n    args: []\n";
     char *dir = NULL;
     char *path = agent_fixture(foreign, &dir);
     ASSERT_NOT_NULL(path);
-    ASSERT_EQ(cbm_agent_client_install_mcp(CBM_AGENT_CLIENT_CONTINUE, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_FOREIGN);
+    ASSERT_EQ(ani_agent_client_install_mcp(ANI_AGENT_CLIENT_CONTINUE, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_FOREIGN);
     char *after = agent_read(path);
     ASSERT_STR_EQ(after, foreign);
     free(after);
 
     const char *wrong_shape = "mcpServers: []\nkeep: true\n";
     ASSERT_EQ(th_write_file(path, wrong_shape), 0);
-    ASSERT_EQ(cbm_agent_client_install_mcp(CBM_AGENT_CLIENT_CONTINUE, path, "/usr/bin/cbm"),
-              CBM_AGENT_EDIT_ERROR);
+    ASSERT_EQ(ani_agent_client_install_mcp(ANI_AGENT_CLIENT_CONTINUE, path, "/usr/bin/ani"),
+              ANI_AGENT_EDIT_ERROR);
     after = agent_read(path);
     ASSERT_STR_EQ(after, wrong_shape);
     free(after);
@@ -1116,13 +1116,13 @@ TEST(agent_clients_continue_refuses_foreign_same_name_and_nonsequence_section) {
  * added afterwards would have been silently missing for that client. This pins
  * the property that makes generation worth doing: EVERY registry tool appears. */
 TEST(client_adapter_pi_registers_every_registry_tool) {
-    char *js = cbm_client_adapter_pi("/usr/local/bin/codebase-memory-mcp");
+    char *js = ani_client_adapter_pi("/usr/local/bin/ani");
     ASSERT_NOT_NULL(js);
 
-    int count = cbm_mcp_tool_count();
+    int count = ani_mcp_tool_count();
     ASSERT_GT(count, 0);
     for (int i = 0; i < count; i++) {
-        const char *name = cbm_mcp_tool_name(i);
+        const char *name = ani_mcp_tool_name(i);
         ASSERT_NOT_NULL(name);
         char needle[128];
         snprintf(needle, sizeof(needle), "name: '%s'", name);
@@ -1130,12 +1130,12 @@ TEST(client_adapter_pi_registers_every_registry_tool) {
          * exactly the failure this design removes. */
         ASSERT_NOT_NULL(strstr(js, needle));
     }
-    /* The body must NOT carry the ownership markers: cbm_text_upsert_managed_block
+    /* The body must NOT carry the ownership markers: ani_text_upsert_managed_block
      * adds them and rejects content that already has them, so emitting them here
      * would make every install fail. */
-    ASSERT_NULL(strstr(js, CBM_ADAPTER_MARKER_START));
-    ASSERT_NULL(strstr(js, CBM_ADAPTER_MARKER_END));
-    ASSERT_NOT_NULL(strstr(js, "Generated by codebase-memory-mcp"));
+    ASSERT_NULL(strstr(js, ANI_ADAPTER_MARKER_START));
+    ASSERT_NULL(strstr(js, ANI_ADAPTER_MARKER_END));
+    ASSERT_NOT_NULL(strstr(js, "Generated by ani"));
     free(js);
     PASS();
 }
@@ -1143,12 +1143,12 @@ TEST(client_adapter_pi_registers_every_registry_tool) {
 /* #1550: Pi loads an extension by calling its DEFAULT export as a factory. The
  * generator emitted a named `register` export instead, so the file failed to
  * load — and a Pi extension that fails to load takes every pi command with it
- * (`pi doctor` included), not just cbm's tools. The blast radius is why this is
+ * (`pi doctor` included), not just ani's tools. The blast radius is why this is
  * pinned rather than left to the registry-drift test above, which passed the
  * whole time this was broken: it checked WHICH tools were listed, never whether
  * the file Pi loads is loadable. */
 TEST(client_adapter_pi_default_exports_its_factory_issue1550) {
-    char *js = cbm_client_adapter_pi("/usr/local/bin/codebase-memory-mcp");
+    char *js = ani_client_adapter_pi("/usr/local/bin/ani");
     ASSERT_NOT_NULL(js);
     ASSERT_NOT_NULL(strstr(js, "export default function (pi)"));
     /* The old shape must be gone: a bare `export function register(pi)` is the
@@ -1164,7 +1164,7 @@ TEST(client_adapter_pi_default_exports_its_factory_issue1550) {
  * a 422 "missing field parameters", and the tool is uncallable because Pi
  * invokes `execute`, never `run`. Pin the corrected shape. */
 TEST(client_adapter_pi_emits_parameters_and_execute) {
-    char *js = cbm_client_adapter_pi("/usr/local/bin/codebase-memory-mcp");
+    char *js = ani_client_adapter_pi("/usr/local/bin/ani");
     ASSERT_NOT_NULL(js);
     ASSERT_NOT_NULL(strstr(js, "execute: async (toolCallId, params, signal, _onUpdate, ctx) => {"));
     ASSERT_NOT_NULL(strstr(js, ", params, signal ?? ctx?.signal)"));
@@ -1187,7 +1187,7 @@ TEST(client_adapter_pi_emits_parameters_and_execute) {
  * bridge must keep arguments out of process listings and feed the existing
  * stdin transport only after all child handlers are attached. */
 TEST(client_adapter_pi_sends_arguments_over_stdin_issue1834) {
-    char *js = cbm_client_adapter_pi("/usr/local/bin/codebase-memory-mcp");
+    char *js = ani_client_adapter_pi("/usr/local/bin/ani");
     ASSERT_NOT_NULL(js);
 
     const char *spawn = strstr(js, "spawn(BIN, ['cli', '--json', tool], {");
@@ -1225,7 +1225,7 @@ TEST(client_adapter_pi_sends_arguments_over_stdin_issue1834) {
  * must throw rather than return a result without content; AbortSignal must
  * kill the cli child. String-shape only; a live Pi process is not gated. */
 TEST(client_adapter_pi_wraps_result_and_honors_abort) {
-    char *js = cbm_client_adapter_pi("/usr/local/bin/codebase-memory-mcp");
+    char *js = ani_client_adapter_pi("/usr/local/bin/ani");
     ASSERT_NOT_NULL(js);
     ASSERT_NOT_NULL(strstr(js, "return { content, details: result ?? {} };"));
     ASSERT_NOT_NULL(strstr(js, "if (result && typeof result === 'object' && result.error)"));
@@ -1246,32 +1246,32 @@ TEST(client_adapter_pi_wraps_result_and_honors_abort) {
 TEST(client_adapter_escapes_windows_paths_and_quotes) {
     char out[256];
 
-    ASSERT_TRUE(cbm_client_adapter_escape_js("C:\\Users\\urs\\bin\\cbm.exe", out, sizeof(out)));
-    ASSERT_STR_EQ(out, "C:\\\\Users\\\\urs\\\\bin\\\\cbm.exe");
+    ASSERT_TRUE(ani_client_adapter_escape_js("C:\\Users\\urs\\bin\\ani.exe", out, sizeof(out)));
+    ASSERT_STR_EQ(out, "C:\\\\Users\\\\urs\\\\bin\\\\ani.exe");
     /* The backslash before "urs" is DOUBLED, which is what stops JS reading
      * `\u` as a unicode escape — the exact break in #616. Asserting the
      * doubled form is the property; a bare `\u` substring still appears (as
      * escaped-backslash + 'u') and would be a misleading thing to test. */
     ASSERT_NOT_NULL(strstr(out, "\\\\urs"));
 
-    ASSERT_TRUE(cbm_client_adapter_escape_js("/home/o'brien/bin/cbm", out, sizeof(out)));
-    ASSERT_STR_EQ(out, "/home/o\\'brien/bin/cbm");
+    ASSERT_TRUE(ani_client_adapter_escape_js("/home/o'brien/bin/ani", out, sizeof(out)));
+    ASSERT_STR_EQ(out, "/home/o\\'brien/bin/ani");
 
     /* A newline would terminate the literal outright. */
-    ASSERT_TRUE(cbm_client_adapter_escape_js("/tmp/a\nb", out, sizeof(out)));
+    ASSERT_TRUE(ani_client_adapter_escape_js("/tmp/a\nb", out, sizeof(out)));
     ASSERT_STR_EQ(out, "/tmp/a\\nb");
 
     /* Truncation must fail closed rather than emit half a literal. */
     char tiny[4];
-    ASSERT_FALSE(cbm_client_adapter_escape_js("C:\\Users", tiny, sizeof(tiny)));
+    ASSERT_FALSE(ani_client_adapter_escape_js("C:\\Users", tiny, sizeof(tiny)));
     ASSERT_STR_EQ(tiny, "");
 
     /* And a path that cannot be escaped must abort generation, not produce a
      * module with a corrupt BIN. */
-    char huge[CBM_SZ_2K];
+    char huge[ANI_SZ_2K];
     memset(huge, 'x', sizeof(huge) - 1);
     huge[sizeof(huge) - 1] = '\0';
-    ASSERT_NULL(cbm_client_adapter_pi(huge));
+    ASSERT_NULL(ani_client_adapter_pi(huge));
     PASS();
 }
 
@@ -1279,14 +1279,14 @@ TEST(client_adapter_escapes_windows_paths_and_quotes) {
  * PreToolUse. #616's payload omitted it, so the plugin produced zero bytes and
  * was a silent no-op for six weeks. Pin the field into the generated payload. */
 TEST(client_adapter_opencode_sends_the_required_hook_event) {
-    char *js = cbm_client_adapter_opencode("/usr/local/bin/codebase-memory-mcp");
+    char *js = ani_client_adapter_opencode("/usr/local/bin/ani");
     ASSERT_NOT_NULL(js);
     ASSERT_NOT_NULL(strstr(js, "hook_event_name: 'PreToolUse'"));
     ASSERT_NOT_NULL(strstr(js, "tool.execute.after"));
     /* OpenCode reaches the tools over MCP already; this adapter must not
      * register any, or we reintroduce the second tool surface. */
     ASSERT_NULL(strstr(js, "registerTool"));
-    ASSERT_NULL(strstr(js, CBM_ADAPTER_MARKER_START));
+    ASSERT_NULL(strstr(js, ANI_ADAPTER_MARKER_START));
     free(js);
     PASS();
 }
@@ -1297,7 +1297,7 @@ TEST(client_adapter_opencode_sends_the_required_hook_event) {
  * the documented experimental surface. It must unwrap hook-augment's Claude
  * JSON envelope so plain text — not raw JSON — reaches the model. */
 TEST(client_adapter_opencode_covers_lifecycle_read_and_compaction) {
-    char *js = cbm_client_adapter_opencode("/usr/local/bin/codebase-memory-mcp");
+    char *js = ani_client_adapter_opencode("/usr/local/bin/ani");
     ASSERT_NOT_NULL(js);
     ASSERT_NOT_NULL(strstr(js, "hook_event_name: 'SessionStart'"));
     ASSERT_NOT_NULL(strstr(js, "hook_event_name: 'PostToolUse'"));
@@ -1315,10 +1315,10 @@ TEST(client_adapter_opencode_covers_lifecycle_read_and_compaction) {
 
 /* Empty/NULL inputs must not produce a module at all. */
 TEST(client_adapter_rejects_missing_binary_path) {
-    ASSERT_NULL(cbm_client_adapter_pi(NULL));
-    ASSERT_NULL(cbm_client_adapter_pi(""));
-    ASSERT_NULL(cbm_client_adapter_opencode(NULL));
-    ASSERT_NULL(cbm_client_adapter_opencode(""));
+    ASSERT_NULL(ani_client_adapter_pi(NULL));
+    ASSERT_NULL(ani_client_adapter_pi(""));
+    ASSERT_NULL(ani_client_adapter_opencode(NULL));
+    ASSERT_NULL(ani_client_adapter_opencode(""));
     PASS();
 }
 

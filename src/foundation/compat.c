@@ -17,9 +17,9 @@
 #include <sys/stat.h>
 #endif
 
-int cbm_nanosleep_full(const struct timespec *req) {
+int ani_nanosleep_full(const struct timespec *req) {
 #ifdef _WIN32
-    return cbm_nanosleep(req, NULL);
+    return ani_nanosleep(req, NULL);
 #else
     struct timespec remaining = *req;
     while (nanosleep(&remaining, &remaining) != 0) {
@@ -34,7 +34,7 @@ int cbm_nanosleep_full(const struct timespec *req) {
 /* ── strndup (Windows lacks it) ───────────────────────────────── */
 
 #ifdef _WIN32
-char *cbm_strndup(const char *s, size_t n) {
+char *ani_strndup(const char *s, size_t n) {
     if (!s) {
         return NULL;
     }
@@ -54,7 +54,7 @@ char *cbm_strndup(const char *s, size_t n) {
 /* ── strcasestr (Windows lacks it) ────────────────────────────── */
 
 #ifdef _WIN32
-char *cbm_strcasestr(const char *haystack, const char *needle) {
+char *ani_strcasestr(const char *haystack, const char *needle) {
     if (!needle[0])
         return (char *)haystack;
     size_t nlen = strlen(needle);
@@ -90,7 +90,7 @@ static bool win_mkdtemp_private_create(const char *path) {
     TOKEN_USER *user = NULL;
     PACL acl = NULL;
     DWORD needed = 0;
-    wchar_t *wide = cbm_path_to_wide(path);
+    wchar_t *wide = ani_path_to_wide(path);
     if (wide && OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) &&
         !GetTokenInformation(token, TokenUser, NULL, 0, &needed) &&
         GetLastError() == ERROR_INSUFFICIENT_BUFFER && (user = malloc(needed)) != NULL &&
@@ -128,11 +128,11 @@ static bool win_mkdtemp_private_create(const char *path) {
     return created;
 }
 
-char *cbm_mkdtemp(char *tmpl) {
+char *ani_mkdtemp(char *tmpl) {
     /* Per-call storage is required: daemon sessions invoke mkdtemp concurrently.
      * A process-global buffer lets one request overwrite another request's path
      * between expansion, creation, and the copy back to its caller. */
-    char buf[CBM_SZ_512];
+    char buf[ANI_SZ_512];
     int written;
     if (strncmp(tmpl, "/tmp/", 5) == 0) {
         const char *tmp = getenv("TEMP");
@@ -159,7 +159,7 @@ char *cbm_mkdtemp(char *tmpl) {
     bool created = false;
     for (int attempt = 0; attempt < 128; attempt++) {
         unsigned char random_suffix[6];
-        if (!cbm_secure_random(random_suffix, sizeof(random_suffix))) {
+        if (!ani_secure_random(random_suffix, sizeof(random_suffix))) {
             errno = EIO;
             return NULL;
         }
@@ -177,7 +177,7 @@ char *cbm_mkdtemp(char *tmpl) {
          * descriptor is unavailable. A name collision is retried; any other
          * filesystem refusal is returned to the caller immediately. */
         DWORD create_error = GetLastError();
-        wchar_t *wide_directory = cbm_utf8_to_wide(buf);
+        wchar_t *wide_directory = ani_utf8_to_wide(buf);
         errno = 0;
         int mkdir_result = wide_directory ? _wmkdir(wide_directory) : -1;
         int mkdir_error = errno;
@@ -212,19 +212,19 @@ char *cbm_mkdtemp(char *tmpl) {
             *p = '/';
         }
     }
-    /* Copy result back — callers now use char[CBM_SZ_256]+ buffers */
+    /* Copy result back — callers now use char[ANI_SZ_256]+ buffers */
     strcpy(tmpl, buf);
     return tmpl;
 }
 #endif
 
-bool cbm_path_for_file_api(const char *path, char *out, size_t out_size) {
+bool ani_path_for_file_api(const char *path, char *out, size_t out_size) {
     if (!path || !out || out_size == 0) {
         return false;
     }
 #ifdef _WIN32
-    wchar_t *wide = cbm_path_to_wide(path);
-    char *narrow = wide ? cbm_wide_to_utf8(wide) : NULL;
+    wchar_t *wide = ani_path_to_wide(path);
+    char *narrow = wide ? ani_wide_to_utf8(wide) : NULL;
     free(wide);
     if (!narrow) {
         return false;
@@ -249,11 +249,11 @@ bool cbm_path_for_file_api(const char *path, char *out, size_t out_size) {
 /* ── mkstemp (Windows lacks it) ───────────────────────────────── */
 
 #ifdef _WIN32
-int cbm_mkstemp(char *tmpl) {
-    /* Rewrite /tmp/ to %TEMP%\ like cbm_mkdtemp */
+int ani_mkstemp(char *tmpl) {
+    /* Rewrite /tmp/ to %TEMP%\ like ani_mkdtemp */
     /* Per-call storage: daemon project workers can create staging files
      * concurrently, so a process-global scratch buffer is a data race. */
-    char buf[CBM_SZ_4K];
+    char buf[ANI_SZ_4K];
     int written;
     if (strncmp(tmpl, "/tmp/", 5) == 0) {
         const char *tmp = getenv("TEMP");
@@ -267,32 +267,32 @@ int cbm_mkstemp(char *tmpl) {
     }
     if (written < 0 || (size_t)written >= sizeof(buf)) {
         errno = ENAMETOOLONG;
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     /* Wide-API expansion and open: worker staging files land inside
-     * CBM_CACHE_DIR, which users may place at non-ASCII paths; the ANSI CRT
+     * ANI_CACHE_DIR, which users may place at non-ASCII paths; the ANSI CRT
      * (_mktemp/_open) mangles those bytes in the local codepage. */
-    wchar_t *wide_template = cbm_utf8_to_wide(buf);
+    wchar_t *wide_template = ani_utf8_to_wide(buf);
     if (!wide_template || !_wmktemp(wide_template)) {
         free(wide_template);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
-    char *expanded_for_open = cbm_wide_to_utf8(wide_template);
-    wchar_t *wide_open = expanded_for_open ? cbm_path_to_wide(expanded_for_open) : NULL;
+    char *expanded_for_open = ani_wide_to_utf8(wide_template);
+    wchar_t *wide_open = expanded_for_open ? ani_path_to_wide(expanded_for_open) : NULL;
     free(expanded_for_open);
     if (!wide_open) {
         free(wide_template);
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     int fd = _wopen(wide_open, _O_CREAT | _O_EXCL | _O_RDWR | _O_BINARY, _S_IREAD | _S_IWRITE);
     free(wide_open);
     if (fd >= 0) {
-        char *expanded = cbm_wide_to_utf8(wide_template);
+        char *expanded = ani_wide_to_utf8(wide_template);
         if (!expanded || strlen(expanded) >= sizeof(buf)) {
             free(expanded);
             free(wide_template);
             (void)_close(fd);
-            return CBM_NOT_FOUND;
+            return ANI_NOT_FOUND;
         }
         strcpy(tmpl, expanded);
         free(expanded);
@@ -305,7 +305,7 @@ int cbm_mkstemp(char *tmpl) {
 /* ── clock_gettime (Windows lacks it) ─────────────────────────── */
 
 #ifdef _WIN32
-int cbm_clock_gettime(int clk_id, struct timespec *tp) {
+int ani_clock_gettime(int clk_id, struct timespec *tp) {
     (void)clk_id;
     LARGE_INTEGER freq, count;
     QueryPerformanceFrequency(&freq);
@@ -319,15 +319,15 @@ int cbm_clock_gettime(int clk_id, struct timespec *tp) {
 /* ── getline (Windows lacks it) ───────────────────────────────── */
 
 #ifdef _WIN32
-ssize_t cbm_getline(char **lineptr, size_t *n, FILE *stream) {
+ssize_t ani_getline(char **lineptr, size_t *n, FILE *stream) {
     if (!lineptr || !n || !stream) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     if (!*lineptr || *n == 0) {
-        *n = CBM_SZ_128;
+        *n = ANI_SZ_128;
         *lineptr = (char *)malloc(*n);
         if (!*lineptr) {
-            return CBM_NOT_FOUND;
+            return ANI_NOT_FOUND;
         }
     }
     size_t pos = 0;
@@ -337,7 +337,7 @@ ssize_t cbm_getline(char **lineptr, size_t *n, FILE *stream) {
             size_t new_n = *n * PAIR_LEN;
             char *tmp = (char *)realloc(*lineptr, new_n);
             if (!tmp) {
-                return CBM_NOT_FOUND;
+                return ANI_NOT_FOUND;
             }
             *lineptr = tmp;
             *n = new_n;
@@ -348,7 +348,7 @@ ssize_t cbm_getline(char **lineptr, size_t *n, FILE *stream) {
         }
     }
     if (pos == 0 && c == EOF) {
-        return CBM_NOT_FOUND;
+        return ANI_NOT_FOUND;
     }
     (*lineptr)[pos] = '\0';
     return (ssize_t)pos;

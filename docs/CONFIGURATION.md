@@ -1,20 +1,20 @@
 # Configuration Reference
 
-This page documents the configuration files that `codebase-memory-mcp` reads or writes today.
+This page documents the configuration files that `ani` reads or writes today.
 
 ## At a Glance
 
 | Purpose | Path | Format | Notes |
 |---|---|---|---|
-| Global custom extension mapping | `$XDG_CONFIG_HOME/codebase-memory-mcp/config.json` | JSON | Falls back to `~/.config/codebase-memory-mcp/config.json` when `XDG_CONFIG_HOME` is unset. |
-| Per-project custom extension mapping | `{repo_root}/.codebase-memory.json` | JSON | Overrides conflicting global `extra_extensions` entries. |
-| CLI-managed runtime settings | `${CBM_CACHE_DIR:-~/.cache/codebase-memory-mcp}/_config.db` | SQLite | Written by `codebase-memory-mcp config set/reset`. |
-| UI settings | `${CBM_CACHE_DIR:-~/.cache/codebase-memory-mcp}/config.json` | JSON | Stores `ui_enabled` and `ui_port`. |
-| Daemon operation log | `${CBM_CACHE_DIR:-~/.cache/codebase-memory-mcp}/logs/cbm-daemon.log` | Structured log | Durable daemon lifecycle, watcher/indexing, UI, resource, and error events. |
-| Admission conflict log | `${CBM_CACHE_DIR:-~/.cache/codebase-memory-mcp}/logs/daemon-conflicts.ndjson` | NDJSON | Exact-build, ABI, and canonical-cache conflicts. |
-| Activation log | `${CBM_CACHE_DIR:-~/.cache/codebase-memory-mcp}/logs/activation-events.ndjson` | NDJSON | Install/update/uninstall activation progress and outcomes. |
+| Global custom extension mapping | `$XDG_CONFIG_HOME/ani/config.json` | JSON | Falls back to `~/.config/ani/config.json` when `XDG_CONFIG_HOME` is unset. |
+| Per-project custom extension mapping | `{repo_root}/.ani.json` | JSON | Overrides conflicting global `extra_extensions` entries. |
+| CLI-managed runtime settings | `${ANI_CACHE_DIR:-~/.cache/ani}/_config.db` | SQLite | Written by `ani config set/reset`. |
+| UI settings | `${ANI_CACHE_DIR:-~/.cache/ani}/config.json` | JSON | Stores `ui_enabled` and `ui_port`. |
+| Daemon operation log | `${ANI_CACHE_DIR:-~/.cache/ani}/logs/ani-daemon.log` | Structured log | Durable daemon lifecycle, watcher/indexing, UI, resource, and error events. |
+| Admission conflict log | `${ANI_CACHE_DIR:-~/.cache/ani}/logs/daemon-conflicts.ndjson` | NDJSON | Exact-build, ABI, and canonical-cache conflicts. |
+| Activation log | `${ANI_CACHE_DIR:-~/.cache/ani}/logs/activation-events.ndjson` | NDJSON | Install/update/uninstall activation progress and outcomes. |
 
-CBM resolves `CBM_CACHE_DIR` to a canonical per-account path before using any of these locations. The log directory and files are private to the account.
+ANI resolves `ANI_CACHE_DIR` to a canonical per-account path before using any of these locations. The log directory and files are private to the account.
 
 ## 1. Custom File Extension Mapping
 
@@ -25,13 +25,13 @@ Two optional JSON files let you map additional file extensions to built-in langu
 Default path:
 
 ```text
-$XDG_CONFIG_HOME/codebase-memory-mcp/config.json
+$XDG_CONFIG_HOME/ani/config.json
 ```
 
 Fallback when `XDG_CONFIG_HOME` is unset:
 
 ```text
-~/.config/codebase-memory-mcp/config.json
+~/.config/ani/config.json
 ```
 
 ### Per-project config
@@ -39,7 +39,7 @@ Fallback when `XDG_CONFIG_HOME` is unset:
 Place this file in the repository root:
 
 ```text
-.codebase-memory.json
+.ani.json
 ```
 
 ### Format
@@ -67,18 +67,18 @@ Notes:
 The `config` subcommand stores runtime settings in a small SQLite database:
 
 ```text
-${CBM_CACHE_DIR:-~/.cache/codebase-memory-mcp}/_config.db
+${ANI_CACHE_DIR:-~/.cache/ani}/_config.db
 ```
 
 Inspect or change values with the CLI:
 
 ```bash
-codebase-memory-mcp config list
-codebase-memory-mcp config get auto_index
-codebase-memory-mcp config set auto_index true
-codebase-memory-mcp config set auto_index_limit 50000
-codebase-memory-mcp config set watcher_enabled false
-codebase-memory-mcp config reset auto_index
+ani config list
+ani config get auto_index
+ani config set auto_index true
+ani config set auto_index_limit 50000
+ani config set watcher_enabled false
+ani config reset auto_index
 ```
 
 Current keys:
@@ -107,9 +107,9 @@ Current keys:
 >   the daemon so the next one picks the new value up:
 >
 > ```bash
-> codebase-memory-mcp config set watcher_enabled false
-> codebase-memory-mcp daemon stop     # next session starts a daemon without the watcher
-> codebase-memory-mcp daemon status   # confirm
+> ani config set watcher_enabled false
+> ani daemon stop     # next session starts a daemon without the watcher
+> ani daemon status   # confirm
 > ```
 >
 > Disabling the watcher does not disable anything else: the daemon still starts,
@@ -121,7 +121,7 @@ Current keys:
 The optional built-in graph UI stores its settings in:
 
 ```text
-${CBM_CACHE_DIR:-~/.cache/codebase-memory-mcp}/config.json
+${ANI_CACHE_DIR:-~/.cache/ani}/config.json
 ```
 
 Current format:
@@ -136,8 +136,8 @@ Current format:
 Notes:
 
 - If a UI-enabled binary finds its verified external asset pack and no UI config file exists yet, the UI auto-enables on first run. Missing or invalid assets leave the MCP/daemon service available and keep the UI disabled.
-- `CBM_CACHE_DIR` changes both the UI config location and the runtime settings database location.
-- CBM resolves `CBM_CACHE_DIR` to one canonical per-account cache root. A process configured with a different root fails while any CBM session or command is active; close them before switching roots.
+- `ANI_CACHE_DIR` changes both the UI config location and the runtime settings database location.
+- ANI resolves `ANI_CACHE_DIR` to one canonical per-account cache root. A process configured with a different root fails while any ANI session or command is active; close them before switching roots.
 
 ## 4. Environment Variables
 
@@ -145,13 +145,13 @@ These environment variables affect runtime behavior:
 
 | Variable | Default | Description |
 |---|---|---|
-| `CBM_ALLOWED_ROOT` | *(unset)* | Confine `index_repository` to paths within this directory. When set, a `repo_path` that resolves (after symlink / `..` resolution) outside this root is refused, and the same check now applies to the graph UI's `POST /api/index` route rather than only to the MCP tool. Unset imposes no *containment* restriction — but see the always-on limits below, which apply whether or not this is set. Useful when the server may be driven by an untrusted caller, e.g. agentic or multi-tenant deployments. |
-| `CBM_CACHE_DIR` | `~/.cache/codebase-memory-mcp` | Override the cache directory used for indexes, `_config.db`, and UI `config.json`. |
-| `CBM_DIAGNOSTICS` | `false` | Enable periodic `snapshot.json` and retained `trajectory.ndjson` below a fresh owner-private directory in the system temp directory. The daemon records the randomized paths in the `diagnostics.start` discovery record (a single JSON line) in `${CBM_CACHE_DIR}/logs/cbm-daemon.log`; that one record is emitted even when `CBM_LOG_LEVEL` suppresses ordinary logging, so the paths always remain discoverable. |
-| `CBM_DOWNLOAD_URL` | GitHub releases | Override the update download URL. |
-| `CBM_LOG_LEVEL` | `info` | Set the log level to `debug`, `info`, `warn`, `error`, or `none` (or `0`-`4`). Thin-frontend messages use that session's stderr; detached daemon events use `${CBM_CACHE_DIR}/logs/cbm-daemon.log`. |
-| `CBM_RUNTIME_DIR` | `%LOCALAPPDATA%` (Windows), `/private/tmp` (macOS), `/tmp` (other) | Parent directory for the daemon/CLI rendezvous directory, which CBM creates inside it as `cbm-daemon-<uid>` (`cbm-daemon-<key>` on Windows). Set it when the default ancestry cannot pass the private-directory check — see below. `CBM_CACHE_DIR` does **not** move the rendezvous. |
-| `CBM_WORKERS` | auto-detected | Override the indexing worker count. |
+| `ANI_ALLOWED_ROOT` | *(unset)* | Confine `index_repository` to paths within this directory. When set, a `repo_path` that resolves (after symlink / `..` resolution) outside this root is refused, and the same check now applies to the graph UI's `POST /api/index` route rather than only to the MCP tool. Unset imposes no *containment* restriction — but see the always-on limits below, which apply whether or not this is set. Useful when the server may be driven by an untrusted caller, e.g. agentic or multi-tenant deployments. |
+| `ANI_CACHE_DIR` | `~/.cache/ani` | Override the cache directory used for indexes, `_config.db`, and UI `config.json`. |
+| `ANI_DIAGNOSTICS` | `false` | Enable periodic `snapshot.json` and retained `trajectory.ndjson` below a fresh owner-private directory in the system temp directory. The daemon records the randomized paths in the `diagnostics.start` discovery record (a single JSON line) in `${ANI_CACHE_DIR}/logs/ani-daemon.log`; that one record is emitted even when `ANI_LOG_LEVEL` suppresses ordinary logging, so the paths always remain discoverable. |
+| `ANI_DOWNLOAD_URL` | GitHub releases | Override the update download URL. |
+| `ANI_LOG_LEVEL` | `info` | Set the log level to `debug`, `info`, `warn`, `error`, or `none` (or `0`-`4`). Thin-frontend messages use that session's stderr; detached daemon events use `${ANI_CACHE_DIR}/logs/ani-daemon.log`. |
+| `ANI_RUNTIME_DIR` | `%LOCALAPPDATA%` (Windows), `/private/tmp` (macOS), `/tmp` (other) | Parent directory for the daemon/CLI rendezvous directory, which ANI creates inside it as `ani-daemon-<uid>` (`ani-daemon-<key>` on Windows). Set it when the default ancestry cannot pass the private-directory check — see below. `ANI_CACHE_DIR` does **not** move the rendezvous. |
+| `ANI_WORKERS` | auto-detected | Override the indexing worker count. |
 
 ### Relocating the daemon rendezvous directory
 
@@ -170,17 +170,17 @@ command fails, `config list` included, so the settings surface cannot be reached
 either:
 
 ```text
-codebase-memory-mcp: secure daemon endpoint could not be created
+ani: secure daemon endpoint could not be created
 ```
 
-`CBM_RUNTIME_DIR` points the rendezvous at an ancestry you choose:
+`ANI_RUNTIME_DIR` points the rendezvous at an ancestry you choose:
 
 ```bash
-export CBM_RUNTIME_DIR="$HOME/cbm-runtime"   # any directory you own
+export ANI_RUNTIME_DIR="$HOME/ani-runtime"   # any directory you own
 ```
 
 ```powershell
-$env:CBM_RUNTIME_DIR = "D:\cbm-runtime"
+$env:ANI_RUNTIME_DIR = "D:\ani-runtime"
 ```
 
 The check is not relaxed for the directory you name: it goes through exactly the
@@ -190,12 +190,12 @@ process that should share one daemon must see the same value — set it in the
 environment of your MCP client and your shell alike, or a CLI invocation without
 it will coordinate through the default location instead.
 
-Environment used by daemon-owned components—such as diagnostics, daemon logging, and process-wide indexing resource limits—is captured from the first daemon-backed session that starts the daemon. Later sessions join the existing process and cannot replace those values. To change them, close every daemon-backed session, update the relevant agent configurations consistently, and restart a session. `CBM_ALLOWED_ROOT` remains session-specific, a conflicting `CBM_CACHE_DIR` is rejected, and one-shot CLI commands use their own current environment without starting the daemon.
+Environment used by daemon-owned components—such as diagnostics, daemon logging, and process-wide indexing resource limits—is captured from the first daemon-backed session that starts the daemon. Later sessions join the existing process and cannot replace those values. To change them, close every daemon-backed session, update the relevant agent configurations consistently, and restart a session. `ANI_ALLOWED_ROOT` remains session-specific, a conflicting `ANI_CACHE_DIR` is rejected, and one-shot CLI commands use their own current environment without starting the daemon.
 
 
 ### Roots that are always refused
 
-Independently of `CBM_ALLOWED_ROOT`, some directories are refused as an indexing
+Independently of `ANI_ALLOWED_ROOT`, some directories are refused as an indexing
 root because they are too broad or too sensitive to index as a unit:
 
 - a filesystem root, a Windows drive root, or a UNC share root;
@@ -218,7 +218,7 @@ The `install` command can also write MCP entries and instruction blocks into age
 Those target paths vary by tool and platform, so the easiest way to inspect the exact files for your machine is:
 
 ```bash
-codebase-memory-mcp install --dry-run
+ani install --dry-run
 ```
 
 That prints the specific config files the installer would modify without writing anything.

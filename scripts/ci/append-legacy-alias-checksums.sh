@@ -12,7 +12,7 @@
 # failure one step later: the updater downloads the archive, cannot find its name
 # in checksums.txt, and refuses to install it (#1134):
 #
-#   warning: codebase-memory-mcp-ui-darwin-arm64.tar.gz not found in checksums.txt
+#   warning: ani-ui-darwin-arm64.tar.gz not found in checksums.txt
 #   error: refusing to install an unverified download
 #
 # An alias is a copy, so its sha256 is by construction the digest already
@@ -39,11 +39,11 @@ aliases="$(mktemp)"
 trap 'rm -f "$aliases"' EXIT
 
 awk '
-  $2 ~ /^codebase-memory-mcp-/ &&
-  $2 !~ /^codebase-memory-mcp-ui-/ &&
+  $2 ~ /^ani-/ &&
+  $2 !~ /^ani-ui-/ &&
   ($2 ~ /\.tar\.gz$/ || $2 ~ /\.zip$/) {
     alias = $2
-    sub(/^codebase-memory-mcp-/, "codebase-memory-mcp-ui-", alias)
+    sub(/^ani-/, "ani-ui-", alias)
     print $1 "  " alias
   }
 ' "$CHECKSUMS" > "$aliases"

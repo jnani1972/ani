@@ -11,7 +11,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BINARY="${CBM_TEST_BINARY:-${ROOT}/build/c/codebase-memory-mcp}"
+BINARY="${ANI_TEST_BINARY:-${ROOT}/build/c/ani}"
 
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*)
@@ -27,8 +27,8 @@ fi
 
 # shellcheck source=../scripts/test-runtime.sh
 source "${ROOT}/scripts/test-runtime.sh"
-cbm_test_runtime_init
-tmpdir="${CBM_TEST_RUNTIME_ROOT}"
+ani_test_runtime_init
+tmpdir="${ANI_TEST_RUNTIME_ROOT}"
 wrapper_pid=""
 cleanup() {
   if [[ -s "${tmpdir}/child.pid" ]]; then
@@ -37,7 +37,7 @@ cleanup() {
     [[ -n "${child_pid}" ]] && kill "${child_pid}" 2>/dev/null || true
   fi
   [[ -n "${wrapper_pid}" ]] && kill "${wrapper_pid}" 2>/dev/null || true
-  cbm_test_runtime_cleanup "${BINARY}"
+  ani_test_runtime_cleanup "${BINARY}"
 }
 trap cleanup EXIT
 
@@ -47,14 +47,14 @@ cat >"${tmpdir}/wrapper.sh" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 exec 3<>"${FIFO}"
-"${CBM_BINARY}" <&3 >"${TMPDIR_PATH}/child.out" 2>"${TMPDIR_PATH}/child.err" &
+"${ANI_BINARY}" <&3 >"${TMPDIR_PATH}/child.out" 2>"${TMPDIR_PATH}/child.err" &
 echo "$!" >"${TMPDIR_PATH}/child.pid"
 wait
 SH
 chmod +x "${tmpdir}/wrapper.sh"
 mkfifo "${tmpdir}/stdin"
 
-CBM_BINARY="${BINARY}" FIFO="${tmpdir}/stdin" TMPDIR_PATH="${tmpdir}" \
+ANI_BINARY="${BINARY}" FIFO="${tmpdir}/stdin" TMPDIR_PATH="${tmpdir}" \
   "${tmpdir}/wrapper.sh" &
 wrapper_pid=$!
 
@@ -117,6 +117,6 @@ while (( SECONDS < deadline )); do
   sleep 0.2
 done
 
-echo "codebase-memory-mcp child ${child_pid} survived parent death" >&2
+echo "ani child ${child_pid} survived parent death" >&2
 [[ -s "${tmpdir}/child.err" ]] && cat "${tmpdir}/child.err" >&2
 exit 1

@@ -67,18 +67,18 @@ static void capture_reset(void) {
 static char *index_capture(RProj *lp) {
     char args[700];
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\"}", lp->tmpdir);
-    char *prior = getenv("CBM_CACHE_DIR");
+    char *prior = getenv("ANI_CACHE_DIR");
     char *saved = prior ? strdup(prior) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", lp->cachedir, 1);
+    ani_setenv("ANI_CACHE_DIR", lp->cachedir, 1);
     capture_reset();
-    cbm_log_set_sink_ex(capture_sink, CBM_LOG_SINK_TEE);
-    char *resp = cbm_mcp_handle_tool(lp->srv, "index_repository", args);
-    cbm_log_set_sink(NULL);
+    ani_log_set_sink_ex(capture_sink, ANI_LOG_SINK_TEE);
+    char *resp = ani_mcp_handle_tool(lp->srv, "index_repository", args);
+    ani_log_set_sink(NULL);
     if (saved) {
-        cbm_setenv("CBM_CACHE_DIR", saved, 1);
+        ani_setenv("ANI_CACHE_DIR", saved, 1);
         free(saved);
     } else {
-        cbm_unsetenv("CBM_CACHE_DIR");
+        ani_unsetenv("ANI_CACHE_DIR");
     }
     return resp;
 }
@@ -87,17 +87,17 @@ static char *index_capture(RProj *lp) {
 TEST(index_format_siblings_distinct_and_searchable) {
     RProj lp;
     char args[700];
-    cbm_store_t *store = rh_index_files(&lp, k_files, k_nfiles);
+    ani_store_t *store = rh_index_files(&lp, k_files, k_nfiles);
     ASSERT_NOT_NULL(store);
 
     /* One File node per file on disk — not one per component stem. */
     ASSERT_EQ(rh_count_label(store, lp.project, "File"), k_nfiles);
 
-    /* cbm_store_list_files is the set search_code scopes grep to: a file with
+    /* ani_store_list_files is the set search_code scopes grep to: a file with
      * no node carrying its exact path is never opened, and the miss is silent. */
     char **listed = NULL;
     int nlisted = 0;
-    ASSERT_EQ(cbm_store_list_files(store, lp.project, &listed, &nlisted), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_list_files(store, lp.project, &listed, &nlisted), ANI_STORE_OK);
     for (int i = 0; i < k_nfiles; i++) {
         bool found = false;
         for (int j = 0; j < nlisted; j++) {
@@ -107,7 +107,7 @@ TEST(index_format_siblings_distinct_and_searchable) {
             }
         }
         if (!found) {
-            FAIL("indexed file missing from cbm_store_list_files");
+            FAIL("indexed file missing from ani_store_list_files");
         }
     }
     for (int j = 0; j < nlisted; j++) {
@@ -120,14 +120,14 @@ TEST(index_format_siblings_distinct_and_searchable) {
      * merges both, so assert against the file list. */
     snprintf(args, sizeof(args),
              "{\"project\":\"%s\",\"pattern\":\"repro-marker\",\"mode\":\"files\"}", lp.project);
-    char *saved_dup = getenv("CBM_CACHE_DIR") ? strdup(getenv("CBM_CACHE_DIR")) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", lp.cachedir, 1);
-    char *resp = cbm_mcp_handle_tool(lp.srv, "search_code", args);
+    char *saved_dup = getenv("ANI_CACHE_DIR") ? strdup(getenv("ANI_CACHE_DIR")) : NULL;
+    ani_setenv("ANI_CACHE_DIR", lp.cachedir, 1);
+    char *resp = ani_mcp_handle_tool(lp.srv, "search_code", args);
     if (saved_dup) {
-        cbm_setenv("CBM_CACHE_DIR", saved_dup, 1);
+        ani_setenv("ANI_CACHE_DIR", saved_dup, 1);
         free(saved_dup);
     } else {
-        cbm_unsetenv("CBM_CACHE_DIR");
+        ani_unsetenv("ANI_CACHE_DIR");
     }
     ASSERT_NOT_NULL(resp);
     for (int i = 0; i < k_nfiles; i++) {
@@ -147,11 +147,11 @@ TEST(index_format_siblings_distinct_and_searchable) {
 /* Rewrite the graph into the pre-#1108 shape: the three siblings collapsed onto
  * a single File node keyed by the extension-stripped QN, which is what such an
  * index actually holds on disk. */
-static int make_legacy_file_graph(cbm_store_t *store, const char *project, const char *legacy_qn) {
-    if (cbm_store_delete_nodes_by_label(store, project, "File") != CBM_STORE_OK) {
+static int make_legacy_file_graph(ani_store_t *store, const char *project, const char *legacy_qn) {
+    if (ani_store_delete_nodes_by_label(store, project, "File") != ANI_STORE_OK) {
         return -1;
     }
-    cbm_node_t legacy = {
+    ani_node_t legacy = {
         .project = project,
         .label = "File",
         .name = "badge.component.html",
@@ -159,7 +159,7 @@ static int make_legacy_file_graph(cbm_store_t *store, const char *project, const
         .file_path = "badge/badge.component.html",
         .properties_json = "{\"extension\":\".html\"}",
     };
-    return cbm_store_upsert_node(store, &legacy) > 0 ? 0 : -1;
+    return ani_store_upsert_node(store, &legacy) > 0 ? 0 : -1;
 }
 
 TEST(index_format_legacy_index_rebuilds_and_repairs) {
@@ -167,22 +167,22 @@ TEST(index_format_legacy_index_rebuilds_and_repairs) {
     RProj lp;
 
     /* Phase 1: index, then discard the query handle. */
-    cbm_store_t *q0 = rh_index_files(&lp, k_files, k_nfiles);
+    ani_store_t *q0 = rh_index_files(&lp, k_files, k_nfiles);
     ASSERT_NOT_NULL(q0);
-    cbm_store_close(q0);
+    ani_store_close(q0);
 
     /* Phase 2: fabricate a legacy graph through a writable handle. */
-    cbm_store_t *w = cbm_store_open_path(lp.dbpath);
+    ani_store_t *w = ani_store_open_path(lp.dbpath);
     ASSERT_NOT_NULL(w);
-    ASSERT_EQ(cbm_store_adr_store(w, lp.project, "index-format-adr"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_store(w, lp.project, "index-format-adr"), ANI_STORE_OK);
     snprintf(legacy_qn, sizeof(legacy_qn), "%s.badge.badge.component.__file__", lp.project);
     ASSERT_EQ(make_legacy_file_graph(w, lp.project, legacy_qn), 0);
-    ASSERT_EQ(cbm_store_set_format_version(w, 0), CBM_STORE_OK);
-    cbm_store_close(w);
+    ASSERT_EQ(ani_store_set_format_version(w, 0), ANI_STORE_OK);
+    ani_store_close(w);
 
-    cbm_store_t *probe = cbm_store_open_path_query(lp.dbpath);
+    ani_store_t *probe = ani_store_open_path_query(lp.dbpath);
     if (probe)
-        cbm_store_close(probe);
+        ani_store_close(probe);
 
     /* Run 1: stale format forces the full-reindex path. */
     char *resp = index_capture(&lp);
@@ -198,29 +198,29 @@ TEST(index_format_legacy_index_rebuilds_and_repairs) {
     free(resp);
 
     /* Phase 3: verify the rebuild through a fresh read handle. */
-    cbm_store_t *r1 = cbm_store_open_path(lp.dbpath);
+    ani_store_t *r1 = ani_store_open_path(lp.dbpath);
     ASSERT_NOT_NULL(r1);
-    cbm_node_t stale = {0};
-    ASSERT_EQ(cbm_store_find_node_by_qn(r1, lp.project, legacy_qn, &stale), CBM_STORE_NOT_FOUND);
-    cbm_node_free_fields(&stale);
+    ani_node_t stale = {0};
+    ASSERT_EQ(ani_store_find_node_by_qn(r1, lp.project, legacy_qn, &stale), ANI_STORE_NOT_FOUND);
+    ani_node_free_fields(&stale);
     static const char *k_exts[] = {"ts", "html", "scss"};
     for (int i = 0; i < 3; i++) {
         char qn[512];
         snprintf(qn, sizeof(qn), "%s.badge.badge.component.%s.__file__", lp.project, k_exts[i]);
-        cbm_node_t n = {0};
-        ASSERT_EQ(cbm_store_find_node_by_qn(r1, lp.project, qn, &n), CBM_STORE_OK);
-        cbm_node_free_fields(&n);
+        ani_node_t n = {0};
+        ASSERT_EQ(ani_store_find_node_by_qn(r1, lp.project, qn, &n), ANI_STORE_OK);
+        ani_node_free_fields(&n);
     }
     ASSERT_EQ(rh_count_label(r1, lp.project, "File"), k_nfiles);
-    cbm_adr_t adr = {0};
-    ASSERT_EQ(cbm_store_adr_get(r1, lp.project, &adr), CBM_STORE_OK);
+    ani_adr_t adr = {0};
+    ASSERT_EQ(ani_store_adr_get(r1, lp.project, &adr), ANI_STORE_OK);
     ASSERT_NOT_NULL(adr.content);
     ASSERT(strstr(adr.content, "index-format-adr") != NULL);
-    cbm_store_adr_free(&adr);
+    ani_store_adr_free(&adr);
     int fmt = -1;
-    ASSERT_EQ(cbm_store_get_format_version(r1, &fmt), CBM_STORE_OK);
-    ASSERT_EQ(fmt, CBM_INDEX_FORMAT_VERSION);
-    cbm_store_close(r1);
+    ASSERT_EQ(ani_store_get_format_version(r1, &fmt), ANI_STORE_OK);
+    ASSERT_EQ(fmt, ANI_INDEX_FORMAT_VERSION);
+    ani_store_close(r1);
 
     /* Run 2: unchanged, current format — no second rebuild. */
     resp = index_capture(&lp);
@@ -236,7 +236,7 @@ TEST(index_format_legacy_index_rebuilds_and_repairs) {
     free(resp);
 
     /* Phase 4: final check, then clean up (rh_cleanup closes r2). */
-    cbm_store_t *r2 = cbm_store_open_path(lp.dbpath);
+    ani_store_t *r2 = ani_store_open_path(lp.dbpath);
     ASSERT_NOT_NULL(r2);
     ASSERT_EQ(rh_count_label(r2, lp.project, "File"), k_nfiles);
     rh_cleanup(&lp, r2);

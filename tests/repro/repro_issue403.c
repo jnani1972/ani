@@ -18,9 +18,9 @@ TEST(repro_issue403_windows_user_programs_root_is_sensitive) {
     };
 
     for (size_t i = 0; i < sizeof(roots) / sizeof(roots[0]); i++) {
-        ASSERT_EQ(cbm_workspace_classify_root(roots[i], NULL, NULL), CBM_WS_DENY_SENSITIVE);
+        ASSERT_EQ(ani_workspace_classify_root(roots[i], NULL, NULL), ANI_WS_DENY_SENSITIVE);
     }
-    ASSERT_TRUE(cbm_workspace_verdict_is_overridable(CBM_WS_DENY_SENSITIVE));
+    ASSERT_TRUE(ani_workspace_verdict_is_overridable(ANI_WS_DENY_SENSITIVE));
     PASS();
 }
 
@@ -35,7 +35,7 @@ TEST(repro_issue403_nearby_projects_are_not_false_positives) {
     };
 
     for (size_t i = 0; i < sizeof(roots) / sizeof(roots[0]); i++) {
-        ASSERT_EQ(cbm_workspace_classify_root(roots[i], NULL, NULL), CBM_WS_ALLOW);
+        ASSERT_EQ(ani_workspace_classify_root(roots[i], NULL, NULL), ANI_WS_ALLOW);
     }
     PASS();
 }

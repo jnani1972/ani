@@ -8,13 +8,13 @@
  * ════════════════════════════════════════════════════════════════════════════
  * WHAT THIS FILE PROBES
  * ──────────────────────
- * The hybrid LSP TYPE-RESOLUTION PASS (pass_lsp_cross.c / cbm_run_X_lsp_cross)
+ * The hybrid LSP TYPE-RESOLUTION PASS (pass_lsp_cross.c / ani_run_X_lsp_cross)
  * is wired for: Go, C, C++, CUDA, Python, JavaScript, TypeScript, TSX, PHP.
- * It is NOT wired (cbm_pxc_has_cross_lsp returns false) for:
- *   - Rust   — cbm_run_rust_lsp_cross EXISTS in rust_lsp.c but is never called
- *   - C#     — cbm_run_cs_lsp_cross EXISTS in cs_lsp.c but is never called
- *   - Java   — cbm_run_java_lsp_cross EXISTS in java_lsp.h but is never called
- *   - Kotlin — NO cross-file LSP function; uses per-file cbm_run_kotlin_lsp only
+ * It is NOT wired (ani_pxc_has_cross_lsp returns false) for:
+ *   - Rust   — ani_run_rust_lsp_cross EXISTS in rust_lsp.c but is never called
+ *   - C#     — ani_run_cs_lsp_cross EXISTS in cs_lsp.c but is never called
+ *   - Java   — ani_run_java_lsp_cross EXISTS in java_lsp.h but is never called
+ *   - Kotlin — NO cross-file LSP function; uses per-file ani_run_kotlin_lsp only
  *
  * All four missing-wiring cases fall through to the generic name-based resolver
  * (pass_calls.c).  That resolver IS project-wide, so plain same-package function
@@ -84,7 +84,7 @@
 #include "../src/foundation/compat.h"
 #include "test_framework.h"
 #include "test_helpers.h"
-#include "cbm.h"
+#include "ani.h"
 #include <mcp/mcp.h>
 #include <store/store.h>
 #include <pipeline/pipeline.h>
@@ -107,7 +107,7 @@ typedef struct {
     char tmpdir[256];
     char dbpath[512];
     char *project;
-    cbm_mcp_server_t *srv;
+    ani_mcp_server_t *srv;
 } LRP_Proj;
 
 typedef struct {
@@ -122,37 +122,37 @@ static void lrp_to_fwd_slashes(char *p) {
     }
 }
 
-static cbm_store_t *lrp_open_indexed(LRP_Proj *lp) {
+static ani_store_t *lrp_open_indexed(LRP_Proj *lp) {
     /* Freed before reassigning: a fixture that indexes more than once would
      * otherwise drop the previous heap name on the floor. Teardown frees the
      * last one. */
     free(lp->project);
-    lp->project = cbm_project_name_from_path(lp->tmpdir);
+    lp->project = ani_project_name_from_path(lp->tmpdir);
     if (!lp->project)
         return NULL;
     const char *home = getenv("HOME");
     if (!home)
         home = "/tmp";
     char cache_dir[512];
-    snprintf(cache_dir, sizeof(cache_dir), "%s/.cache/codebase-memory-mcp", home);
-    cbm_mkdir(cache_dir);
+    snprintf(cache_dir, sizeof(cache_dir), "%s/.cache/ani", home);
+    ani_mkdir(cache_dir);
     snprintf(lp->dbpath, sizeof(lp->dbpath), "%s/%s.db", cache_dir, lp->project);
     unlink(lp->dbpath);
-    lp->srv = cbm_mcp_server_new(NULL);
+    lp->srv = ani_mcp_server_new(NULL);
     if (!lp->srv)
         return NULL;
     char args[700];
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\"}", lp->tmpdir);
-    char *resp = cbm_mcp_handle_tool(lp->srv, "index_repository", args);
+    char *resp = ani_mcp_handle_tool(lp->srv, "index_repository", args);
     if (resp)
         free(resp);
-    return cbm_store_open_path(lp->dbpath);
+    return ani_store_open_path(lp->dbpath);
 }
 
-static cbm_store_t *lrp_index(LRP_Proj *lp, const LRP_File *files, int nfiles) {
+static ani_store_t *lrp_index(LRP_Proj *lp, const LRP_File *files, int nfiles) {
     memset(lp, 0, sizeof(*lp));
-    snprintf(lp->tmpdir, sizeof(lp->tmpdir), "/tmp/cbm_lrp_XXXXXX");
-    if (!cbm_mkdtemp(lp->tmpdir))
+    snprintf(lp->tmpdir, sizeof(lp->tmpdir), "/tmp/ani_lrp_XXXXXX");
+    if (!ani_mkdtemp(lp->tmpdir))
         return NULL;
     lrp_to_fwd_slashes(lp->tmpdir);
     for (int i = 0; i < nfiles; i++) {
@@ -161,7 +161,7 @@ static cbm_store_t *lrp_index(LRP_Proj *lp, const LRP_File *files, int nfiles) {
         char *slash = strrchr(path, '/');
         if (slash && slash > path + strlen(lp->tmpdir)) {
             *slash = '\0';
-            cbm_mkdir_p(path, 0755);
+            ani_mkdir_p(path, 0755);
             *slash = '/';
         }
         FILE *f = fopen(path, "wb");
@@ -173,11 +173,11 @@ static cbm_store_t *lrp_index(LRP_Proj *lp, const LRP_File *files, int nfiles) {
     return lrp_open_indexed(lp);
 }
 
-static void lrp_cleanup(LRP_Proj *lp, cbm_store_t *store) {
+static void lrp_cleanup(LRP_Proj *lp, ani_store_t *store) {
     if (store)
-        cbm_store_close(store);
+        ani_store_close(store);
     if (lp->srv) {
-        cbm_mcp_server_free(lp->srv);
+        ani_mcp_server_free(lp->srv);
         lp->srv = NULL;
     }
     free(lp->project);
@@ -193,8 +193,8 @@ static void lrp_cleanup(LRP_Proj *lp, cbm_store_t *store) {
 
 /* Returns USAGE edge count (-1 on DB failure). */
 static int lrp_usage(LRP_Proj *lp, const LRP_File *files, int nfiles) {
-    cbm_store_t *store = lrp_index(lp, files, nfiles);
-    int n = store ? cbm_store_count_edges_by_type(store, lp->project, "USAGE") : -1;
+    ani_store_t *store = lrp_index(lp, files, nfiles);
+    int n = store ? ani_store_count_edges_by_type(store, lp->project, "USAGE") : -1;
     lrp_cleanup(lp, store);
     return n;
 }
@@ -205,14 +205,14 @@ static const char *LRP_ALL_EDGE_TYPES[] = {
     "IMPLEMENTS", "USAGE",          "DECORATES",  "HANDLES",        "HTTP_CALLS", "ASYNC_CALLS",
     "OVERRIDE",   "TESTS",          "TESTS_FILE", "DATA_FLOWS",     NULL};
 
-static void lrp_diag(cbm_store_t *store, const char *project, const char *scenario) {
+static void lrp_diag(ani_store_t *store, const char *project, const char *scenario) {
     if (!store) {
         fprintf(stderr, "    [LRP] %s: no graph DB\n", scenario);
         return;
     }
     char line[512] = {0};
     for (int i = 0; LRP_ALL_EDGE_TYPES[i]; i++) {
-        int c = cbm_store_count_edges_by_type(store, project, LRP_ALL_EDGE_TYPES[i]);
+        int c = ani_store_count_edges_by_type(store, project, LRP_ALL_EDGE_TYPES[i]);
         if (c > 0 && strlen(line) < sizeof(line) - 40) {
             char one[48];
             snprintf(one, sizeof(one), "%s=%d ", LRP_ALL_EDGE_TYPES[i], c);
@@ -230,14 +230,14 @@ static void lrp_diag(cbm_store_t *store, const char *project, const char *scenar
  * class of edge the receiver-aware guard (#592/#606) removes. Asserting an
  * `lsp_*` strategy is what distinguishes inheritance RESOLUTION from a lucky
  * coincidence. Returns -1 when the edges cannot be read at all. */
-static int lrp_count_calls_with_strategy(cbm_store_t *store, const char *project,
+static int lrp_count_calls_with_strategy(ani_store_t *store, const char *project,
                                          const char *prefix) {
     if (!store) {
         return -1;
     }
-    cbm_edge_t *edges = NULL;
+    ani_edge_t *edges = NULL;
     int n = 0;
-    if (cbm_store_find_edges_by_type(store, project, "CALLS", &edges, &n) != CBM_STORE_OK) {
+    if (ani_store_find_edges_by_type(store, project, "CALLS", &edges, &n) != ANI_STORE_OK) {
         return -1;
     }
     char needle[64];
@@ -248,7 +248,7 @@ static int lrp_count_calls_with_strategy(cbm_store_t *store, const char *project
             hits++;
         }
     }
-    cbm_store_free_edges(edges, n);
+    ani_store_free_edges(edges, n);
     return hits;
 }
 
@@ -259,8 +259,8 @@ static int lrp_count_calls_with_strategy(cbm_store_t *store, const char *project
 static int lrp_assert_calls(const LRP_File *files, int nfiles, int min_calls, const char *scenario,
                             int expect_green) {
     LRP_Proj lp;
-    cbm_store_t *store = lrp_index(&lp, files, nfiles);
-    int got = store ? cbm_store_count_edges_by_type(store, lp.project, "CALLS") : -1;
+    ani_store_t *store = lrp_index(&lp, files, nfiles);
+    int got = store ? ani_store_count_edges_by_type(store, lp.project, "CALLS") : -1;
     if (got < min_calls) {
         fprintf(stderr, "  [LRP] %s FAIL calls=%d expected>=%d %s\n", scenario, got, min_calls,
                 expect_green ? "(GREEN regression)" : "(RED reproduction)");
@@ -280,36 +280,36 @@ static int lrp_assert_calls(const LRP_File *files, int nfiles, int min_calls, co
  * Returning -1 distinguishes a malformed fixture or DB failure from a genuine
  * missing edge. This prevents broad CALLS totals (including macro/stdlib edges)
  * from masking a missing source-specific relationship. */
-static int lrp_exact_edge_by_name(cbm_store_t *store, const char *project, const char *edge_type,
+static int lrp_exact_edge_by_name(ani_store_t *store, const char *project, const char *edge_type,
                                   const char *source_name, const char *target_name) {
     if (!store || !project || !edge_type || !source_name || !target_name) {
         return -1;
     }
 
-    cbm_node_t *sources = NULL;
-    cbm_node_t *targets = NULL;
+    ani_node_t *sources = NULL;
+    ani_node_t *targets = NULL;
     int source_count = 0;
     int target_count = 0;
-    if (cbm_store_find_nodes_by_name(store, project, source_name, &sources, &source_count) !=
-            CBM_STORE_OK ||
-        cbm_store_find_nodes_by_name(store, project, target_name, &targets, &target_count) !=
-            CBM_STORE_OK ||
+    if (ani_store_find_nodes_by_name(store, project, source_name, &sources, &source_count) !=
+            ANI_STORE_OK ||
+        ani_store_find_nodes_by_name(store, project, target_name, &targets, &target_count) !=
+            ANI_STORE_OK ||
         source_count != 1 || target_count != 1) {
-        cbm_store_free_nodes(sources, source_count);
-        cbm_store_free_nodes(targets, target_count);
+        ani_store_free_nodes(sources, source_count);
+        ani_store_free_nodes(targets, target_count);
         return -1;
     }
 
     int64_t source_id = sources[0].id;
     int64_t target_id = targets[0].id;
-    cbm_store_free_nodes(sources, source_count);
-    cbm_store_free_nodes(targets, target_count);
+    ani_store_free_nodes(sources, source_count);
+    ani_store_free_nodes(targets, target_count);
 
-    cbm_edge_t *edges = NULL;
+    ani_edge_t *edges = NULL;
     int edge_count = 0;
-    if (cbm_store_find_edges_by_source_type(store, source_id, edge_type, &edges, &edge_count) !=
-        CBM_STORE_OK) {
-        cbm_store_free_edges(edges, edge_count);
+    if (ani_store_find_edges_by_source_type(store, source_id, edge_type, &edges, &edge_count) !=
+        ANI_STORE_OK) {
+        ani_store_free_edges(edges, edge_count);
         return -1;
     }
 
@@ -319,37 +319,37 @@ static int lrp_exact_edge_by_name(cbm_store_t *store, const char *project, const
             matches++;
         }
     }
-    cbm_store_free_edges(edges, edge_count);
+    ani_store_free_edges(edges, edge_count);
     return matches;
 }
 
-static int lrp_exact_calls_by_name(cbm_store_t *store, const char *project, const char *source_name,
+static int lrp_exact_calls_by_name(ani_store_t *store, const char *project, const char *source_name,
                                    const char *target_name) {
     return lrp_exact_edge_by_name(store, project, "CALLS", source_name, target_name);
 }
 
-static int lrp_exact_edge_by_qn_suffix(cbm_store_t *store, const char *project,
+static int lrp_exact_edge_by_qn_suffix(ani_store_t *store, const char *project,
                                        const char *edge_type, const char *source_suffix,
                                        const char *target_suffix) {
-    cbm_node_t *sources = NULL;
-    cbm_node_t *targets = NULL;
+    ani_node_t *sources = NULL;
+    ani_node_t *targets = NULL;
     int source_count = 0;
     int target_count = 0;
     if (!store ||
-        cbm_store_find_nodes_by_qn_suffix(store, project, source_suffix, &sources, &source_count) !=
-            CBM_STORE_OK ||
-        cbm_store_find_nodes_by_qn_suffix(store, project, target_suffix, &targets, &target_count) !=
-            CBM_STORE_OK ||
+        ani_store_find_nodes_by_qn_suffix(store, project, source_suffix, &sources, &source_count) !=
+            ANI_STORE_OK ||
+        ani_store_find_nodes_by_qn_suffix(store, project, target_suffix, &targets, &target_count) !=
+            ANI_STORE_OK ||
         source_count != 1 || target_count != 1) {
-        cbm_store_free_nodes(sources, source_count);
-        cbm_store_free_nodes(targets, target_count);
+        ani_store_free_nodes(sources, source_count);
+        ani_store_free_nodes(targets, target_count);
         return -1;
     }
-    cbm_edge_t *edges = NULL;
+    ani_edge_t *edges = NULL;
     int edge_count = 0;
     int matches = -1;
-    if (cbm_store_find_edges_by_source_type(store, sources[0].id, edge_type, &edges, &edge_count) ==
-        CBM_STORE_OK) {
+    if (ani_store_find_edges_by_source_type(store, sources[0].id, edge_type, &edges, &edge_count) ==
+        ANI_STORE_OK) {
         matches = 0;
         for (int i = 0; i < edge_count; i++) {
             if (edges[i].target_id == targets[0].id) {
@@ -357,9 +357,9 @@ static int lrp_exact_edge_by_qn_suffix(cbm_store_t *store, const char *project,
             }
         }
     }
-    cbm_store_free_edges(edges, edge_count);
-    cbm_store_free_nodes(sources, source_count);
-    cbm_store_free_nodes(targets, target_count);
+    ani_store_free_edges(edges, edge_count);
+    ani_store_free_nodes(sources, source_count);
+    ani_store_free_nodes(targets, target_count);
     return matches;
 }
 
@@ -487,7 +487,7 @@ TEST(lrp_go_s8_field_type_hint) {
 /* ══════════════════════════════════════════════════════════════════════
  * ─── GROUP 2: C (lsp_cross WIRED) ───────────────────────────────────
  * ══════════════════════════════════════════════════════════════════════
- * C has lsp_cross via cbm_run_c_lsp_cross.  Function-pointer dispatch,
+ * C has lsp_cross via ani_run_c_lsp_cross.  Function-pointer dispatch,
  * struct-field calls, and pointer-to-function calls are the risky paths.
  */
 
@@ -547,8 +547,8 @@ TEST(lrp_c_s4_static_local) {
      * The CALLS edge anything -> helper (static) should NOT span files.
      * We check that at least 1 CALLS edge resolves (run -> exported). */
     LRP_Proj lp;
-    cbm_store_t *store = lrp_index(&lp, f, 2);
-    int calls = store ? cbm_store_count_edges_by_type(store, lp.project, "CALLS") : -1;
+    ani_store_t *store = lrp_index(&lp, f, 2);
+    int calls = store ? ani_store_count_edges_by_type(store, lp.project, "CALLS") : -1;
     lrp_cleanup(&lp, store);
     /* GREEN guard: exported() is a public function; run->exported resolves. */
     ASSERT_TRUE(calls >= 1);
@@ -669,7 +669,7 @@ TEST(lrp_cpp_s4_static_method) {
      * a CALLS edge by the C/C++ lsp_cross (cpp_mode) — diagnostics show calls=0 with
      * the Registry method present (DEFINES_METHOD=1).  The `Class::method()` static
      * scope-resolution form is not handled by the C++ resolver in
-     * internal/cbm/lsp (cbm_run_c_lsp_cross, cpp path). */
+     * internal/ani/lsp (ani_run_c_lsp_cross, cpp path). */
     ASSERT_TRUE(lrp_assert_calls(f, 2, 1, "cpp/S4/static_method", 1));
     PASS();
 }
@@ -699,7 +699,7 @@ TEST(lrp_cpp_s6_virtual_inherited) {
     /* REAL BUG: the explicit base call `Shape::area()` from Circle::run() is not
      * resolved to a CALLS edge (diagnostics: calls=0, INHERITS=1 present).  Same
      * class as cpp/S4 — the C++ lsp_cross does not resolve `Base::method()`
-     * scope-qualified calls (internal/cbm/lsp, cbm_run_c_lsp_cross cpp path). */
+     * scope-qualified calls (internal/ani/lsp, ani_run_c_lsp_cross cpp path). */
     ASSERT_TRUE(lrp_assert_calls(f, 2, 1, "cpp/S6/virtual_inherited", 1));
     PASS();
 }
@@ -734,24 +734,24 @@ TEST(lrp_cpp_s8_field_call) {
 /* ══════════════════════════════════════════════════════════════════════
  * ─── GROUP 4: RUST (lsp_cross NOT WIRED) ────────────────────────────
  * ══════════════════════════════════════════════════════════════════════
- * cbm_run_rust_lsp_cross EXISTS in rust_lsp.c but cbm_pxc_has_cross_lsp
- * returns false for CBM_LANG_RUST — the pass is NEVER called by the
+ * ani_run_rust_lsp_cross EXISTS in rust_lsp.c but ani_pxc_has_cross_lsp
+ * returns false for ANI_LANG_RUST — the pass is NEVER called by the
  * pipeline.  The generic name-based resolver handles S1 (plain call).
  * S2–S8 require type information and are expected RED (assert the correct
- * outcome; they FAIL until cbm_pxc_has_cross_lsp is updated to include Rust).
+ * outcome; they FAIL until ani_pxc_has_cross_lsp is updated to include Rust).
  *
- * ROOT CAUSE: pass_lsp_cross.c cbm_pxc_has_cross_lsp() switch missing
- *   CBM_LANG_RUST case.
+ * ROOT CAUSE: pass_lsp_cross.c ani_pxc_has_cross_lsp() switch missing
+ *   ANI_LANG_RUST case.
  * FIX LOCATION: src/pipeline/pass_lsp_cross.c line ~280.
  */
 
 /* S1 — Rust cross-file plain function call.
  * REAL BUG (the known cross-LSP dispatch gap — keep RED): `lib::square(n)` does
- * NOT resolve → calls=0.  cbm_registry_resolve (src/pipeline/registry.c:638)
+ * NOT resolve → calls=0.  ani_registry_resolve (src/pipeline/registry.c:638)
  * splits the callee name on '.', not Rust's '::', so the prefix is the whole
  * "lib::square" and never matches registered QN project.lib.square; and Rust
- * lsp_cross is not wired (pass_lsp_cross.c:cbm_pxc_has_cross_lsp lacks
- * CBM_LANG_RUST).  Fix either the '::' split or wire Rust lsp_cross. */
+ * lsp_cross is not wired (pass_lsp_cross.c:ani_pxc_has_cross_lsp lacks
+ * ANI_LANG_RUST).  Fix either the '::' split or wire Rust lsp_cross. */
 TEST(lrp_rust_s1_crossfile_call) {
     static const LRP_File f[] = {
         {"lib.rs", "pub fn square(x: i32) -> i32 { x * x }\n"},
@@ -775,7 +775,7 @@ TEST(lrp_rust_s2_method_dispatch) {
                                   "    c.inc();\n    c.value()\n}\n"}};
     /* RED (expected to fail): lsp_cross not wired for Rust → method dispatch
      * through typed receiver not resolved by the generic resolver.
-     * Root cause: cbm_pxc_has_cross_lsp returns false for CBM_LANG_RUST.
+     * Root cause: ani_pxc_has_cross_lsp returns false for ANI_LANG_RUST.
      * This test asserts the CORRECT outcome: calls >= 1. FAILS until fixed. */
     ASSERT_TRUE(lrp_assert_calls(f, 2, 1, "rust/S2/method_dispatch", 0));
     PASS();
@@ -851,11 +851,11 @@ TEST(lrp_rust_s7_generic) {
                     "    if a > b { a } else { b }\n}\n"},
         {"main.rs", "mod algo;\n\nfn run(x: i32, y: i32) -> i32 {\n    algo::max_of(x, y)\n}\n"}};
     /* REAL BUG (same root cause as rust/S1): a Rust `::`-qualified cross-file path
-     * `algo::max_of(...)` is not resolved → calls=0.  cbm_registry_resolve
+     * `algo::max_of(...)` is not resolved → calls=0.  ani_registry_resolve
      * (src/pipeline/registry.c:638) splits the callee on '.', not '::', so the
      * prefix becomes the whole "algo::max_of" and never matches the registered QN
      * (project.algo.max_of); Rust lsp_cross is also not wired
-     * (pass_lsp_cross.c:cbm_pxc_has_cross_lsp lacks CBM_LANG_RUST). */
+     * (pass_lsp_cross.c:ani_pxc_has_cross_lsp lacks ANI_LANG_RUST). */
     ASSERT_TRUE(lrp_assert_calls(f, 2, 1, "rust/S7/generic", 0));
     PASS();
 }
@@ -878,7 +878,7 @@ TEST(lrp_rust_s8_field_call) {
 /* Cross-file call hidden inside format!'s token tree. The visible() control
  * proves the target and ordinary cross-file resolution are present; hidden()
  * requires the Rust LSP's semantic result to be paired with a synthetic
- * CBMCall carrier before pass_calls can materialize the exact graph edge. */
+ * ANICall carrier before pass_calls can materialize the exact graph edge. */
 TEST(lrp_rust_crossfile_macro_hidden_call_carrier) {
     static const LRP_File f[] = {
         {"lib.rs", "pub fn render() -> &'static str { \"ok\" }\n"},
@@ -887,7 +887,7 @@ TEST(lrp_rust_crossfile_macro_hidden_call_carrier) {
                     "pub fn hidden() -> String { format!(\"{}\", lib::render()) }\n"}};
 
     LRP_Proj lp;
-    cbm_store_t *store = lrp_index(&lp, f, 2);
+    ani_store_t *store = lrp_index(&lp, f, 2);
     int visible_to_render = lrp_exact_calls_by_name(store, lp.project, "visible", "render");
     int hidden_to_render = lrp_exact_calls_by_name(store, lp.project, "hidden", "render");
     if (visible_to_render != 1 || hidden_to_render != 1) {
@@ -907,7 +907,7 @@ TEST(lrp_rust_crossfile_macro_hidden_call_carrier) {
 /* ══════════════════════════════════════════════════════════════════════
  * ─── GROUP 5: PYTHON (lsp_cross WIRED) ──────────────────────────────
  * ══════════════════════════════════════════════════════════════════════
- * Python has cbm_run_py_lsp_cross.  Type inference is limited by duck
+ * Python has ani_run_py_lsp_cross.  Type inference is limited by duck
  * typing, but explicit type annotations (PEP 484) help the LSP.
  */
 
@@ -1005,9 +1005,9 @@ TEST(lrp_python_s6_inherited_method) {
      * Tripwire: assert the store opened AND calls == 0 exactly, so an infra/DB
      * failure cannot pass vacuously. */
     LRP_Proj lp;
-    cbm_store_t *store = lrp_index(&lp, f, 2);
+    ani_store_t *store = lrp_index(&lp, f, 2);
     ASSERT_NOT_NULL(store);
-    int calls = cbm_store_count_edges_by_type(store, lp.project, "CALLS");
+    int calls = ani_store_count_edges_by_type(store, lp.project, "CALLS");
     lrp_cleanup(&lp, store);
     ASSERT_EQ(calls, 0);
     PASS();
@@ -1025,7 +1025,7 @@ TEST(lrp_python_s6_inherited_method) {
  * This row supplies the receiver type three ways — annotated parameter, `self`
  * inside the subclass, and a constructor result — so `Base.describe` is
  * reachable ONLY by crossing the file boundary that `class Child(Base)`
- * declares. Before cbm_pxc_collect_all_defs resolved base spellings to project
+ * declares. Before ani_pxc_collect_all_defs resolved base spellings to project
  * QNs, py_lsp_cross received "Base" and looked it up as a qualified name, found
  * nothing (Base lives in base.py), and all three fell through to unique_name at
  * confidence 0.75. Asserting the lsp_* strategy is what separates the two
@@ -1050,9 +1050,9 @@ TEST(lrp_python_s6b_inherited_method_typed_receiver) {
 
     for (int k = 0; k < 3; k++) {
         LRP_Proj lp;
-        cbm_store_t *store = lrp_index(&lp, shapes[k], 2);
+        ani_store_t *store = lrp_index(&lp, shapes[k], 2);
         ASSERT_NOT_NULL(store);
-        int inherits = cbm_store_count_edges_by_type(store, lp.project, "INHERITS");
+        int inherits = ani_store_count_edges_by_type(store, lp.project, "INHERITS");
         int lsp_calls = lrp_count_calls_with_strategy(store, lp.project, "lsp_");
         if (inherits < 1 || lsp_calls < 1) {
             fprintf(stderr, "  [LRP] python/S6b/%s FAIL inherits=%d lsp_calls=%d\n", names[k],
@@ -1108,7 +1108,7 @@ TEST(lrp_python_crossfile_dunder_carrier) {
                                              "    return left + right\n"}};
 
     LRP_Proj lp;
-    cbm_store_t *store = lrp_index(&lp, f, 2);
+    ani_store_t *store = lrp_index(&lp, f, 2);
     int combine_to_add = lrp_exact_calls_by_name(store, lp.project, "combine", "__add__");
     if (combine_to_add != 1) {
         fprintf(stderr,
@@ -1126,7 +1126,7 @@ TEST(lrp_python_crossfile_dunder_carrier) {
 /* ══════════════════════════════════════════════════════════════════════
  * ─── GROUP 6: TYPESCRIPT (lsp_cross WIRED) ───────────────────────────
  * ══════════════════════════════════════════════════════════════════════
- * TypeScript has cbm_run_ts_lsp_cross.  Static types make S2–S8 more
+ * TypeScript has ani_run_ts_lsp_cross.  Static types make S2–S8 more
  * tractable than Python.
  */
 
@@ -1167,7 +1167,7 @@ TEST(lrp_ts_s3_constructor) {
      * constructor present (DEFINES_METHOD=2, IMPORTS=1).  The TS resolver does not
      * link a `new T()` instantiation to the class/constructor node (cf. Python S3,
      * which DOES route Widget(name) → __init__ and passes).  Compare the WIRED
-     * Python constructor path in internal/cbm/lsp vs the TS new_expression path. */
+     * Python constructor path in internal/ani/lsp vs the TS new_expression path. */
     ASSERT_TRUE(lrp_assert_calls(f, 2, 1, "ts/S3/constructor", 1));
     PASS();
 }
@@ -1212,7 +1212,7 @@ TEST(lrp_ts_s6_inherited_method) {
      *
      * This scenario was RED for as long as ts_lsp_cross received the base class
      * as its SOURCE SPELLING ("Base") while ts_lookup_member fed embedded_types
-     * straight into cbm_registry_lookup_type as a QN — so a base declared in
+     * straight into ani_registry_lookup_type as a QN — so a base declared in
      * ANOTHER file never matched, the receiver stayed unresolved, and the only
      * call in the fixture died in the weak textual cascade. Its predecessor
      * "pass" came from a unique_name registry fallback ("describe" is unique
@@ -1220,7 +1220,7 @@ TEST(lrp_ts_s6_inherited_method) {
      * guard (#592/#606) correctly suppressed that, which is why the tripwire
      * asserted exactly zero.
      *
-     * cbm_pxc_collect_all_defs now resolves each base spelling to a project QN
+     * ani_pxc_collect_all_defs now resolves each base spelling to a project QN
      * through the import map + project registry — the same inputs pass_semantic
      * uses for its INHERITS edge — so `Child extends Base` is a cross-file fact
      * the TS LSP can walk. Asserting the lsp_ts_* strategy is the whole point:
@@ -1228,9 +1228,9 @@ TEST(lrp_ts_s6_inherited_method) {
      * lucky short-name guess. Keep BOTH assertions — calls>=1 alone would go
      * green again for the wrong reason if the guard ever regressed. */
     LRP_Proj lp;
-    cbm_store_t *store = lrp_index(&lp, f, 2);
+    ani_store_t *store = lrp_index(&lp, f, 2);
     ASSERT_NOT_NULL(store);
-    int calls = cbm_store_count_edges_by_type(store, lp.project, "CALLS");
+    int calls = ani_store_count_edges_by_type(store, lp.project, "CALLS");
     int lsp_calls = lrp_count_calls_with_strategy(store, lp.project, "lsp_ts");
     if (calls < 1 || lsp_calls < 1) {
         fprintf(stderr, "  [LRP] ts/S6/inherited_method FAIL calls=%d lsp_ts_calls=%d\n", calls,
@@ -1275,12 +1275,12 @@ TEST(lrp_ts_s8_field_type_hint) {
 /* ══════════════════════════════════════════════════════════════════════
  * ─── GROUP 7: JAVA (lsp_cross NOT WIRED) ─────────────────────────────
  * ══════════════════════════════════════════════════════════════════════
- * cbm_run_java_lsp_cross EXISTS (java_lsp.h) but cbm_pxc_has_cross_lsp
- * returns false for CBM_LANG_JAVA.
+ * ani_run_java_lsp_cross EXISTS (java_lsp.h) but ani_pxc_has_cross_lsp
+ * returns false for ANI_LANG_JAVA.
  * S1 (plain call via Util.method()): GREEN via name-based resolver.
- * S2–S8: RED until cbm_pxc_has_cross_lsp is updated.
+ * S2–S8: RED until ani_pxc_has_cross_lsp is updated.
  *
- * ROOT CAUSE: pass_lsp_cross.c cbm_pxc_has_cross_lsp() missing CBM_LANG_JAVA.
+ * ROOT CAUSE: pass_lsp_cross.c ani_pxc_has_cross_lsp() missing ANI_LANG_JAVA.
  * FIX LOCATION: src/pipeline/pass_lsp_cross.c line ~280.
  */
 
@@ -1406,21 +1406,21 @@ TEST(lrp_java_s8_field_type_hint) {
 /* ══════════════════════════════════════════════════════════════════════
  * ─── GROUP 8: KOTLIN (lsp_cross NOT IMPLEMENTED) ─────────────────────
  * ══════════════════════════════════════════════════════════════════════
- * Kotlin has cbm_run_kotlin_lsp (per-file) but NO cbm_run_kotlin_lsp_cross.
+ * Kotlin has ani_run_kotlin_lsp (per-file) but NO ani_run_kotlin_lsp_cross.
  * The generic name-based resolver covers S1.  S2–S8 are RED.
  *
  * ROOT CAUSE: No cross-file LSP function exists for Kotlin; the per-file
- * cbm_run_kotlin_lsp is never invoked with cross-file project-wide defs.
- * FIX LOCATION: internal/cbm/lsp/kotlin_lsp.c — add cbm_run_kotlin_lsp_cross,
+ * ani_run_kotlin_lsp is never invoked with cross-file project-wide defs.
+ * FIX LOCATION: internal/ani/lsp/kotlin_lsp.c — add ani_run_kotlin_lsp_cross,
  * then wire it in pass_lsp_cross.c.
  */
 
 /* S1 — Kotlin cross-file plain function call.
  * REAL BUG (the known Kotlin cross-LSP gap — keep RED): even a bare top-level
  * `double(n)` does not resolve cross-file → calls=0 (diagnostics: only DEFINES=4).
- * Kotlin has no cbm_run_kotlin_lsp_cross and the generic name resolver does not
+ * Kotlin has no ani_run_kotlin_lsp_cross and the generic name resolver does not
  * link this Kotlin cross-file call.  Fix = add Kotlin cross-file LSP
- * (internal/cbm/lsp/kotlin_lsp.c) and wire it in pass_lsp_cross.c. */
+ * (internal/ani/lsp/kotlin_lsp.c) and wire it in pass_lsp_cross.c. */
 TEST(lrp_kotlin_s1_crossfile_call) {
     static const LRP_File f[] = {{"Util.kt", "fun double(x: Int): Int = x * 2\n"},
                                  {"Main.kt", "fun run(n: Int): Int = double(n)\n"}};
@@ -1513,14 +1513,14 @@ TEST(lrp_kotlin_s8_field_type_hint) {
 /* ══════════════════════════════════════════════════════════════════════
  * ─── GROUP 9: C# (lsp_cross NOT WIRED) ───────────────────────────────
  * ══════════════════════════════════════════════════════════════════════
- * cbm_run_cs_lsp_cross EXISTS (cs_lsp.c) and the CBMCrossLspRegistries
- * struct even has a `cs` field — but cbm_pxc_has_cross_lsp returns false
- * for CBM_LANG_CSHARP.  The cross-LSP pass is never invoked for C# files.
+ * ani_run_cs_lsp_cross EXISTS (cs_lsp.c) and the ANICrossLspRegistries
+ * struct even has a `cs` field — but ani_pxc_has_cross_lsp returns false
+ * for ANI_LANG_CSHARP.  The cross-LSP pass is never invoked for C# files.
  *
- * ROOT CAUSE: pass_lsp_cross.c cbm_pxc_has_cross_lsp() missing CBM_LANG_CSHARP.
+ * ROOT CAUSE: pass_lsp_cross.c ani_pxc_has_cross_lsp() missing ANI_LANG_CSHARP.
  * FIX LOCATION: src/pipeline/pass_lsp_cross.c line ~280.
- * NOTE: CBMCrossLspRegistries.cs is already defined and cbm_pxc_registry_for_lang
- * handles CSHARP — so the fix is a 1-line addition to cbm_pxc_has_cross_lsp().
+ * NOTE: ANICrossLspRegistries.cs is already defined and ani_pxc_registry_for_lang
+ * handles CSHARP — so the fix is a 1-line addition to ani_pxc_has_cross_lsp().
  */
 
 /* S1 — C# cross-file plain static call. */
@@ -1648,7 +1648,7 @@ TEST(lrp_csharp_s8_field_type_hint) {
 /* ══════════════════════════════════════════════════════════════════════
  * ─── BONUS: PHP (lsp_cross WIRED) ────────────────────────────────────
  * ══════════════════════════════════════════════════════════════════════
- * PHP has cbm_run_php_lsp_cross.  Key scenarios: $this->method(),
+ * PHP has ani_run_php_lsp_cross.  Key scenarios: $this->method(),
  * new T(), static T::method(), chaining.
  */
 
@@ -1800,7 +1800,7 @@ TEST(lrp_ts_usage_type_param) {
         {"main.ts", "import { Config } from './types';\n\n"
                     "export function run(cfg: Config): number { return cfg.timeout; }\n"}};
     LRP_Proj lp;
-    cbm_store_t *store = lrp_index(&lp, f, 2);
+    ani_store_t *store = lrp_index(&lp, f, 2);
     int exact = store ? lrp_exact_edge_by_name(store, lp.project, "USAGE", "run", "Config") : -1;
     lrp_cleanup(&lp, store);
     ASSERT_EQ(exact, 1);
@@ -1815,7 +1815,7 @@ static int lrp_ts_imported_type_with_decoy(const char *main_filename) {
                         "export function choose(cfg: Config): number { return cfg.selected; }\n"},
     };
     LRP_Proj lp;
-    cbm_store_t *store = lrp_index(&lp, files, 3);
+    ani_store_t *store = lrp_index(&lp, files, 3);
     int exact = store ? lrp_exact_edge_by_qn_suffix(store, lp.project, "USAGE", "main.choose",
                                                     "a.types.Config")
                       : -1;
@@ -1843,7 +1843,7 @@ TEST(lrp_python_usage_instantiation) {
         {"model.py", "class User:\n    def __init__(self, name):\n        self.name = name\n"},
         {"main.py", "from .model import User\n\n\ndef create(name):\n    return User(name)\n"}};
     LRP_Proj lp;
-    cbm_store_t *store = lrp_index(&lp, f, 2);
+    ani_store_t *store = lrp_index(&lp, f, 2);
     int exact = store ? lrp_exact_calls_by_name(store, lp.project, "create", "User") : -1;
     lrp_cleanup(&lp, store);
     ASSERT_EQ(exact, 1);
@@ -1940,7 +1940,7 @@ SUITE(lsp_resolution_probe) {
     RUN_TEST(lrp_kotlin_s7_generic);
     RUN_TEST(lrp_kotlin_s8_field_type_hint);
 
-    /* ── C# (lsp_cross NOT WIRED — but cbm_run_cs_lsp_cross EXISTS) ── */
+    /* ── C# (lsp_cross NOT WIRED — but ani_run_cs_lsp_cross EXISTS) ── */
     /* S1 GREEN, S2–S8 RED reproductions */
     RUN_TEST(lrp_csharp_s1_crossfile_call);
     RUN_TEST(lrp_csharp_s2_method_dispatch);

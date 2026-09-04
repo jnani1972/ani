@@ -1,0 +1,27 @@
+{
+  "version": "0.8.1",
+  "description": "Fast code intelligence engine — native executable with verified runtime assets",
+  "homepage": "https://github.com/jnani1972/ani",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/jnani1972/ani/releases/download/v0.8.1/ani-windows-amd64.zip",
+      "hash": "a602ad090ed3f49d86c55472f73f27ad7055222806a82358f2e08513e027f00f",
+      "bin": "ani.exe"
+    }
+  },
+  "checkver": {
+    "github": "https://github.com/jnani1972/ani"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/jnani1972/ani/releases/download/v$version/ani-windows-amd64.zip",
+        "hash": {
+          "url": "https://github.com/jnani1972/ani/releases/download/v$version/checksums.txt",
+          "find": "([a-f0-9]{64})\\s+ani-windows-amd64\\.zip"
+        }
+      }
+    }
+  }
+}

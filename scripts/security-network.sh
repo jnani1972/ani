@@ -32,9 +32,9 @@ fi
 
 # shellcheck source=test-runtime.sh
 source "$(dirname "${BASH_SOURCE[0]}")/test-runtime.sh"
-cbm_test_runtime_init
-TMPDIR="$CBM_TEST_RUNTIME_ROOT"
-trap 'cbm_test_runtime_cleanup "$BINARY"' EXIT
+ani_test_runtime_init
+TMPDIR="$ANI_TEST_RUNTIME_ROOT"
+trap 'ani_test_runtime_cleanup "$BINARY"' EXIT
 
 # Create a minimal test project
 mkdir -p "$TMPDIR/project/src"

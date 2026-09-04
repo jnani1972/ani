@@ -40,7 +40,7 @@
 #include "../src/foundation/compat.h"
 #include "test_framework.h"
 #include "test_helpers.h"
-#include "cbm.h"
+#include "ani.h"
 #include <mcp/mcp.h>
 #include <store/store.h>
 #include <pipeline/pipeline.h>
@@ -61,7 +61,7 @@ typedef struct {
     char tmpdir[256];
     char dbpath[512];
     char *project;
-    cbm_mcp_server_t *srv;
+    ani_mcp_server_t *srv;
 } GpeProj;
 
 typedef struct {
@@ -75,29 +75,29 @@ static void gpe_to_fwd_slashes(char *p) {
     }
 }
 
-static cbm_store_t *gpe_open_indexed(GpeProj *lp) {
-    lp->project = cbm_project_name_from_path(lp->tmpdir);
+static ani_store_t *gpe_open_indexed(GpeProj *lp) {
+    lp->project = ani_project_name_from_path(lp->tmpdir);
     if (!lp->project) return NULL;
     const char *home = getenv("HOME");
     if (!home) home = "/tmp";
     char cache_dir[512];
-    snprintf(cache_dir, sizeof(cache_dir), "%s/.cache/codebase-memory-mcp", home);
-    cbm_mkdir(cache_dir);
+    snprintf(cache_dir, sizeof(cache_dir), "%s/.cache/ani", home);
+    ani_mkdir(cache_dir);
     snprintf(lp->dbpath, sizeof(lp->dbpath), "%s/%s.db", cache_dir, lp->project);
     unlink(lp->dbpath);
-    lp->srv = cbm_mcp_server_new(NULL);
+    lp->srv = ani_mcp_server_new(NULL);
     if (!lp->srv) return NULL;
     char args[700];
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\"}", lp->tmpdir);
-    char *resp = cbm_mcp_handle_tool(lp->srv, "index_repository", args);
+    char *resp = ani_mcp_handle_tool(lp->srv, "index_repository", args);
     if (resp) free(resp);
-    return cbm_store_open_path(lp->dbpath);
+    return ani_store_open_path(lp->dbpath);
 }
 
-static cbm_store_t *gpe_index_files(GpeProj *lp, const GpeFile *files, int nfiles) {
+static ani_store_t *gpe_index_files(GpeProj *lp, const GpeFile *files, int nfiles) {
     memset(lp, 0, sizeof(*lp));
-    snprintf(lp->tmpdir, sizeof(lp->tmpdir), "/tmp/cbm_gpe_XXXXXX");
-    if (!cbm_mkdtemp(lp->tmpdir)) return NULL;
+    snprintf(lp->tmpdir, sizeof(lp->tmpdir), "/tmp/ani_gpe_XXXXXX");
+    if (!ani_mkdtemp(lp->tmpdir)) return NULL;
     gpe_to_fwd_slashes(lp->tmpdir);
     for (int i = 0; i < nfiles; i++) {
         char path[700];
@@ -105,7 +105,7 @@ static cbm_store_t *gpe_index_files(GpeProj *lp, const GpeFile *files, int nfile
         char *slash = strrchr(path, '/');
         if (slash && slash > path + strlen(lp->tmpdir)) {
             *slash = '\0';
-            cbm_mkdir_p(path, 0755);
+            ani_mkdir_p(path, 0755);
             *slash = '/';
         }
         FILE *f = fopen(path, "wb");
@@ -116,9 +116,9 @@ static cbm_store_t *gpe_index_files(GpeProj *lp, const GpeFile *files, int nfile
     return gpe_open_indexed(lp);
 }
 
-static void gpe_cleanup(GpeProj *lp, cbm_store_t *store) {
-    if (store) cbm_store_close(store);
-    if (lp->srv) { cbm_mcp_server_free(lp->srv); lp->srv = NULL; }
+static void gpe_cleanup(GpeProj *lp, ani_store_t *store) {
+    if (store) ani_store_close(store);
+    if (lp->srv) { ani_mcp_server_free(lp->srv); lp->srv = NULL; }
     free(lp->project);
     lp->project = NULL;
     th_rmtree(lp->tmpdir);
@@ -132,17 +132,17 @@ static void gpe_cleanup(GpeProj *lp, cbm_store_t *store) {
 
 /* ── Node-count helpers ─────────────────────────────────────────── */
 
-static int gpe_count_label(cbm_store_t *store, const char *project, const char *label) {
-    cbm_node_t *nodes = NULL;
+static int gpe_count_label(ani_store_t *store, const char *project, const char *label) {
+    ani_node_t *nodes = NULL;
     int count = 0;
-    if (cbm_store_find_nodes_by_label(store, project, label, &nodes, &count) != CBM_STORE_OK)
+    if (ani_store_find_nodes_by_label(store, project, label, &nodes, &count) != ANI_STORE_OK)
         return -1;
-    cbm_store_free_nodes(nodes, count);
+    ani_store_free_nodes(nodes, count);
     return count;
 }
 
 /* Sum of all type-like labels. */
-static int gpe_type_nodes(cbm_store_t *store, const char *project) {
+static int gpe_type_nodes(ani_store_t *store, const char *project) {
     static const char *labels[] = {"Class","Struct","Interface","Enum","Trait","Type",NULL};
     int total = 0;
     for (int i = 0; labels[i]; i++) {
@@ -165,16 +165,16 @@ typedef struct {
 
 static GpeMetrics gpe_metrics_files(const GpeFile *files, int nfiles) {
     GpeProj lp;
-    cbm_store_t *store = gpe_index_files(&lp, files, nfiles);
+    ani_store_t *store = gpe_index_files(&lp, files, nfiles);
     GpeMetrics m = {0};
     if (store) {
         m.ok          = 1;
-        m.total_nodes = cbm_store_count_nodes(store, lp.project);
+        m.total_nodes = ani_store_count_nodes(store, lp.project);
         m.functions   = gpe_count_label(store, lp.project, "Function");
         m.methods     = gpe_count_label(store, lp.project, "Method");
         m.types       = gpe_type_nodes(store, lp.project);
-        m.imports     = cbm_store_count_edges_by_type(store, lp.project, "IMPORTS");
-        m.inherits    = cbm_store_count_edges_by_type(store, lp.project, "INHERITS");
+        m.imports     = ani_store_count_edges_by_type(store, lp.project, "IMPORTS");
+        m.inherits    = ani_store_count_edges_by_type(store, lp.project, "INHERITS");
     }
     gpe_cleanup(&lp, store);
     return m;

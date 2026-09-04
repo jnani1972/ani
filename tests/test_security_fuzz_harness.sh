@@ -44,7 +44,7 @@ fi
 ENV_PROBE="$WORKDIR/environment-probe-mcp"
 cat > "$ENV_PROBE" <<'EOF'
 #!/usr/bin/env bash
-printf '%s\t%s\t%s\n' "${HOME-}" "${CBM_CACHE_DIR-}" "${CBM_RUNTIME_DIR-}" >> "$CBM_FUZZ_ENV_PROBE"
+printf '%s\t%s\t%s\n' "${HOME-}" "${ANI_CACHE_DIR-}" "${ANI_RUNTIME_DIR-}" >> "$ANI_FUZZ_ENV_PROBE"
 
 # Echo a JSON-RPC result for every request with a numeric id.  This keeps the
 # fixture compatible with both the current fixed ids and a future per-case
@@ -69,9 +69,9 @@ ENV_LOG="$WORKDIR/environment.log"
 mkdir -p "$CALLER_HOME" "$CALLER_CACHE" "$CALLER_RUNTIME"
 
 if ! HOME="$CALLER_HOME" \
-    CBM_CACHE_DIR="$CALLER_CACHE" \
-    CBM_RUNTIME_DIR="$CALLER_RUNTIME" \
-    CBM_FUZZ_ENV_PROBE="$ENV_LOG" \
+    ANI_CACHE_DIR="$CALLER_CACHE" \
+    ANI_RUNTIME_DIR="$CALLER_RUNTIME" \
+    ANI_FUZZ_ENV_PROBE="$ENV_LOG" \
     "$ROOT/scripts/security-fuzz.sh" "$ENV_PROBE" \
     > "$WORKDIR/environment.out" 2>&1; then
     echo "FAIL: environment-probe fixture was rejected"
@@ -105,11 +105,11 @@ while IFS=$'\t' read -r child_home_raw child_cache_raw child_runtime_raw; do
         exit 1
     fi
     if [[ -z "$child_cache" || "$child_cache" == "$CALLER_CACHE_NORMALIZED" ]]; then
-        echo "FAIL: security-fuzz exposed the caller CBM_CACHE_DIR to a fuzz target"
+        echo "FAIL: security-fuzz exposed the caller ANI_CACHE_DIR to a fuzz target"
         exit 1
     fi
     if [[ -z "$child_runtime" || "$child_runtime" == "$CALLER_RUNTIME_NORMALIZED" ]]; then
-        echo "FAIL: security-fuzz exposed the caller CBM_RUNTIME_DIR to a fuzz target"
+        echo "FAIL: security-fuzz exposed the caller ANI_RUNTIME_DIR to a fuzz target"
         exit 1
     fi
     child_home_parent=${child_home%/*}

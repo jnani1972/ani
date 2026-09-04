@@ -17,7 +17,7 @@
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
-LOGS="${CBM_LADDER_LOGS:-${TMPDIR:-/tmp}/cbm-ladder-$$}"
+LOGS="${ANI_LADDER_LOGS:-${TMPDIR:-/tmp}/ani-ladder-$$}"
 mkdir -p "$LOGS"
 
 echo "=== local ladder: lint + linux + windows in background, mac in foreground ==="

@@ -1,59 +1,59 @@
 /*
  * arena.h — Bump allocator with block-based growth.
  *
- * All memory is freed at once via cbm_arena_destroy(). Individual frees are
+ * All memory is freed at once via ani_arena_destroy(). Individual frees are
  * not supported — this is by design for per-file extraction where all data
  * has the same lifetime.
  *
- * Restructured from internal/cbm/arena.h for the pure C rewrite.
- * New additions: cbm_arena_reset() for reuse without realloc.
+ * Restructured from internal/ani/arena.h for the pure C rewrite.
+ * New additions: ani_arena_reset() for reuse without realloc.
  */
-#ifndef CBM_ARENA_H
-#define CBM_ARENA_H
+#ifndef ANI_ARENA_H
+#define ANI_ARENA_H
 
 #include <stddef.h>
 #include <stdarg.h>
 
-#define CBM_ARENA_MAX_BLOCKS 256
-#define CBM_ARENA_DEFAULT_BLOCK_SIZE ((size_t)64 * 1024) /* 64KB */
+#define ANI_ARENA_MAX_BLOCKS 256
+#define ANI_ARENA_DEFAULT_BLOCK_SIZE ((size_t)64 * 1024) /* 64KB */
 
 typedef struct {
-    char *blocks[CBM_ARENA_MAX_BLOCKS];
-    size_t block_sizes[CBM_ARENA_MAX_BLOCKS]; /* per-block sizes (for stats) */
+    char *blocks[ANI_ARENA_MAX_BLOCKS];
+    size_t block_sizes[ANI_ARENA_MAX_BLOCKS]; /* per-block sizes (for stats) */
     int nblocks;
     size_t block_size;  /* current block capacity */
     size_t used;        /* bytes used in current block */
     size_t total_alloc; /* cumulative bytes allocated (for stats) */
-} CBMArena;
+} ANIArena;
 
 /* Initialize arena with default block size. */
-void cbm_arena_init(CBMArena *a);
+void ani_arena_init(ANIArena *a);
 
 /* Initialize arena with a custom initial block size. */
-void cbm_arena_init_sized(CBMArena *a, size_t block_size);
+void ani_arena_init_sized(ANIArena *a, size_t block_size);
 
 /* Allocate n bytes (8-byte aligned). Returns NULL on OOM. */
-void *cbm_arena_alloc(CBMArena *a, size_t n);
+void *ani_arena_alloc(ANIArena *a, size_t n);
 
 /* Allocate n bytes, zero-initialized. */
-void *cbm_arena_calloc(CBMArena *a, size_t n);
+void *ani_arena_calloc(ANIArena *a, size_t n);
 
 /* Duplicate a NUL-terminated string. */
-char *cbm_arena_strdup(CBMArena *a, const char *s);
+char *ani_arena_strdup(ANIArena *a, const char *s);
 
 /* Duplicate a string of known length, NUL-terminate. */
-char *cbm_arena_strndup(CBMArena *a, const char *s, size_t len);
+char *ani_arena_strndup(ANIArena *a, const char *s, size_t len);
 
 /* sprintf into arena memory. */
-char *cbm_arena_sprintf(CBMArena *a, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+char *ani_arena_sprintf(ANIArena *a, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 
 /* Reset arena for reuse: keeps first block, frees the rest. */
-void cbm_arena_reset(CBMArena *a);
+void ani_arena_reset(ANIArena *a);
 
 /* Free all blocks. Arena is zeroed after this. */
-void cbm_arena_destroy(CBMArena *a);
+void ani_arena_destroy(ANIArena *a);
 
 /* Return total bytes allocated (for diagnostics). */
-size_t cbm_arena_total(const CBMArena *a);
+size_t ani_arena_total(const ANIArena *a);
 
-#endif /* CBM_ARENA_H */
+#endif /* ANI_ARENA_H */

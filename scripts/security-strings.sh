@@ -80,12 +80,12 @@ echo "--- URL audit ---"
 
 # Allowed URL prefixes
 ALLOWED_URLS=(
-    "https://api.github.com/repos/DeusData/codebase-memory-mcp"
-    "https://github.com/DeusData/codebase-memory-mcp"
+    "https://api.github.com/repos/jnani1972/ani"
+    "https://github.com/jnani1972/ani"
     # Our own org root and documentation site: the .mcpb bundle manifest carries
     # them as homepage/documentation fields, and the graph UI links the docs.
     "https://github.com/DeusData"
-    "https://deusdata.github.io/codebase-memory-mcp"
+    "https://jnani1972.github.io/ani"
     "http://127.0.0.1"
     "http://localhost"
     # SQLite internal URLs (part of vendored sqlite3 strings)

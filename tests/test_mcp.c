@@ -5,10 +5,10 @@
  */
 #include "../src/foundation/compat.h"
 #include <sqlite3.h>
-#include "../src/foundation/compat_fs.h" /* cbm_unlink / cbm_rmdir */
+#include "../src/foundation/compat_fs.h" /* ani_unlink / ani_rmdir */
 #include "../src/foundation/constants.h"
 #include "../src/foundation/log.h"
-#include "../src/foundation/platform.h" /* cbm_file_size */
+#include "../src/foundation/platform.h" /* ani_file_size */
 #include "../src/foundation/subprocess.h"
 #include "../src/foundation/workspace.h"
 #include "../src/mcp/compact_out.h"
@@ -30,8 +30,8 @@
 #include <sys/stat.h> /* chmod / stat for read-only query reproductions */
 #ifdef _WIN32
 #include <direct.h>
-#define cbm_chdir _chdir
-#define cbm_getcwd _getcwd
+#define ani_chdir _chdir
+#define ani_getcwd _getcwd
 #else
 #ifdef __APPLE__
 #include <libproc.h>
@@ -40,8 +40,8 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#define cbm_chdir chdir
-#define cbm_getcwd getcwd
+#define ani_chdir chdir
+#define ani_getcwd getcwd
 extern char **environ;
 #endif
 
@@ -108,9 +108,9 @@ static bool response_contains_json_fragment(const char *response, const char *fr
 
 static void restore_cache_dir(const char *saved_copy) {
     if (saved_copy) {
-        cbm_setenv("CBM_CACHE_DIR", saved_copy, 1);
+        ani_setenv("ANI_CACHE_DIR", saved_copy, 1);
     } else {
-        cbm_unsetenv("CBM_CACHE_DIR");
+        ani_unsetenv("ANI_CACHE_DIR");
     }
 }
 
@@ -119,13 +119,13 @@ static void cleanup_project_db(const char *cache, const char *project) {
         return;
     }
 
-    char path[CBM_SZ_4K];
+    char path[ANI_SZ_4K];
     snprintf(path, sizeof(path), "%s/%s.db", cache, project);
-    cbm_unlink(path);
+    ani_unlink(path);
     snprintf(path, sizeof(path), "%s/%s.db-wal", cache, project);
-    cbm_unlink(path);
+    ani_unlink(path);
     snprintf(path, sizeof(path), "%s/%s.db-shm", cache, project);
-    cbm_unlink(path);
+    ani_unlink(path);
 }
 
 #define MCP_MUTATION_GUARD_MAX_EVENTS 16
@@ -137,7 +137,7 @@ typedef struct {
     int begin_count;
     int try_begin_count;
     int end_count;
-    cbm_mcp_server_t *cancel_server;
+    ani_mcp_server_t *cancel_server;
     bool cancel_attempted;
     bool cancel_accepted;
     const char *observed_db_path;
@@ -146,9 +146,9 @@ typedef struct {
     bool backup_exists_at_begin;
     bool db_exists_at_end;
     bool backup_exists_at_end;
-    char begin_projects[MCP_MUTATION_GUARD_MAX_EVENTS][CBM_SZ_256];
-    char try_begin_projects[MCP_MUTATION_GUARD_MAX_EVENTS][CBM_SZ_256];
-    char end_projects[MCP_MUTATION_GUARD_MAX_EVENTS][CBM_SZ_256];
+    char begin_projects[MCP_MUTATION_GUARD_MAX_EVENTS][ANI_SZ_256];
+    char try_begin_projects[MCP_MUTATION_GUARD_MAX_EVENTS][ANI_SZ_256];
+    char end_projects[MCP_MUTATION_GUARD_MAX_EVENTS][ANI_SZ_256];
 } mcp_mutation_guard_probe_t;
 
 typedef struct {
@@ -164,7 +164,7 @@ typedef struct {
 } mcp_command_hook_probe_t;
 
 typedef struct {
-    cbm_mcp_server_t *server;
+    ani_mcp_server_t *server;
     bool cancel_on_call;
     bool cancel_accepted;
     bool reject;
@@ -172,7 +172,7 @@ typedef struct {
     uint64_t delay_ms;
     bool output_filled;
     int calls;
-    char command[CBM_SZ_4K];
+    char command[ANI_SZ_4K];
 } mcp_search_command_probe_t;
 
 typedef struct {
@@ -213,22 +213,22 @@ static bool mcp_search_command_hook_probe(void *context, const char *command) {
     probe->calls++;
     snprintf(probe->command, sizeof(probe->command), "%s", command);
     if (probe->delay_ms > 0) {
-        cbm_usleep(probe->delay_ms * 1000U);
+        ani_usleep(probe->delay_ms * 1000U);
     }
     if (probe->cancel_on_call && probe->server) {
-        probe->cancel_accepted = cbm_mcp_server_cancel_active(probe->server);
+        probe->cancel_accepted = ani_mcp_server_cancel_active(probe->server);
     }
     if (probe->fill_output_directory) {
         static const char prefix[] = ".mcp-command-";
-        cbm_dir_t *directory = cbm_opendir(probe->fill_output_directory);
-        cbm_dirent_t *entry;
-        while (directory && (entry = cbm_readdir(directory)) != NULL) {
+        ani_dir_t *directory = ani_opendir(probe->fill_output_directory);
+        ani_dirent_t *entry;
+        while (directory && (entry = ani_readdir(directory)) != NULL) {
             if (strncmp(entry->name, prefix, sizeof(prefix) - SKIP_ONE) != 0) {
                 continue;
             }
-            char path[CBM_SZ_2K];
+            char path[ANI_SZ_2K];
             snprintf(path, sizeof(path), "%s/%s", probe->fill_output_directory, entry->name);
-            FILE *output = cbm_fopen(path, "ab");
+            FILE *output = ani_fopen(path, "ab");
             if (output) {
                 bool wrote = fputs("bounded-output-sentinel\n", output) >= 0;
                 bool closed = fclose(output) == 0;
@@ -237,7 +237,7 @@ static bool mcp_search_command_hook_probe(void *context, const char *command) {
             break;
         }
         if (directory) {
-            cbm_closedir(directory);
+            ani_closedir(directory);
         }
     }
     return !probe->reject;
@@ -245,13 +245,13 @@ static bool mcp_search_command_hook_probe(void *context, const char *command) {
 
 static bool mcp_search_cache_open(mcp_search_cache_t *cache, const char *prefix) {
     memset(cache, 0, sizeof(*cache));
-    snprintf(cache->path, sizeof(cache->path), "%s/%s-XXXXXX", cbm_tmpdir(), prefix);
-    if (!cbm_mkdtemp(cache->path)) {
+    snprintf(cache->path, sizeof(cache->path), "%s/%s-XXXXXX", ani_tmpdir(), prefix);
+    if (!ani_mkdtemp(cache->path)) {
         return false;
     }
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     cache->saved_cache = saved_cache ? strdup(saved_cache) : NULL;
-    if ((saved_cache && !cache->saved_cache) || cbm_setenv("CBM_CACHE_DIR", cache->path, 1) != 0) {
+    if ((saved_cache && !cache->saved_cache) || ani_setenv("ANI_CACHE_DIR", cache->path, 1) != 0) {
         free(cache->saved_cache);
         cache->saved_cache = NULL;
         (void)th_rmtree(cache->path);
@@ -276,22 +276,22 @@ typedef struct {
 static void mcp_test_restore_env(mcp_test_env_backup_t *backups, size_t count) {
     for (size_t index = 0; index < count; index++) {
         if (backups[index].present) {
-            (void)cbm_setenv(backups[index].name, backups[index].value, 1);
+            (void)ani_setenv(backups[index].name, backups[index].value, 1);
         } else {
-            (void)cbm_unsetenv(backups[index].name);
+            (void)ani_unsetenv(backups[index].name);
         }
         free(backups[index].value);
     }
 }
 
 static int mcp_test_git(const char *root, const char *const *arguments) {
-    char empty_config[CBM_SZ_4K];
+    char empty_config[ANI_SZ_4K];
     int config_length =
-        snprintf(empty_config, sizeof(empty_config), "%s/.cbm-empty-gitconfig", root);
+        snprintf(empty_config, sizeof(empty_config), "%s/.ani-empty-gitconfig", root);
     if (config_length <= 0 || (size_t)config_length >= sizeof(empty_config)) {
         return -1;
     }
-    FILE *config = cbm_fopen(empty_config, "wb");
+    FILE *config = ani_fopen(empty_config, "wb");
     if (!config) {
         return -1;
     }
@@ -317,11 +317,11 @@ static int mcp_test_git(const char *root, const char *const *arguments) {
         }
         return -1;
     }
-    bool environment_ok = cbm_setenv("GIT_CONFIG_GLOBAL", empty_config, 1) == 0 &&
-                          cbm_setenv("GIT_CONFIG_SYSTEM", empty_config, 1) == 0 &&
-                          cbm_setenv("GIT_CONFIG_NOSYSTEM", "1", 1) == 0 &&
-                          cbm_setenv("GIT_CONFIG_COUNT", "0", 1) == 0 &&
-                          cbm_unsetenv("GIT_CONFIG_PARAMETERS") == 0;
+    bool environment_ok = ani_setenv("GIT_CONFIG_GLOBAL", empty_config, 1) == 0 &&
+                          ani_setenv("GIT_CONFIG_SYSTEM", empty_config, 1) == 0 &&
+                          ani_setenv("GIT_CONFIG_NOSYSTEM", "1", 1) == 0 &&
+                          ani_setenv("GIT_CONFIG_COUNT", "0", 1) == 0 &&
+                          ani_unsetenv("GIT_CONFIG_PARAMETERS") == 0;
     if (!environment_ok) {
         mcp_test_restore_env(backups, sizeof(backups) / sizeof(backups[0]));
         return -1;
@@ -329,8 +329,8 @@ static int mcp_test_git(const char *root, const char *const *arguments) {
 
     const char *git = "git";
 #ifdef _WIN32
-    char git_executable[CBM_SZ_4K];
-    const char *resolved = cbm_find_cli("git", cbm_get_home_dir());
+    char git_executable[ANI_SZ_4K];
+    const char *resolved = ani_find_cli("git", ani_get_home_dir());
     int resolved_length =
         resolved ? snprintf(git_executable, sizeof(git_executable), "%s", resolved) : -1;
     if (resolved_length <= 0 || (size_t)resolved_length >= sizeof(git_executable)) {
@@ -350,14 +350,14 @@ static int mcp_test_git(const char *root, const char *const *arguments) {
     }
     argv[index] = NULL;
 
-    cbm_proc_opts_t options = {
+    ani_proc_opts_t options = {
         .bin = git,
         .argv = argv,
         .quiet_timeout_ms = 10000,
     };
-    cbm_proc_result_t result = {0};
+    ani_proc_result_t result = {0};
     int run_result =
-        cbm_subprocess_run(&options, &result) == 0 && result.outcome == CBM_PROC_CLEAN ? 0 : -1;
+        ani_subprocess_run(&options, &result) == 0 && result.outcome == ANI_PROC_CLEAN ? 0 : -1;
     mcp_test_restore_env(backups, sizeof(backups) / sizeof(backups[0]));
     return run_result;
 }
@@ -375,13 +375,13 @@ static bool mcp_mutation_guard_probe_begin(void *context, const char *project) {
     }
     if (probe->cancel_on_begin_call > 0 && probe->begin_count == probe->cancel_on_begin_call) {
         probe->cancel_attempted = true;
-        probe->cancel_accepted = cbm_mcp_server_cancel_active(probe->cancel_server);
+        probe->cancel_accepted = ani_mcp_server_cancel_active(probe->cancel_server);
     }
     if (probe->observed_db_path) {
-        probe->db_exists_at_begin = cbm_file_exists(probe->observed_db_path);
+        probe->db_exists_at_begin = ani_file_exists(probe->observed_db_path);
     }
     if (probe->observed_backup_path) {
-        probe->backup_exists_at_begin = cbm_file_exists(probe->observed_backup_path);
+        probe->backup_exists_at_begin = ani_file_exists(probe->observed_backup_path);
     }
     return probe->deny_begin_call == 0 || probe->begin_count != probe->deny_begin_call;
 }
@@ -398,10 +398,10 @@ static bool mcp_mutation_guard_probe_try_begin(void *context, const char *projec
                  project ? project : "");
     }
     if (probe->observed_db_path) {
-        probe->db_exists_at_begin = cbm_file_exists(probe->observed_db_path);
+        probe->db_exists_at_begin = ani_file_exists(probe->observed_db_path);
     }
     if (probe->observed_backup_path) {
-        probe->backup_exists_at_begin = cbm_file_exists(probe->observed_backup_path);
+        probe->backup_exists_at_begin = ani_file_exists(probe->observed_backup_path);
     }
     return probe->deny_try_begin_call == 0 || probe->try_begin_count != probe->deny_try_begin_call;
 }
@@ -418,48 +418,48 @@ static void mcp_mutation_guard_probe_end(void *context, const char *project) {
                  project ? project : "");
     }
     if (probe->observed_db_path) {
-        probe->db_exists_at_end = cbm_file_exists(probe->observed_db_path);
+        probe->db_exists_at_end = ani_file_exists(probe->observed_db_path);
     }
     if (probe->observed_backup_path) {
-        probe->backup_exists_at_end = cbm_file_exists(probe->observed_backup_path);
+        probe->backup_exists_at_end = ani_file_exists(probe->observed_backup_path);
     }
 }
 
 static bool mcp_make_corrupt_project_store(const char *cache, const char *project) {
-    char db_path[CBM_SZ_1K];
+    char db_path[ANI_SZ_1K];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", cache, project);
-    cbm_store_t *store = cbm_store_open_path(db_path);
+    ani_store_t *store = ani_store_open_path(db_path);
     if (!store) {
         return false;
     }
 
     /* Numeric root paths are the deterministic corruption trigger used by
-     * cbm_store_check_integrity() and the issue #557 reproduction. */
-    bool created = cbm_store_upsert_project(store, project, "826") == CBM_STORE_OK;
-    cbm_store_close(store);
+     * ani_store_check_integrity() and the issue #557 reproduction. */
+    bool created = ani_store_upsert_project(store, project, "826") == ANI_STORE_OK;
+    ani_store_close(store);
     return created;
 }
 
 /* Keep a writer open so the fixture has a real, committed WAL generation.
  * Query-only opens must not alter either file when quarantine is denied or
  * cannot be published safely. The caller owns the returned store. */
-static cbm_store_t *mcp_open_corrupt_project_store_with_wal(const char *cache,
+static ani_store_t *mcp_open_corrupt_project_store_with_wal(const char *cache,
                                                             const char *project) {
-    char db_path[CBM_SZ_1K];
+    char db_path[ANI_SZ_1K];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", cache, project);
-    cbm_store_t *store = cbm_store_open_path(db_path);
+    ani_store_t *store = ani_store_open_path(db_path);
     if (!store) {
         return NULL;
     }
 
     bool ready =
-        cbm_store_exec(store, "PRAGMA wal_autocheckpoint=0;") == CBM_STORE_OK &&
-        cbm_store_upsert_project(store, project, "826") == CBM_STORE_OK &&
-        cbm_store_exec(store, "CREATE TABLE IF NOT EXISTS guard_wal_sentinel(value TEXT);"
+        ani_store_exec(store, "PRAGMA wal_autocheckpoint=0;") == ANI_STORE_OK &&
+        ani_store_upsert_project(store, project, "826") == ANI_STORE_OK &&
+        ani_store_exec(store, "CREATE TABLE IF NOT EXISTS guard_wal_sentinel(value TEXT);"
                               "INSERT INTO guard_wal_sentinel(value) VALUES('committed');") ==
-            CBM_STORE_OK;
+            ANI_STORE_OK;
     if (!ready) {
-        cbm_store_close(store);
+        ani_store_close(store);
         return NULL;
     }
     return store;
@@ -467,13 +467,13 @@ static cbm_store_t *mcp_open_corrupt_project_store_with_wal(const char *cache,
 
 static bool mcp_make_valid_project_store_at(const char *path, const char *project,
                                             const char *root_path) {
-    cbm_store_t *store = cbm_store_open_path(path);
+    ani_store_t *store = ani_store_open_path(path);
     if (!store) {
         return false;
     }
-    bool ready = cbm_store_upsert_project(store, project, root_path) == CBM_STORE_OK &&
-                 cbm_store_prepare_for_publish(store) == CBM_STORE_OK;
-    cbm_store_close(store);
+    bool ready = ani_store_upsert_project(store, project, root_path) == ANI_STORE_OK &&
+                 ani_store_prepare_for_publish(store) == ANI_STORE_OK;
+    ani_store_close(store);
     return ready;
 }
 
@@ -482,7 +482,7 @@ static unsigned char *mcp_read_file_bytes(const char *path, long *out_len) {
         return NULL;
     }
     *out_len = 0;
-    FILE *fp = cbm_fopen(path, "rb");
+    FILE *fp = ani_fopen(path, "rb");
     if (!fp) {
         return NULL;
     }
@@ -544,21 +544,21 @@ static int mcp_find_corrupt_backups(const char *cache, const char *project, char
     if (unique_path && unique_path_size > 0) {
         unique_path[0] = '\0';
     }
-    char prefix[CBM_DIRENT_NAME_MAX];
+    char prefix[ANI_DIRENT_NAME_MAX];
     snprintf(prefix, sizeof(prefix), "%s.db.corrupt", project);
     int count = 0;
-    cbm_dir_t *dir = cbm_opendir(cache);
+    ani_dir_t *dir = ani_opendir(cache);
     if (!dir) {
         return 0;
     }
-    cbm_dirent_t *entry;
-    while ((entry = cbm_readdir(dir)) != NULL) {
+    ani_dirent_t *entry;
+    while ((entry = ani_readdir(dir)) != NULL) {
         if (!mcp_is_corrupt_backup_main_name(entry->name, prefix)) {
             continue;
         }
-        char path[CBM_SZ_1K];
+        char path[ANI_SZ_1K];
         snprintf(path, sizeof(path), "%s/%s", cache, entry->name);
-        if (!cbm_file_exists(path)) {
+        if (!ani_file_exists(path)) {
             continue;
         }
         count++;
@@ -567,63 +567,63 @@ static int mcp_find_corrupt_backups(const char *cache, const char *project, char
             snprintf(unique_path, unique_path_size, "%s", path);
         }
     }
-    cbm_closedir(dir);
+    ani_closedir(dir);
     return count;
 }
 
 static int mcp_count_corrupt_artifacts(const char *cache, const char *project) {
-    char prefix[CBM_DIRENT_NAME_MAX];
+    char prefix[ANI_DIRENT_NAME_MAX];
     snprintf(prefix, sizeof(prefix), "%s.db.corrupt", project);
     size_t prefix_len = strlen(prefix);
     int count = 0;
-    cbm_dir_t *dir = cbm_opendir(cache);
+    ani_dir_t *dir = ani_opendir(cache);
     if (!dir) {
         return 0;
     }
-    cbm_dirent_t *entry;
-    while ((entry = cbm_readdir(dir)) != NULL) {
+    ani_dirent_t *entry;
+    while ((entry = ani_readdir(dir)) != NULL) {
         if (strncmp(entry->name, prefix, prefix_len) == 0) {
             count++;
         }
     }
-    cbm_closedir(dir);
+    ani_closedir(dir);
     return count;
 }
 
 static int mcp_count_directory_entries_with_prefix(const char *directory, const char *prefix) {
-    cbm_dir_t *dir = cbm_opendir(directory);
+    ani_dir_t *dir = ani_opendir(directory);
     if (!dir) {
         return -1;
     }
     size_t prefix_length = strlen(prefix);
     int count = 0;
-    cbm_dirent_t *entry;
-    while ((entry = cbm_readdir(dir)) != NULL) {
+    ani_dirent_t *entry;
+    while ((entry = ani_readdir(dir)) != NULL) {
         if (strncmp(entry->name, prefix, prefix_length) == 0) {
             count++;
         }
     }
-    cbm_closedir(dir);
+    ani_closedir(dir);
     return count;
 }
 
 static void mcp_cleanup_corrupt_backups(const char *cache, const char *project) {
-    char prefix[CBM_DIRENT_NAME_MAX];
+    char prefix[ANI_DIRENT_NAME_MAX];
     snprintf(prefix, sizeof(prefix), "%s.db.corrupt", project);
     size_t prefix_len = strlen(prefix);
-    cbm_dir_t *dir = cbm_opendir(cache);
+    ani_dir_t *dir = ani_opendir(cache);
     if (!dir) {
         return;
     }
-    cbm_dirent_t *entry;
-    while ((entry = cbm_readdir(dir)) != NULL) {
+    ani_dirent_t *entry;
+    while ((entry = ani_readdir(dir)) != NULL) {
         if (strncmp(entry->name, prefix, prefix_len) == 0) {
-            char path[CBM_SZ_1K];
+            char path[ANI_SZ_1K];
             snprintf(path, sizeof(path), "%s/%s", cache, entry->name);
-            cbm_unlink(path);
+            ani_unlink(path);
         }
     }
-    cbm_closedir(dir);
+    ani_closedir(dir);
 }
 
 typedef struct {
@@ -640,10 +640,10 @@ static bool mcp_replacing_mutation_guard_begin(void *context, const char *projec
         return false;
     }
     replacement->replacement_attempted = true;
-    bool sidecars_removed = cbm_remove_db_sidecars(replacement->live_path) == 0;
+    bool sidecars_removed = ani_remove_db_sidecars(replacement->live_path) == 0;
     replacement->replacement_succeeded =
         sidecars_removed &&
-        cbm_rename_replace(replacement->replacement_path, replacement->live_path) == 0;
+        ani_rename_replace(replacement->replacement_path, replacement->live_path) == 0;
     return true;
 }
 
@@ -660,21 +660,21 @@ TEST(tree_cell_sanitizes_control_and_invalid_utf8) {
      * unmatchable binary — the macos-15-intel release-smoke B3 class), so
      * cell emission guarantees valid UTF-8: control bytes escape as \u00XX,
      * invalid sequences become U+FFFD, and both force the quoted form. */
-    cbm_sb_t sb;
-    cbm_sb_init(&sb);
-    cbm_tree_cell_str(&sb,
+    ani_sb_t sb;
+    ani_sb_init(&sb);
+    ani_tree_cell_str(&sb,
                       "evil\x01name\xff"
                       "end",
                       true);
-    char *out = cbm_sb_finish(&sb);
+    char *out = ani_sb_finish(&sb);
     ASSERT_NOT_NULL(out);
     ASSERT_STR_EQ(out, "\"evil\\u0001name\xEF\xBF\xBD"
                        "end\"");
     free(out);
 
-    cbm_sb_init(&sb);
-    cbm_tree_cell_str(&sb, "b\xC3\xA4r_ok", true);
-    out = cbm_sb_finish(&sb);
+    ani_sb_init(&sb);
+    ani_tree_cell_str(&sb, "b\xC3\xA4r_ok", true);
+    out = ani_sb_finish(&sb);
     ASSERT_NOT_NULL(out);
     ASSERT_STR_EQ(out, "b\xC3\xA4r_ok"); /* valid UTF-8 stays raw + unquoted */
     free(out);
@@ -688,34 +688,34 @@ TEST(tree_cell_sanitizes_control_and_invalid_utf8) {
 TEST(jsonrpc_parse_request) {
     const char *line = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\","
                        "\"params\":{\"capabilities\":{}}}";
-    cbm_jsonrpc_request_t req = {0};
-    int rc = cbm_jsonrpc_parse(line, &req);
+    ani_jsonrpc_request_t req = {0};
+    int rc = ani_jsonrpc_parse(line, &req);
     ASSERT_EQ(rc, 0);
     ASSERT_STR_EQ(req.jsonrpc, "2.0");
     ASSERT_STR_EQ(req.method, "initialize");
     ASSERT_EQ(req.id, 1);
     ASSERT_TRUE(req.has_id);
     ASSERT_NOT_NULL(req.params_raw);
-    cbm_jsonrpc_request_free(&req);
+    ani_jsonrpc_request_free(&req);
     PASS();
 }
 
 TEST(jsonrpc_parse_notification) {
     const char *line = "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}";
-    cbm_jsonrpc_request_t req = {0};
-    int rc = cbm_jsonrpc_parse(line, &req);
+    ani_jsonrpc_request_t req = {0};
+    int rc = ani_jsonrpc_parse(line, &req);
     ASSERT_EQ(rc, 0);
     ASSERT_STR_EQ(req.method, "notifications/initialized");
     ASSERT_FALSE(req.has_id);
-    cbm_jsonrpc_request_free(&req);
+    ani_jsonrpc_request_free(&req);
     PASS();
 }
 
 TEST(jsonrpc_parse_invalid) {
-    cbm_jsonrpc_request_t req = {0};
-    int rc = cbm_jsonrpc_parse("not json", &req);
+    ani_jsonrpc_request_t req = {0};
+    int rc = ani_jsonrpc_parse("not json", &req);
     ASSERT_EQ(rc, -1);
-    cbm_jsonrpc_request_free(&req);
+    ani_jsonrpc_request_free(&req);
     PASS();
 }
 
@@ -723,13 +723,13 @@ TEST(jsonrpc_parse_tools_call) {
     const char *line = "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"tools/call\","
                        "\"params\":{\"name\":\"search_graph\","
                        "\"arguments\":{\"label\":\"Function\",\"limit\":5}}}";
-    cbm_jsonrpc_request_t req = {0};
-    int rc = cbm_jsonrpc_parse(line, &req);
+    ani_jsonrpc_request_t req = {0};
+    int rc = ani_jsonrpc_parse(line, &req);
     ASSERT_EQ(rc, 0);
     ASSERT_STR_EQ(req.method, "tools/call");
     ASSERT_EQ(req.id, 42);
     ASSERT_NOT_NULL(req.params_raw);
-    cbm_jsonrpc_request_free(&req);
+    ani_jsonrpc_request_free(&req);
     PASS();
 }
 
@@ -737,31 +737,31 @@ TEST(jsonrpc_parse_tools_call) {
  * for "initialize"). Previously strtol-coerced to 0; must be preserved. */
 TEST(jsonrpc_parse_string_id_issue253) {
     const char *line = "{\"jsonrpc\":\"2.0\",\"id\":\"init-abc\",\"method\":\"initialize\"}";
-    cbm_jsonrpc_request_t req = {0};
-    int rc = cbm_jsonrpc_parse(line, &req);
+    ani_jsonrpc_request_t req = {0};
+    int rc = ani_jsonrpc_parse(line, &req);
     ASSERT_EQ(rc, 0);
     ASSERT_TRUE(req.has_id);
     ASSERT_NOT_NULL(req.id_str);
     ASSERT_STR_EQ(req.id_str, "init-abc");
-    cbm_jsonrpc_request_free(&req);
+    ani_jsonrpc_request_free(&req);
 
     /* A purely non-numeric string would have become 0 under strtol. */
     const char *line2 = "{\"jsonrpc\":\"2.0\",\"id\":\"xyz\",\"method\":\"ping\"}";
-    cbm_jsonrpc_request_t req2 = {0};
-    ASSERT_EQ(cbm_jsonrpc_parse(line2, &req2), 0);
+    ani_jsonrpc_request_t req2 = {0};
+    ASSERT_EQ(ani_jsonrpc_parse(line2, &req2), 0);
     ASSERT_NOT_NULL(req2.id_str);
     ASSERT_STR_EQ(req2.id_str, "xyz");
-    cbm_jsonrpc_request_free(&req2);
+    ani_jsonrpc_request_free(&req2);
     PASS();
 }
 
 /* issue #253: the response must echo the string id verbatim, not as a number. */
 TEST(jsonrpc_format_response_string_id_issue253) {
-    cbm_jsonrpc_response_t resp = {
+    ani_jsonrpc_response_t resp = {
         .id_str = "init-abc",
         .result_json = "{\"ok\":true}",
     };
-    char *json = cbm_jsonrpc_format_response(&resp);
+    char *json = ani_jsonrpc_format_response(&resp);
     ASSERT_NOT_NULL(json);
     ASSERT_NOT_NULL(strstr(json, "\"id\":\"init-abc\""));
     /* Must NOT have coerced to a numeric id. */
@@ -775,11 +775,11 @@ TEST(jsonrpc_format_response_string_id_issue253) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(jsonrpc_format_response) {
-    cbm_jsonrpc_response_t resp = {
+    ani_jsonrpc_response_t resp = {
         .id = 1,
-        .result_json = "{\"name\":\"codebase-memory-mcp\"}",
+        .result_json = "{\"name\":\"ani\"}",
     };
-    char *json = cbm_jsonrpc_format_response(&resp);
+    char *json = ani_jsonrpc_format_response(&resp);
     ASSERT_NOT_NULL(json);
     /* Should contain jsonrpc, id, and result */
     ASSERT_NOT_NULL(strstr(json, "\"jsonrpc\":\"2.0\""));
@@ -790,7 +790,7 @@ TEST(jsonrpc_format_response) {
 }
 
 TEST(jsonrpc_format_error) {
-    char *json = cbm_jsonrpc_format_error(5, -32600, "Invalid Request");
+    char *json = ani_jsonrpc_format_error(5, -32600, "Invalid Request");
     ASSERT_NOT_NULL(json);
     ASSERT_NOT_NULL(strstr(json, "\"id\":5"));
     ASSERT_NOT_NULL(strstr(json, "\"error\""));
@@ -805,12 +805,12 @@ TEST(jsonrpc_format_error) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(mcp_initialize_response) {
-    cbm_cli_set_version("9.8.7-test");
+    ani_cli_set_version("9.8.7-test");
 
     /* Default (no params): returns latest supported version */
-    char *json = cbm_mcp_initialize_response(NULL);
+    char *json = ani_mcp_initialize_response(NULL);
     ASSERT_NOT_NULL(json);
-    ASSERT_NOT_NULL(strstr(json, "codebase-memory-mcp"));
+    ASSERT_NOT_NULL(strstr(json, "ani"));
     ASSERT_NOT_NULL(strstr(json, "\"version\":\"9.8.7-test\""));
     ASSERT_NOT_NULL(strstr(json, "capabilities"));
     ASSERT_NOT_NULL(strstr(json, "tools"));
@@ -823,27 +823,27 @@ TEST(mcp_initialize_response) {
     free(json);
 
     /* Client requests a supported version: server echoes it */
-    json = cbm_mcp_initialize_response("{\"protocolVersion\":\"2024-11-05\"}");
+    json = ani_mcp_initialize_response("{\"protocolVersion\":\"2024-11-05\"}");
     ASSERT_NOT_NULL(json);
     ASSERT_NOT_NULL(strstr(json, "2024-11-05"));
     free(json);
 
-    json = cbm_mcp_initialize_response("{\"protocolVersion\":\"2025-06-18\"}");
+    json = ani_mcp_initialize_response("{\"protocolVersion\":\"2025-06-18\"}");
     ASSERT_NOT_NULL(json);
     ASSERT_NOT_NULL(strstr(json, "2025-06-18"));
     free(json);
 
     /* Client requests unknown version: server returns its latest */
-    json = cbm_mcp_initialize_response("{\"protocolVersion\":\"9999-01-01\"}");
+    json = ani_mcp_initialize_response("{\"protocolVersion\":\"9999-01-01\"}");
     ASSERT_NOT_NULL(json);
     ASSERT_NOT_NULL(strstr(json, "2025-11-25"));
     free(json);
-    cbm_cli_set_version("dev");
+    ani_cli_set_version("dev");
     PASS();
 }
 
 TEST(mcp_tools_list) {
-    char *json = cbm_mcp_tools_list();
+    char *json = ani_mcp_tools_list();
     ASSERT_NOT_NULL(json);
     /* Should contain all tools, including the targeted coverage gate. */
     ASSERT_NOT_NULL(strstr(json, "index_repository"));
@@ -870,12 +870,12 @@ TEST(mcp_tools_list) {
  * hand-maintained copy. The list is now rendered from the registry; this pins
  * the render so a formatter bug cannot reintroduce a silent omission. */
 TEST(mcp_tools_help_list_matches_registry) {
-    char *help = cbm_mcp_tools_help_list();
+    char *help = ani_mcp_tools_help_list();
     ASSERT_NOT_NULL(help);
-    int count = cbm_mcp_tool_count();
+    int count = ani_mcp_tool_count();
     ASSERT_GT(count, 0);
     for (int i = 0; i < count; i++) {
-        const char *name = cbm_mcp_tool_name(i);
+        const char *name = ani_mcp_tool_name(i);
         ASSERT_NOT_NULL(name);
         ASSERT_NOT_NULL(strstr(help, name));
     }
@@ -901,7 +901,7 @@ TEST(mcp_tools_help_list_matches_registry) {
 }
 
 TEST(mcp_tools_list_latest_metadata) {
-    char *json = cbm_mcp_tools_list();
+    char *json = ani_mcp_tools_list();
     ASSERT_NOT_NULL(json);
     ASSERT_NOT_NULL(strstr(json, "\"title\":\"Search graph\""));
     ASSERT_NOT_NULL(strstr(json, "\"title\":\"Index repository\""));
@@ -959,7 +959,7 @@ TEST(mcp_tools_have_behavior_annotations) {
         {"ingest_traces", false, false, false, false},
     };
 
-    char *json = cbm_mcp_tools_list();
+    char *json = ani_mcp_tools_list();
     ASSERT_NOT_NULL(json);
     yyjson_doc *doc = yyjson_read(json, strlen(json), 0);
     ASSERT_NOT_NULL(doc);
@@ -1010,7 +1010,7 @@ TEST(mcp_tools_have_behavior_annotations) {
 }
 
 TEST(mcp_index_repository_declares_name_override_issue571) {
-    char *json = cbm_mcp_tools_list();
+    char *json = ani_mcp_tools_list();
     ASSERT_NOT_NULL(json);
     ASSERT_NOT_NULL(strstr(json, "\"index_repository\""));
     ASSERT_NOT_NULL(strstr(json, "\"name\":{\"type\":\"string\""));
@@ -1024,7 +1024,7 @@ TEST(mcp_tools_array_schemas_have_items) {
      * https://github.com/microsoft/vscode/issues/248810).
      * Walk every tool's inputSchema and verify that every "type":"array"
      * property also contains "items". */
-    char *json = cbm_mcp_tools_list();
+    char *json = ani_mcp_tools_list();
     ASSERT_NOT_NULL(json);
 
     /* Scan for all occurrences of "type":"array" — each must be followed
@@ -1049,7 +1049,7 @@ TEST(mcp_tools_array_schemas_have_items) {
 }
 
 TEST(mcp_ingest_traces_items_disallow_additional_properties_issue731) {
-    char *json = cbm_mcp_tools_list();
+    char *json = ani_mcp_tools_list();
     ASSERT_NOT_NULL(json);
 
     yyjson_doc *doc = yyjson_read(json, strlen(json), 0);
@@ -1109,7 +1109,7 @@ TEST(mcp_ingest_traces_items_disallow_additional_properties_issue731) {
  * mirroring VALID_ASPECTS in mcp.c. Parsed structurally like
  * mcp_ingest_traces_items_disallow_additional_properties_issue731. */
 TEST(mcp_get_architecture_aspects_schema_enum_pr560) {
-    char *json = cbm_mcp_tools_list();
+    char *json = ani_mcp_tools_list();
     ASSERT_NOT_NULL(json);
 
     yyjson_doc *doc = yyjson_read(json, strlen(json), 0);
@@ -1174,7 +1174,7 @@ TEST(mcp_get_architecture_aspects_schema_enum_pr560) {
 }
 
 TEST(mcp_text_result) {
-    char *json = cbm_mcp_text_result("{\"total\":5}", false);
+    char *json = ani_mcp_text_result("{\"total\":5}", false);
     ASSERT_NOT_NULL(json);
     ASSERT_NOT_NULL(strstr(json, "\"type\":\"text\""));
     /* The text value is JSON-escaped inside the "text" field */
@@ -1201,7 +1201,7 @@ TEST(mcp_text_result_omits_structured_content_for_plain_text) {
      * A text payload travels once, in content[0].text, and the envelope simply
      * has no structuredContent. (Real JSON objects and error envelopes keep
      * theirs — that is structure, not padding.) */
-    char *json = cbm_mcp_text_result("plain text", false);
+    char *json = ani_mcp_text_result("plain text", false);
     ASSERT_NOT_NULL(json);
     ASSERT_NULL(strstr(json, "\"structuredContent\""));
     /* The payload is still delivered — exactly once. */
@@ -1212,17 +1212,17 @@ TEST(mcp_text_result_omits_structured_content_for_plain_text) {
 }
 
 TEST(mcp_cancel_matches_request_id) {
-    ASSERT_TRUE(cbm_mcp_cancel_request_matches("{\"requestId\":7}", 7, NULL));
-    ASSERT_FALSE(cbm_mcp_cancel_request_matches("{\"requestId\":8}", 7, NULL));
-    ASSERT_TRUE(cbm_mcp_cancel_request_matches("{\"requestId\":\"call-1\"}", -1, "call-1"));
-    ASSERT_FALSE(cbm_mcp_cancel_request_matches("{\"requestId\":\"call-2\"}", -1, "call-1"));
-    ASSERT_FALSE(cbm_mcp_cancel_request_matches("{\"requestId\":7}", -1, "7"));
-    ASSERT_FALSE(cbm_mcp_cancel_request_matches("{}", 7, NULL));
+    ASSERT_TRUE(ani_mcp_cancel_request_matches("{\"requestId\":7}", 7, NULL));
+    ASSERT_FALSE(ani_mcp_cancel_request_matches("{\"requestId\":8}", 7, NULL));
+    ASSERT_TRUE(ani_mcp_cancel_request_matches("{\"requestId\":\"call-1\"}", -1, "call-1"));
+    ASSERT_FALSE(ani_mcp_cancel_request_matches("{\"requestId\":\"call-2\"}", -1, "call-1"));
+    ASSERT_FALSE(ani_mcp_cancel_request_matches("{\"requestId\":7}", -1, "7"));
+    ASSERT_FALSE(ani_mcp_cancel_request_matches("{}", 7, NULL));
     PASS();
 }
 
 TEST(mcp_text_result_error) {
-    char *json = cbm_mcp_text_result("something failed", true);
+    char *json = ani_mcp_text_result("something failed", true);
     ASSERT_NOT_NULL(json);
     ASSERT_NOT_NULL(strstr(json, "\"structuredContent\":{\"error\":\"something failed\"}"));
     ASSERT_NOT_NULL(strstr(json, "\"isError\":true"));
@@ -1237,7 +1237,7 @@ TEST(mcp_text_result_error) {
 
 TEST(mcp_get_tool_name) {
     const char *params = "{\"name\":\"search_graph\",\"arguments\":{\"label\":\"Function\"}}";
-    char *name = cbm_mcp_get_tool_name(params);
+    char *name = ani_mcp_get_tool_name(params);
     ASSERT_NOT_NULL(name);
     ASSERT_STR_EQ(name, "search_graph");
     free(name);
@@ -1247,7 +1247,7 @@ TEST(mcp_get_tool_name) {
 TEST(mcp_get_arguments) {
     const char *params =
         "{\"name\":\"search_graph\",\"arguments\":{\"label\":\"Function\",\"limit\":5}}";
-    char *args = cbm_mcp_get_arguments(params);
+    char *args = ani_mcp_get_arguments(params);
     ASSERT_NOT_NULL(args);
     ASSERT_NOT_NULL(strstr(args, "\"label\":\"Function\""));
     ASSERT_NOT_NULL(strstr(args, "\"limit\":5"));
@@ -1257,39 +1257,39 @@ TEST(mcp_get_arguments) {
 
 TEST(mcp_get_string_arg) {
     const char *args = "{\"label\":\"Function\",\"name_pattern\":\".*Order.*\"}";
-    char *val = cbm_mcp_get_string_arg(args, "label");
+    char *val = ani_mcp_get_string_arg(args, "label");
     ASSERT_NOT_NULL(val);
     ASSERT_STR_EQ(val, "Function");
     free(val);
 
-    val = cbm_mcp_get_string_arg(args, "name_pattern");
+    val = ani_mcp_get_string_arg(args, "name_pattern");
     ASSERT_NOT_NULL(val);
     ASSERT_STR_EQ(val, ".*Order.*");
     free(val);
 
-    val = cbm_mcp_get_string_arg(args, "nonexistent");
+    val = ani_mcp_get_string_arg(args, "nonexistent");
     ASSERT_NULL(val);
     PASS();
 }
 
 TEST(mcp_get_int_arg) {
     const char *args = "{\"limit\":10,\"offset\":5}";
-    int val = cbm_mcp_get_int_arg(args, "limit", 0);
+    int val = ani_mcp_get_int_arg(args, "limit", 0);
     ASSERT_EQ(val, 10);
-    val = cbm_mcp_get_int_arg(args, "offset", 0);
+    val = ani_mcp_get_int_arg(args, "offset", 0);
     ASSERT_EQ(val, 5);
-    val = cbm_mcp_get_int_arg(args, "missing", 42);
+    val = ani_mcp_get_int_arg(args, "missing", 42);
     ASSERT_EQ(val, 42);
     PASS();
 }
 
 TEST(mcp_get_bool_arg) {
     const char *args = "{\"include_connected\":true,\"regex\":false}";
-    bool val = cbm_mcp_get_bool_arg(args, "include_connected");
+    bool val = ani_mcp_get_bool_arg(args, "include_connected");
     ASSERT_TRUE(val);
-    val = cbm_mcp_get_bool_arg(args, "regex");
+    val = ani_mcp_get_bool_arg(args, "regex");
     ASSERT_FALSE(val);
-    val = cbm_mcp_get_bool_arg(args, "missing");
+    val = ani_mcp_get_bool_arg(args, "missing");
     ASSERT_FALSE(val);
     PASS();
 }
@@ -1299,73 +1299,73 @@ TEST(mcp_get_bool_arg) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(server_handle_initialize) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\","
                                    "\"params\":{\"capabilities\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"id\":1"));
-    ASSERT_NOT_NULL(strstr(resp, "codebase-memory-mcp"));
+    ASSERT_NOT_NULL(strstr(resp, "ani"));
     ASSERT_NOT_NULL(strstr(resp, "capabilities"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(server_handle_initialized_notification) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     /* Notification has no id → no response */
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
     ASSERT_NULL(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
-#ifdef CBM_ENABLE_TEST_SEAMS
+#ifdef ANI_ENABLE_TEST_SEAMS
 static void issue403_count_started(void *context) {
     int *calls = context;
     (*calls)++;
 }
 
 static int issue403_initialize_count_calls(const char *session_root, bool approve_sensitive) {
-    char *cache = th_mktempdir("cbm_mcp_403");
+    char *cache = th_mktempdir("ani_mcp_403");
     if (!cache) {
         return -1;
     }
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     char err[1024];
     bool approved =
-        !approve_sensitive || cbm_workspace_grant_add(cache, cbm_workspace_home_dir(), session_root,
+        !approve_sensitive || ani_workspace_grant_add(cache, ani_workspace_home_dir(), session_root,
                                                       true, err, sizeof(err));
-    cbm_config_t *cfg = approved ? cbm_config_open(cache) : NULL;
-    cbm_mcp_server_t *srv = cfg ? cbm_mcp_server_new(NULL) : NULL;
+    ani_config_t *cfg = approved ? ani_config_open(cache) : NULL;
+    ani_mcp_server_t *srv = cfg ? ani_mcp_server_new(NULL) : NULL;
     int calls = -2;
     if (srv) {
-        cbm_config_set(cfg, CBM_CONFIG_AUTO_INDEX, "true");
+        ani_config_set(cfg, ANI_CONFIG_AUTO_INDEX, "true");
         /* The hook proves entry to the count path; keep the actual discovery
          * call fail-closed so this unit test can never launch an index thread. */
-        cbm_config_set(cfg, CBM_CONFIG_AUTO_INDEX_LIMIT, "-1");
-        if (cbm_mcp_server_set_session_context(srv, session_root, NULL)) {
+        ani_config_set(cfg, ANI_CONFIG_AUTO_INDEX_LIMIT, "-1");
+        if (ani_mcp_server_set_session_context(srv, session_root, NULL)) {
             calls = 0;
-            cbm_mcp_server_set_config(srv, cfg);
-            cbm_mcp_server_set_auto_index_count_test_hook(srv, issue403_count_started, &calls);
-            char *response = cbm_mcp_server_handle(
+            ani_mcp_server_set_config(srv, cfg);
+            ani_mcp_server_set_auto_index_count_test_hook(srv, issue403_count_started, &calls);
+            char *response = ani_mcp_server_handle(
                 srv, "{\"jsonrpc\":\"2.0\",\"id\":403,\"method\":\"initialize\",\"params\":{}}");
             free(response);
         }
-        cbm_mcp_server_free(srv);
+        ani_mcp_server_free(srv);
     }
     if (cfg) {
-        cbm_config_close(cfg);
+        ani_config_close(cfg);
     }
 
     restore_cache_dir(saved_cache_copy);
@@ -1384,18 +1384,18 @@ TEST(mcp_issue403_sensitive_root_stops_before_discovery_count) {
 }
 
 TEST(mcp_issue403_explicit_approval_preserves_auto_index) {
-    char *sensitive_home = th_mktempdir("cbm_mcp_403_home");
+    char *sensitive_home = th_mktempdir("ani_mcp_403_home");
     ASSERT_NOT_NULL(sensitive_home);
     const char *saved_home = getenv("HOME");
     char *saved_home_copy = saved_home ? strdup(saved_home) : NULL;
-    cbm_setenv("HOME", sensitive_home, 1);
+    ani_setenv("HOME", sensitive_home, 1);
 
     int approved = issue403_initialize_count_calls(sensitive_home, true);
 
     if (saved_home_copy) {
-        cbm_setenv("HOME", saved_home_copy, 1);
+        ani_setenv("HOME", saved_home_copy, 1);
     } else {
-        cbm_unsetenv("HOME");
+        ani_unsetenv("HOME");
     }
     free(saved_home_copy);
     th_cleanup(sensitive_home);
@@ -1405,25 +1405,25 @@ TEST(mcp_issue403_explicit_approval_preserves_auto_index) {
 #endif
 
 TEST(server_handle_tools_list) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}");
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"id\":2"));
     ASSERT_NOT_NULL(strstr(resp, "search_graph"));
     ASSERT_NOT_NULL(strstr(resp, "query_graph"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(server_handle_tools_list_defaults_to_all_tools_and_accepts_cursor) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":200,\"method\":\"tools/list\"}");
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":200,\"method\":\"tools/list\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"id\":200"));
     ASSERT_NULL(strstr(resp, "\"nextCursor\""));
@@ -1432,7 +1432,7 @@ TEST(server_handle_tools_list_defaults_to_all_tools_and_accepts_cursor) {
     ASSERT_NOT_NULL(strstr(resp, "ingest_traces"));
     free(resp);
 
-    resp = cbm_mcp_server_handle(
+    resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":202,\"method\":\"tools/list\",\"params\":{}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"id\":202"));
@@ -1447,7 +1447,7 @@ TEST(server_handle_tools_list_defaults_to_all_tools_and_accepts_cursor) {
      * 17th tool broke it for a reason that had nothing to do with pagination.
      * Derive the offset from the live count instead: the final page, wherever
      * it falls, is the one that must not advertise more. */
-    resp = cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":203,\"method\":\"tools/list\"}");
+    resp = ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":203,\"method\":\"tools/list\"}");
     ASSERT_NOT_NULL(resp);
     size_t total_tools = mcp_response_tool_count(resp);
     free(resp);
@@ -1458,7 +1458,7 @@ TEST(server_handle_tools_list_defaults_to_all_tools_and_accepts_cursor) {
              "{\"jsonrpc\":\"2.0\",\"id\":201,\"method\":\"tools/list\","
              "\"params\":{\"cursor\":\"%zu\"}}",
              total_tools - 1U);
-    resp = cbm_mcp_server_handle(srv, last_page_req);
+    resp = ani_mcp_server_handle(srv, last_page_req);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"id\":201"));
     ASSERT_NULL(strstr(resp, "\"nextCursor\""));
@@ -1467,23 +1467,23 @@ TEST(server_handle_tools_list_defaults_to_all_tools_and_accepts_cursor) {
 
     /* ...and a page that does have tools after it MUST advertise the cursor,
      * so the assertion above cannot pass merely because paging never emits. */
-    resp = cbm_mcp_server_handle(
+    resp = ani_mcp_server_handle(
         srv,
         "{\"jsonrpc\":\"2.0\",\"id\":204,\"method\":\"tools/list\",\"params\":{\"cursor\":\"0\"}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"nextCursor\""));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(server_handle_analysis_profile_filters_and_rejects_mutators) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_mcp_server_set_tool_profile(srv, CBM_MCP_TOOL_PROFILE_ANALYSIS);
+    ani_mcp_server_set_tool_profile(srv, ANI_MCP_TOOL_PROFILE_ANALYSIS);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":219,\"method\":\"initialize\",\"params\":{}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "analysis tool profile"));
@@ -1491,7 +1491,7 @@ TEST(server_handle_analysis_profile_filters_and_rejects_mutators) {
     ASSERT_NULL(strstr(resp, "index_repository"));
     free(resp);
 
-    resp = cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":220,\"method\":\"tools/list\"}");
+    resp = ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":220,\"method\":\"tools/list\"}");
     ASSERT_NOT_NULL(resp);
     static const char *const analysis_tools[] = {
         "search_graph",     "query_graph",      "trace_path",     "get_code_snippet",
@@ -1505,7 +1505,7 @@ TEST(server_handle_analysis_profile_filters_and_rejects_mutators) {
     }
     free(resp);
 
-    resp = cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":221,\"method\":\"tools/call\","
+    resp = ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":221,\"method\":\"tools/call\","
                                       "\"params\":{\"name\":\"delete_project\","
                                       "\"arguments\":{\"project\":\"anything\"}}}");
     ASSERT_NOT_NULL(resp);
@@ -1513,20 +1513,20 @@ TEST(server_handle_analysis_profile_filters_and_rejects_mutators) {
     ASSERT_NOT_NULL(strstr(resp, "isError"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(server_handle_scout_profile_exposes_only_the_fast_tier) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_mcp_server_set_tool_profile(srv, CBM_MCP_TOOL_PROFILE_SCOUT);
+    ani_mcp_server_set_tool_profile(srv, ANI_MCP_TOOL_PROFILE_SCOUT);
     mcp_saw_autoindex_log = false;
-    cbm_log_set_sink_ex(mcp_capture_log, CBM_LOG_SINK_REPLACE);
+    ani_log_set_sink_ex(mcp_capture_log, ANI_LOG_SINK_REPLACE);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":222,\"method\":\"initialize\",\"params\":{}}");
-    cbm_log_set_sink(NULL);
+    ani_log_set_sink(NULL);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "scout tool profile"));
     ASSERT_NOT_NULL(strstr(resp, "check_index_coverage"));
@@ -1534,7 +1534,7 @@ TEST(server_handle_scout_profile_exposes_only_the_fast_tier) {
     ASSERT_FALSE(mcp_saw_autoindex_log);
     free(resp);
 
-    resp = cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":223,\"method\":\"tools/list\"}");
+    resp = ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":223,\"method\":\"tools/list\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_EQ(mcp_response_tool_count(resp), 8U);
     ASSERT_TRUE(mcp_response_has_exact_tool(resp, "search_graph"));
@@ -1553,59 +1553,59 @@ TEST(server_handle_scout_profile_exposes_only_the_fast_tier) {
     ASSERT_FALSE(mcp_response_has_exact_tool(resp, "index_repository"));
     free(resp);
 
-    resp = cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":224,\"method\":\"tools/call\","
+    resp = ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":224,\"method\":\"tools/call\","
                                       "\"params\":{\"name\":\"query_graph\",\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "not available in the scout tool profile"));
     ASSERT_NOT_NULL(strstr(resp, "isError"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(analysis_profile_arguments_fail_closed_and_disable_http) {
-    cbm_mcp_tool_profile_t profile = CBM_MCP_TOOL_PROFILE_ALL;
-    const char *no_profile[] = {"codebase-memory-mcp"};
-    const char *analysis_equals[] = {"codebase-memory-mcp", "--tool-profile=analysis"};
-    const char *analysis_pair[] = {"codebase-memory-mcp", "--tool-profile", "analysis"};
-    const char *scout_equals[] = {"codebase-memory-mcp", "--tool-profile=scout"};
-    const char *unknown_equals[] = {"codebase-memory-mcp", "--tool-profile=analaysis"};
-    const char *unknown_pair[] = {"codebase-memory-mcp", "--tool-profile", "all"};
-    const char *missing_value[] = {"codebase-memory-mcp", "--tool-profile"};
+    ani_mcp_tool_profile_t profile = ANI_MCP_TOOL_PROFILE_ALL;
+    const char *no_profile[] = {"ani"};
+    const char *analysis_equals[] = {"ani", "--tool-profile=analysis"};
+    const char *analysis_pair[] = {"ani", "--tool-profile", "analysis"};
+    const char *scout_equals[] = {"ani", "--tool-profile=scout"};
+    const char *unknown_equals[] = {"ani", "--tool-profile=analaysis"};
+    const char *unknown_pair[] = {"ani", "--tool-profile", "all"};
+    const char *missing_value[] = {"ani", "--tool-profile"};
 
-    ASSERT_EQ(cbm_mcp_parse_tool_profile_args(1, no_profile, &profile), 0);
-    ASSERT_EQ(profile, CBM_MCP_TOOL_PROFILE_ALL);
-    ASSERT_TRUE(cbm_mcp_tool_profile_allows_http(profile));
+    ASSERT_EQ(ani_mcp_parse_tool_profile_args(1, no_profile, &profile), 0);
+    ASSERT_EQ(profile, ANI_MCP_TOOL_PROFILE_ALL);
+    ASSERT_TRUE(ani_mcp_tool_profile_allows_http(profile));
 
-    ASSERT_EQ(cbm_mcp_parse_tool_profile_args(2, analysis_equals, &profile), 0);
-    ASSERT_EQ(profile, CBM_MCP_TOOL_PROFILE_ANALYSIS);
-    ASSERT_FALSE(cbm_mcp_tool_profile_allows_http(profile));
+    ASSERT_EQ(ani_mcp_parse_tool_profile_args(2, analysis_equals, &profile), 0);
+    ASSERT_EQ(profile, ANI_MCP_TOOL_PROFILE_ANALYSIS);
+    ASSERT_FALSE(ani_mcp_tool_profile_allows_http(profile));
 
-    ASSERT_EQ(cbm_mcp_parse_tool_profile_args(3, analysis_pair, &profile), 0);
-    ASSERT_EQ(profile, CBM_MCP_TOOL_PROFILE_ANALYSIS);
-    ASSERT_EQ(cbm_mcp_parse_tool_profile_args(2, scout_equals, &profile), 0);
-    ASSERT_EQ(profile, CBM_MCP_TOOL_PROFILE_SCOUT);
-    ASSERT_FALSE(cbm_mcp_tool_profile_allows_http(profile));
-    ASSERT_EQ(cbm_mcp_parse_tool_profile_args(2, unknown_equals, &profile), -1);
-    ASSERT_EQ(cbm_mcp_parse_tool_profile_args(3, unknown_pair, &profile), -1);
-    ASSERT_EQ(cbm_mcp_parse_tool_profile_args(2, missing_value, &profile), -1);
+    ASSERT_EQ(ani_mcp_parse_tool_profile_args(3, analysis_pair, &profile), 0);
+    ASSERT_EQ(profile, ANI_MCP_TOOL_PROFILE_ANALYSIS);
+    ASSERT_EQ(ani_mcp_parse_tool_profile_args(2, scout_equals, &profile), 0);
+    ASSERT_EQ(profile, ANI_MCP_TOOL_PROFILE_SCOUT);
+    ASSERT_FALSE(ani_mcp_tool_profile_allows_http(profile));
+    ASSERT_EQ(ani_mcp_parse_tool_profile_args(2, unknown_equals, &profile), -1);
+    ASSERT_EQ(ani_mcp_parse_tool_profile_args(3, unknown_pair, &profile), -1);
+    ASSERT_EQ(ani_mcp_parse_tool_profile_args(2, missing_value, &profile), -1);
     PASS();
 }
 
 TEST(hook_windows_path_containment_is_case_insensitive_and_segment_safe) {
-    ASSERT_TRUE(cbm_hook_path_contains_for_testing("C:/Repo", "c:/repo/src/main.c", true));
-    ASSERT_FALSE(cbm_hook_path_contains_for_testing("C:/Repo", "c:/repository/src/main.c", true));
-    ASSERT_FALSE(cbm_hook_path_contains_for_testing("C:/Repo", "c:/repo/src/main.c", false));
+    ASSERT_TRUE(ani_hook_path_contains_for_testing("C:/Repo", "c:/repo/src/main.c", true));
+    ASSERT_FALSE(ani_hook_path_contains_for_testing("C:/Repo", "c:/repository/src/main.c", true));
+    ASSERT_FALSE(ani_hook_path_contains_for_testing("C:/Repo", "c:/repo/src/main.c", false));
     PASS();
 }
 
 TEST(server_handle_prompts_list_workflows) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":203,\"method\":\"prompts/list\"}");
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":203,\"method\":\"prompts/list\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"id\":203"));
     ASSERT_NOT_NULL(strstr(resp, "\"name\":\"explore_codebase\""));
@@ -1618,15 +1618,15 @@ TEST(server_handle_prompts_list_workflows) {
     ASSERT_NULL(strstr(resp, "\"nextCursor\""));
 
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(server_handle_prompts_get_workflows) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":204,\"method\":\"prompts/get\","
              "\"params\":{\"name\":\"explore_codebase\",\"arguments\":{"
              "\"project\":\"payments\",\"question\":\"How are refunds routed?\"}}}");
@@ -1641,7 +1641,7 @@ TEST(server_handle_prompts_get_workflows) {
     free(resp);
 
     resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":205,\"method\":\"prompts/get\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":205,\"method\":\"prompts/get\","
                                    "\"params\":{\"name\":\"review_change_impact\",\"arguments\":{"
                                    "\"project\":\"payments\",\"change\":\"refund retry policy\","
                                    "\"base_branch\":\"develop\"}}}");
@@ -1653,23 +1653,23 @@ TEST(server_handle_prompts_get_workflows) {
     ASSERT_NOT_NULL(strstr(resp, "include_tests"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(server_handle_prompts_get_validates_arguments) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":206,\"method\":\"prompts/get\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":206,\"method\":\"prompts/get\","
                                    "\"params\":{\"name\":\"unknown\",\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"code\":-32602"));
     ASSERT_NOT_NULL(strstr(resp, "Invalid prompt name"));
     free(resp);
 
-    resp = cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":207,\"method\":\"prompts/get\","
+    resp = ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":207,\"method\":\"prompts/get\","
                                       "\"params\":{\"name\":\"explore_codebase\",\"arguments\":{"
                                       "\"project\":\"payments\"}}}");
     ASSERT_NOT_NULL(resp);
@@ -1679,7 +1679,7 @@ TEST(server_handle_prompts_get_validates_arguments) {
 
     /* Optional means it may be omitted, not that an explicitly invalid value
      * may be silently substituted. */
-    resp = cbm_mcp_server_handle(srv,
+    resp = ani_mcp_server_handle(srv,
                                  "{\"jsonrpc\":\"2.0\",\"id\":208,\"method\":\"prompts/get\","
                                  "\"params\":{\"name\":\"review_change_impact\",\"arguments\":{"
                                  "\"project\":\"payments\",\"change\":\"refund retry policy\"}}}");
@@ -1689,7 +1689,7 @@ TEST(server_handle_prompts_get_validates_arguments) {
     free(resp);
 
     resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":209,\"method\":\"prompts/get\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":209,\"method\":\"prompts/get\","
                                    "\"params\":{\"name\":\"review_change_impact\",\"arguments\":{"
                                    "\"project\":\"payments\",\"change\":\"refund retry policy\","
                                    "\"base_branch\":\"\"}}}");
@@ -1699,7 +1699,7 @@ TEST(server_handle_prompts_get_validates_arguments) {
     free(resp);
 
     resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":210,\"method\":\"prompts/get\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":210,\"method\":\"prompts/get\","
                                    "\"params\":{\"name\":\"review_change_impact\",\"arguments\":{"
                                    "\"project\":\"payments\",\"change\":\"refund retry policy\","
                                    "\"base_branch\":17}}}");
@@ -1708,27 +1708,27 @@ TEST(server_handle_prompts_get_validates_arguments) {
     ASSERT_NOT_NULL(strstr(resp, "Invalid prompt arguments"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(server_handle_logs_request_without_params) {
     mcp_log_buf[0] = '\0';
-    CBMLogLevel prev_level = cbm_log_get_level();
-    cbm_log_set_level(CBM_LOG_DEBUG);
-    cbm_log_set_format(CBM_LOG_FORMAT_TEXT);
-    cbm_log_set_sink_ex(mcp_capture_log, CBM_LOG_SINK_REPLACE);
+    ANILogLevel prev_level = ani_log_get_level();
+    ani_log_set_level(ANI_LOG_DEBUG);
+    ani_log_set_format(ANI_LOG_FORMAT_TEXT);
+    ani_log_set_sink_ex(mcp_capture_log, ANI_LOG_SINK_REPLACE);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":210,\"method\":\"tools/list\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":210,\"method\":\"tools/list\","
                                    "\"params\":{\"token\":\"secret\"}}");
     ASSERT_NOT_NULL(resp);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
 
-    cbm_log_set_sink(NULL);
-    cbm_log_set_level(prev_level);
+    ani_log_set_sink(NULL);
+    ani_log_set_level(prev_level);
 
     ASSERT_NOT_NULL(strstr(mcp_log_buf, "msg=mcp.request"));
     ASSERT_NOT_NULL(strstr(mcp_log_buf, "protocol=jsonrpc"));
@@ -1740,16 +1740,16 @@ TEST(server_handle_logs_request_without_params) {
 }
 
 TEST(server_handle_unknown_method) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"unknown/method\"}");
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"unknown/method\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"error\""));
     ASSERT_NOT_NULL(strstr(resp, "-32601")); /* Method not found */
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -1758,18 +1758,18 @@ TEST(server_handle_unknown_method) {
  * ══════════════════════════════════════════════════════════════════ */
 
 /* Helper: create a server with an in-memory store populated with test data */
-static cbm_mcp_server_t *setup_mcp_with_data(void) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL); /* NULL = in-memory */
+static ani_mcp_server_t *setup_mcp_with_data(void) {
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL); /* NULL = in-memory */
     return srv;
 }
 
 static char *extract_text_content(const char *mcp_result);
 
 TEST(tool_list_projects_empty) {
-    cbm_mcp_server_t *srv = setup_mcp_with_data();
+    ani_mcp_server_t *srv = setup_mcp_with_data();
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"list_projects\",\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"id\":10"));
@@ -1777,36 +1777,36 @@ TEST(tool_list_projects_empty) {
     ASSERT_NOT_NULL(strstr(resp, "\"result\""));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_get_graph_schema_empty) {
-    cbm_mcp_server_t *srv = setup_mcp_with_data();
+    ani_mcp_server_t *srv = setup_mcp_with_data();
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"get_graph_schema\",\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"result\""));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_unknown_tool) {
-    cbm_mcp_server_t *srv = setup_mcp_with_data();
+    ani_mcp_server_t *srv = setup_mcp_with_data();
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"nonexistent_tool\",\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     /* Should return result with isError */
     ASSERT_NOT_NULL(strstr(resp, "isError"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -1814,28 +1814,28 @@ TEST(tool_unknown_tool) {
  * routes this call to the unknown-tool fallback; production registration is
  * therefore required before any compare semantics can accidentally look green. */
 TEST(tool_compare_graphs_registered_issue525) {
-    cbm_mcp_server_t *srv = setup_mcp_with_data();
+    ani_mcp_server_t *srv = setup_mcp_with_data();
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":525,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"compare_graphs\",\"arguments\":{"
              "\"base_project\":\"base525\",\"target_project\":\"target525\"}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NULL(strstr(resp, "unknown tool: compare_graphs"));
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_get_file_outline_returns_bounded_filtered_columnar_rows_issue469) {
-    cbm_mcp_server_t *srv = setup_mcp_with_data();
-    cbm_store_t *store = cbm_mcp_server_store(srv);
+    ani_mcp_server_t *srv = setup_mcp_with_data();
+    ani_store_t *store = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(store);
-    ASSERT_EQ(cbm_store_upsert_project(store, "outline-project", "/tmp/outline-project"),
-              CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, "outline-project");
+    ASSERT_EQ(ani_store_upsert_project(store, "outline-project", "/tmp/outline-project"),
+              ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, "outline-project");
 
-    cbm_node_t nodes[] = {
+    ani_node_t nodes[] = {
         {.project = "outline-project",
          .label = "Module",
          .name = "main",
@@ -1873,11 +1873,11 @@ TEST(tool_get_file_outline_returns_bounded_filtered_columnar_rows_issue469) {
          .end_line = 2},
     };
     for (size_t i = 0; i < sizeof(nodes) / sizeof(nodes[0]); i++) {
-        ASSERT_GT(cbm_store_upsert_node(store, &nodes[i]), 0);
+        ASSERT_GT(ani_store_upsert_node(store, &nodes[i]), 0);
     }
 
     char *response =
-        cbm_mcp_handle_tool(srv, "get_file_outline",
+        ani_mcp_handle_tool(srv, "get_file_outline",
                             "{\"project\":\"outline-project\",\"file_path\":\"src/main.c\","
                             "\"labels\":[\"Function\",\"Method\"],\"limit\":1}");
     ASSERT_NOT_NULL(response);
@@ -1891,35 +1891,35 @@ TEST(tool_get_file_outline_returns_bounded_filtered_columnar_rows_issue469) {
     ASSERT_NULL(strstr(response, "unknown tool"));
     free(response);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_get_file_outline_validates_json_path_limit_and_cancel_issue469) {
-    cbm_mcp_server_t *srv = setup_mcp_with_data();
-    cbm_store_t *store = cbm_mcp_server_store(srv);
+    ani_mcp_server_t *srv = setup_mcp_with_data();
+    ani_store_t *store = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(store);
-    ASSERT_EQ(cbm_store_upsert_project(store, "outline-controls", "/tmp/outline-controls"),
-              CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, "outline-controls");
-    cbm_node_t node = {.project = "outline-controls",
+    ASSERT_EQ(ani_store_upsert_project(store, "outline-controls", "/tmp/outline-controls"),
+              ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, "outline-controls");
+    ani_node_t node = {.project = "outline-controls",
                        .label = "Function",
                        .name = "bounded",
                        .qualified_name = "outline-controls.src.main.bounded",
                        .file_path = "src/main.c",
                        .start_line = 7,
                        .end_line = 9};
-    ASSERT_GT(cbm_store_upsert_node(store, &node), 0);
+    ASSERT_GT(ani_store_upsert_node(store, &node), 0);
 
     char *response =
-        cbm_mcp_handle_tool(srv, "get_file_outline",
+        ani_mcp_handle_tool(srv, "get_file_outline",
                             "{\"project\":\"outline-controls\",\"file_path\":\"../outside.c\"}");
     ASSERT_NOT_NULL(response);
     ASSERT_NOT_NULL(strstr(response, "repository-relative"));
     ASSERT_NOT_NULL(strstr(response, "isError"));
     free(response);
 
-    response = cbm_mcp_handle_tool(
+    response = ani_mcp_handle_tool(
         srv, "get_file_outline",
         "{\"project\":\"outline-controls\",\"file_path\":\"src/main.c\",\"limit\":201}");
     ASSERT_NOT_NULL(response);
@@ -1927,7 +1927,7 @@ TEST(tool_get_file_outline_validates_json_path_limit_and_cancel_issue469) {
     ASSERT_NOT_NULL(strstr(response, "isError"));
     free(response);
 
-    response = cbm_mcp_handle_tool(srv, "get_file_outline",
+    response = ani_mcp_handle_tool(srv, "get_file_outline",
                                    "{\"project\":\"outline-controls\",\"file_path\":\"src/main.c\","
                                    "\"format\":\"json\"}");
     ASSERT_NOT_NULL(response);
@@ -1943,65 +1943,65 @@ TEST(tool_get_file_outline_validates_json_path_limit_and_cancel_issue469) {
     free(inner);
     free(response);
 
-    ASSERT_TRUE(cbm_mcp_server_request_scope_begin(srv));
-    ASSERT_TRUE(cbm_mcp_server_cancel_active(srv));
-    response = cbm_mcp_handle_tool(
+    ASSERT_TRUE(ani_mcp_server_request_scope_begin(srv));
+    ASSERT_TRUE(ani_mcp_server_cancel_active(srv));
+    response = ani_mcp_handle_tool(
         srv, "get_file_outline", "{\"project\":\"outline-controls\",\"file_path\":\"src/main.c\"}");
     ASSERT_NOT_NULL(response);
     ASSERT_NOT_NULL(strstr(response, "cancelled for this request"));
     ASSERT_NOT_NULL(strstr(response, "isError"));
     free(response);
-    cbm_mcp_server_request_scope_end(srv);
+    ani_mcp_server_request_scope_end(srv);
 
-    response = cbm_mcp_handle_tool(
+    response = ani_mcp_handle_tool(
         srv, "get_file_outline", "{\"project\":\"outline-controls\",\"file_path\":\"src/main.c\"}");
     ASSERT_NOT_NULL(response);
     ASSERT_NOT_NULL(strstr(response, "bounded"));
     ASSERT_NULL(strstr(response, "cancelled"));
     free(response);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_search_graph_basic) {
-    cbm_mcp_server_t *srv = setup_mcp_with_data();
+    ani_mcp_server_t *srv = setup_mcp_with_data();
 
     /* search_graph with no project → should work on empty store */
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"search_graph\","
                                    "\"arguments\":{\"label\":\"Function\",\"limit\":10}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"result\""));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 /* Forward declarations for helpers defined later in this file */
-static cbm_mcp_server_t *setup_snippet_server(char *tmp_dir, size_t tmp_sz);
+static ani_mcp_server_t *setup_snippet_server(char *tmp_dir, size_t tmp_sz);
 static void cleanup_snippet_dir(const char *tmp_dir);
 
 TEST(tool_search_graph_semantic_only_skips_structural_results_issue1295) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "semantic-only";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/semantic-only");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/semantic-only");
 
-    cbm_node_t unrelated = {.project = proj,
+    ani_node_t unrelated = {.project = proj,
                             .label = "Function",
                             .name = "unrelated_node",
                             .qualified_name = "semantic-only.unrelated_node",
                             .file_path = "unrelated.c",
                             .start_line = 1,
                             .end_line = 2};
-    ASSERT_GT(cbm_store_upsert_node(st, &unrelated), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &unrelated), 0);
 
-    char *resp = cbm_mcp_handle_tool(
+    char *resp = ani_mcp_handle_tool(
         srv, "search_graph",
         "{\"project\":\"semantic-only\",\"semantic_query\":[\"publish\"],\"limit\":5}");
     ASSERT_NOT_NULL(resp);
@@ -2011,7 +2011,7 @@ TEST(tool_search_graph_semantic_only_skips_structural_results_issue1295) {
     ASSERT_NULL(strstr(inner, "unrelated_node"));
     free(inner);
 
-    resp = cbm_mcp_handle_tool(srv, "search_graph",
+    resp = ani_mcp_handle_tool(srv, "search_graph",
                                "{\"project\":\"semantic-only\",\"semantic_query\":[\"publish\"],"
                                "\"format\":\"json\",\"limit\":5}");
     ASSERT_NOT_NULL(resp);
@@ -2024,7 +2024,7 @@ TEST(tool_search_graph_semantic_only_skips_structural_results_issue1295) {
     ASSERT_NULL(strstr(inner, "unrelated_node"));
     free(inner);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -2034,46 +2034,46 @@ TEST(tool_search_graph_semantic_only_skips_structural_results_issue1295) {
  * set (field-eval agent read callers_total=175 against 2 visible rows and
  * distrusted the tool). */
 TEST(tool_trace_totals_respect_test_filter) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "totproj";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/tot");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/tot");
 
-    cbm_node_t tgt = {.project = proj,
+    ani_node_t tgt = {.project = proj,
                       .label = "Function",
                       .name = "tgt",
                       .qualified_name = "totproj.a.tgt",
                       .file_path = "a.c",
                       .start_line = 1,
                       .end_line = 5};
-    int64_t tid = cbm_store_upsert_node(st, &tgt);
+    int64_t tid = ani_store_upsert_node(st, &tgt);
     ASSERT_GT(tid, 0);
-    cbm_node_t prod = {.project = proj,
+    ani_node_t prod = {.project = proj,
                        .label = "Function",
                        .name = "prod_caller",
                        .qualified_name = "totproj.a.prod_caller",
                        .file_path = "a.c",
                        .start_line = 10,
                        .end_line = 15};
-    int64_t pid = cbm_store_upsert_node(st, &prod);
+    int64_t pid = ani_store_upsert_node(st, &prod);
     ASSERT_GT(pid, 0);
-    cbm_node_t tst = {.project = proj,
+    ani_node_t tst = {.project = proj,
                       .label = "Function",
                       .name = "test_caller",
                       .qualified_name = "totproj.t.test_caller",
                       .file_path = "tests/test_x.c",
                       .start_line = 1,
                       .end_line = 5};
-    int64_t xid = cbm_store_upsert_node(st, &tst);
+    int64_t xid = ani_store_upsert_node(st, &tst);
     ASSERT_GT(xid, 0);
-    cbm_edge_t e1 = {.project = proj, .source_id = pid, .target_id = tid, .type = "CALLS"};
-    ASSERT_GT(cbm_store_insert_edge(st, &e1), 0);
-    cbm_edge_t e2 = {.project = proj, .source_id = xid, .target_id = tid, .type = "CALLS"};
-    ASSERT_GT(cbm_store_insert_edge(st, &e2), 0);
+    ani_edge_t e1 = {.project = proj, .source_id = pid, .target_id = tid, .type = "CALLS"};
+    ASSERT_GT(ani_store_insert_edge(st, &e1), 0);
+    ani_edge_t e2 = {.project = proj, .source_id = xid, .target_id = tid, .type = "CALLS"};
+    ASSERT_GT(ani_store_insert_edge(st, &e2), 0);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":90,\"method\":\"tools/call\",\"params\":{"
              "\"name\":\"trace_call_path\",\"arguments\":{\"project\":\"totproj\","
              "\"function_name\":\"tgt\",\"direction\":\"inbound\"}}}");
@@ -2084,7 +2084,7 @@ TEST(tool_trace_totals_respect_test_filter) {
     ASSERT_NOT_NULL(strstr(inner, "callers_total: 1")); /* test row filtered */
     free(inner);
 
-    resp = cbm_mcp_server_handle(
+    resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":91,\"method\":\"tools/call\",\"params\":{"
              "\"name\":\"trace_call_path\",\"arguments\":{\"project\":\"totproj\","
              "\"function_name\":\"tgt\",\"direction\":\"inbound\",\"include_tests\":true}}}");
@@ -2094,7 +2094,7 @@ TEST(tool_trace_totals_respect_test_filter) {
     ASSERT_NOT_NULL(inner);
     ASSERT_NOT_NULL(strstr(inner, "callers_total: 2")); /* both visible now */
     free(inner);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -2105,46 +2105,46 @@ TEST(tool_trace_totals_respect_test_filter) {
  * relative one, so this row leaked into results with the default
  * include_tests=false (#1294, secondary bug). */
 TEST(tool_trace_totals_respect_test_filter_tests_root_subtree_issue1294) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "totproj2";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/tot2");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/tot2");
 
-    cbm_node_t tgt = {.project = proj,
+    ani_node_t tgt = {.project = proj,
                       .label = "Function",
                       .name = "tgt2",
                       .qualified_name = "totproj2.a.tgt2",
                       .file_path = "a.c",
                       .start_line = 1,
                       .end_line = 5};
-    int64_t tid = cbm_store_upsert_node(st, &tgt);
+    int64_t tid = ani_store_upsert_node(st, &tgt);
     ASSERT_GT(tid, 0);
-    cbm_node_t prod = {.project = proj,
+    ani_node_t prod = {.project = proj,
                        .label = "Function",
                        .name = "prod_caller2",
                        .qualified_name = "totproj2.a.prod_caller2",
                        .file_path = "a.c",
                        .start_line = 10,
                        .end_line = 15};
-    int64_t pid = cbm_store_upsert_node(st, &prod);
+    int64_t pid = ani_store_upsert_node(st, &prod);
     ASSERT_GT(pid, 0);
-    cbm_node_t tst = {.project = proj,
+    ani_node_t tst = {.project = proj,
                       .label = "Function",
                       .name = "repro_caller",
                       .qualified_name = "totproj2.t.repro_caller",
                       .file_path = "tests/repro/helper.c",
                       .start_line = 1,
                       .end_line = 5};
-    int64_t xid = cbm_store_upsert_node(st, &tst);
+    int64_t xid = ani_store_upsert_node(st, &tst);
     ASSERT_GT(xid, 0);
-    cbm_edge_t e1 = {.project = proj, .source_id = pid, .target_id = tid, .type = "CALLS"};
-    ASSERT_GT(cbm_store_insert_edge(st, &e1), 0);
-    cbm_edge_t e2 = {.project = proj, .source_id = xid, .target_id = tid, .type = "CALLS"};
-    ASSERT_GT(cbm_store_insert_edge(st, &e2), 0);
+    ani_edge_t e1 = {.project = proj, .source_id = pid, .target_id = tid, .type = "CALLS"};
+    ASSERT_GT(ani_store_insert_edge(st, &e1), 0);
+    ani_edge_t e2 = {.project = proj, .source_id = xid, .target_id = tid, .type = "CALLS"};
+    ASSERT_GT(ani_store_insert_edge(st, &e2), 0);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":92,\"method\":\"tools/call\",\"params\":{"
              "\"name\":\"trace_call_path\",\"arguments\":{\"project\":\"totproj2\","
              "\"function_name\":\"tgt2\",\"direction\":\"inbound\"}}}");
@@ -2155,7 +2155,7 @@ TEST(tool_trace_totals_respect_test_filter_tests_root_subtree_issue1294) {
     ASSERT_NOT_NULL(strstr(inner, "callers_total: 1")); /* tests/repro/ row filtered by default */
     free(inner);
 
-    resp = cbm_mcp_server_handle(
+    resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":93,\"method\":\"tools/call\",\"params\":{"
              "\"name\":\"trace_call_path\",\"arguments\":{\"project\":\"totproj2\","
              "\"function_name\":\"tgt2\",\"direction\":\"inbound\",\"include_tests\":true}}}");
@@ -2165,7 +2165,7 @@ TEST(tool_trace_totals_respect_test_filter_tests_root_subtree_issue1294) {
     ASSERT_NOT_NULL(inner);
     ASSERT_NOT_NULL(strstr(inner, "callers_total: 2")); /* both visible now */
     free(inner);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -2174,26 +2174,26 @@ TEST(tool_trace_totals_respect_test_filter_tests_root_subtree_issue1294) {
  * all three members; a separate acyclic chain (D->E) must NOT appear. The
  * aspect is opt-in — a default get_architecture call must NOT compute it. */
 TEST(tool_get_architecture_cycles_detects_scc) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "cycproj";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/cyc");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/cyc");
 
     const char *names[5] = {"A", "B", "C", "D", "E"};
     int64_t id[5];
     for (int i = 0; i < 5; i++) {
         char qn[32];
         snprintf(qn, sizeof(qn), "cycproj.m.%s", names[i]);
-        cbm_node_t n = {.project = proj,
+        ani_node_t n = {.project = proj,
                         .label = "Function",
                         .name = names[i],
                         .qualified_name = qn,
                         .file_path = "m.c",
                         .start_line = i + 1,
                         .end_line = i + 2};
-        id[i] = cbm_store_upsert_node(st, &n);
+        id[i] = ani_store_upsert_node(st, &n);
         ASSERT_GT(id[i], 0);
     }
     /* cycle A->B->C->A, plus acyclic D->E */
@@ -2202,13 +2202,13 @@ TEST(tool_get_architecture_cycles_detects_scc) {
         int t;
     } e[] = {{0, 1}, {1, 2}, {2, 0}, {3, 4}};
     for (size_t i = 0; i < sizeof(e) / sizeof(e[0]); i++) {
-        cbm_edge_t ed = {
+        ani_edge_t ed = {
             .project = proj, .source_id = id[e[i].f], .target_id = id[e[i].t], .type = "CALLS"};
-        ASSERT_GT(cbm_store_insert_edge(st, &ed), 0);
+        ASSERT_GT(ani_store_insert_edge(st, &ed), 0);
     }
 
     /* opt-in cycles aspect */
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":71,\"method\":\"tools/call\",\"params\":{"
              "\"name\":\"get_architecture\",\"arguments\":{\"project\":\"cycproj\","
              "\"aspects\":[\"cycles\"]}}}");
@@ -2224,7 +2224,7 @@ TEST(tool_get_architecture_cycles_detects_scc) {
     free(resp);
 
     /* default call (no aspects) must NOT run the scan. */
-    resp = cbm_mcp_server_handle(
+    resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":72,\"method\":\"tools/call\",\"params\":{"
              "\"name\":\"get_architecture\",\"arguments\":{\"project\":\"cycproj\"}}}");
     ASSERT_NOT_NULL(resp);
@@ -2233,7 +2233,7 @@ TEST(tool_get_architecture_cycles_detects_scc) {
     ASSERT_NULL(strstr(inner, "cycles:"));
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -2244,11 +2244,11 @@ TEST(tool_get_architecture_cycles_detects_scc) {
  * start/end range stays in the response for a targeted re-read. */
 TEST(tool_get_code_snippet_clips_whole_file_node) {
     char tmp[256];
-    snprintf(tmp, sizeof(tmp), "/tmp/cbm_snipcap_XXXXXX");
-    ASSERT_NOT_NULL(cbm_mkdtemp(tmp));
+    snprintf(tmp, sizeof(tmp), "/tmp/ani_snipcap_XXXXXX");
+    ASSERT_NOT_NULL(ani_mkdtemp(tmp));
     char proj_dir[512];
     snprintf(proj_dir, sizeof(proj_dir), "%s/project", tmp);
-    cbm_mkdir(proj_dir);
+    ani_mkdir(proj_dir);
     char src_path[600];
     snprintf(src_path, sizeof(src_path), "%s/big.py", proj_dir);
     FILE *fp = fopen(src_path, "w");
@@ -2259,14 +2259,14 @@ TEST(tool_get_code_snippet_clips_whole_file_node) {
     }
     fclose(fp);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "test-project";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, proj_dir);
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, proj_dir);
 
-    cbm_node_t mod = {0};
+    ani_node_t mod = {0};
     mod.project = proj;
     mod.label = "Module";
     mod.name = "big";
@@ -2274,9 +2274,9 @@ TEST(tool_get_code_snippet_clips_whole_file_node) {
     mod.file_path = "big.py";
     mod.start_line = 1;
     mod.end_line = BIG_LINES;
-    ASSERT_GT(cbm_store_upsert_node(st, &mod), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &mod), 0);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":70,\"method\":\"tools/call\",\"params\":{"
              "\"name\":\"get_code_snippet\",\"arguments\":{\"project\":\"test-project\","
              "\"qualified_name\":\"test-project.big\"}}}");
@@ -2291,7 +2291,7 @@ TEST(tool_get_code_snippet_clips_whole_file_node) {
     ASSERT_NULL(strstr(inner, "line_1999"));
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     th_rmtree(tmp);
     PASS();
 }
@@ -2313,19 +2313,19 @@ TEST(tool_get_code_snippet_clips_whole_file_node) {
  * form of a failure a client gets. */
 TEST(mcp_every_tool_result_is_duplication_free) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
-    int tools = cbm_mcp_tool_count();
+    int tools = ani_mcp_tool_count();
     ASSERT_TRUE(tools > 0); /* an empty table would assert nothing at all */
     int checked = 0;
 
     for (int i = 0; i < tools; i++) {
-        const char *name = cbm_mcp_tool_name(i);
+        const char *name = ani_mcp_tool_name(i);
         ASSERT_NOT_NULL(name);
         /* Minimal args: most tools error out, which is fine — an error envelope
          * is still an envelope, and the property must hold for it too. */
-        char *envelope = cbm_mcp_handle_tool(srv, name, "{\"project\":\"test-project\"}");
+        char *envelope = ani_mcp_handle_tool(srv, name, "{\"project\":\"test-project\"}");
         if (!envelope) {
             continue;
         }
@@ -2378,7 +2378,7 @@ TEST(mcp_every_tool_result_is_duplication_free) {
     /* If no tool produced a non-JSON payload, this test proved nothing — fail
      * rather than report a green that was never exercised. */
     ASSERT_TRUE(checked > 0);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     th_rmtree(tmp);
     PASS();
 }
@@ -2390,11 +2390,11 @@ TEST(tool_search_graph_includes_node_properties) {
      * verbose objects with the full property blob. The setup_snippet_server
      * inserts HandleRequest with a signature/return_type/is_exported blob. */
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* Default TOON: compact table, no property spill. */
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_graph\","
              "\"arguments\":{\"project\":\"test-project\",\"label\":\"Function\","
@@ -2416,7 +2416,7 @@ TEST(tool_search_graph_includes_node_properties) {
     free(resp);
 
     /* fields:["signature"] adds the column + values. */
-    resp = cbm_mcp_server_handle(
+    resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":43,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_graph\","
              "\"arguments\":{\"project\":\"test-project\",\"label\":\"Function\","
@@ -2433,7 +2433,7 @@ TEST(tool_search_graph_includes_node_properties) {
 
     /* List-valued fields are compact JSON in text output, rather than an
      * empty placeholder. */
-    resp = cbm_mcp_server_handle(
+    resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":431,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_graph\","
              "\"arguments\":{\"project\":\"test-project\",\"label\":\"Function\","
@@ -2451,7 +2451,7 @@ TEST(tool_search_graph_includes_node_properties) {
     /* format:"json" = json-stringified tree: same grouped model, column-
      * ordered row arrays — never per-row key envelopes or property blobs.
      * fields adds columns there too and preserves compound JSON types. */
-    resp = cbm_mcp_server_handle(
+    resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":44,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_graph\","
              "\"arguments\":{\"project\":\"test-project\",\"label\":\"Function\","
@@ -2471,7 +2471,7 @@ TEST(tool_search_graph_includes_node_properties) {
     free(inner);
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -2483,11 +2483,11 @@ TEST(tool_output_byte_budgets) {
      * generous vs the measured compact outputs (search hit rows ≈ 90B) but
      * far below the legacy verbose sizes (≈1.5KB/hit). */
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* search_graph: 1-hit search must stay under 600B. */
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":46,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_graph\","
              "\"arguments\":{\"project\":\"test-project\",\"label\":\"Function\","
@@ -2501,7 +2501,7 @@ TEST(tool_output_byte_budgets) {
     free(resp);
 
     /* trace_path: single-hop trace on the fixture must stay under 800B. */
-    resp = cbm_mcp_server_handle(
+    resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":47,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"trace_call_path\","
              "\"arguments\":{\"project\":\"test-project\",\"function_name\":\"HandleRequest\","
@@ -2514,7 +2514,7 @@ TEST(tool_output_byte_budgets) {
     free(inner);
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -2526,13 +2526,13 @@ TEST(tool_search_graph_toon_never_leaks_internal_fields) {
      * output — not by default and not even when explicitly requested via
      * fields (blocklist). */
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
 
     /* A node whose properties carry the internal fields with sentinels. */
-    cbm_node_t n = {0};
+    ani_node_t n = {0};
     n.project = "test-project";
     n.label = "Function";
     n.name = "fpCarrier";
@@ -2542,9 +2542,9 @@ TEST(tool_search_graph_toon_never_leaks_internal_fields) {
     n.end_line = 2;
     n.properties_json = "{\"fp\":\"FPSENTINEL00\",\"sp\":\"SPSENTINEL00\","
                         "\"bt\":\"BTSENTINEL00\",\"complexity\":7}";
-    ASSERT_GT(cbm_store_upsert_node(st, &n), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &n), 0);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":45,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_graph\","
              "\"arguments\":{\"project\":\"test-project\",\"name_pattern\":\"fpCarrier\","
@@ -2561,7 +2561,7 @@ TEST(tool_search_graph_toon_never_leaks_internal_fields) {
     free(inner);
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -2575,12 +2575,12 @@ TEST(tool_lean_defaults_schema_and_status) {
      *    worktree/shadow path variants only matter when debugging where an
      *    index lives. */
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
 
-    cbm_node_t n = {0};
+    ani_node_t n = {0};
     n.project = "test-project";
     n.label = "Function";
     n.name = "schemaCarrier";
@@ -2589,10 +2589,10 @@ TEST(tool_lean_defaults_schema_and_status) {
     n.start_line = 1;
     n.end_line = 2;
     n.properties_json = "{\"fp\":\"x\",\"sp\":\"y\",\"bt\":\"z\",\"complexity\":3}";
-    ASSERT_GT(cbm_store_upsert_node(st, &n), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &n), 0);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":48,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":48,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"get_graph_schema\","
                                    "\"arguments\":{\"project\":\"test-project\"}}}");
     ASSERT_NOT_NULL(resp);
@@ -2607,7 +2607,7 @@ TEST(tool_lean_defaults_schema_and_status) {
     free(resp);
 
     /* index_status: no git block by default... */
-    resp = cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":49,\"method\":\"tools/call\","
+    resp = ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":49,\"method\":\"tools/call\","
                                       "\"params\":{\"name\":\"index_status\","
                                       "\"arguments\":{\"project\":\"test-project\"}}}");
     ASSERT_NOT_NULL(resp);
@@ -2619,7 +2619,7 @@ TEST(tool_lean_defaults_schema_and_status) {
     free(resp);
 
     /* ...and present with verbose:true. */
-    resp = cbm_mcp_server_handle(srv,
+    resp = ani_mcp_server_handle(srv,
                                  "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\","
                                  "\"params\":{\"name\":\"index_status\","
                                  "\"arguments\":{\"project\":\"test-project\",\"verbose\":true}}}");
@@ -2630,7 +2630,7 @@ TEST(tool_lean_defaults_schema_and_status) {
     free(inner);
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -2676,9 +2676,9 @@ static const char *output_explosion_smell(const char *inner) {
 /* Run one tool call on the fixture server, apply the explosion detector and
  * an absolute byte ceiling, and require a semantic-floor marker so trimming
  * can never hollow the response out either. */
-static const char *check_tool_output(cbm_mcp_server_t *srv, const char *req, int ceiling,
+static const char *check_tool_output(ani_mcp_server_t *srv, const char *req, int ceiling,
                                      const char *floor_marker) {
-    char *resp = cbm_mcp_server_handle(srv, req);
+    char *resp = ani_mcp_server_handle(srv, req);
     if (!resp) {
         return "no response";
     }
@@ -2710,7 +2710,7 @@ static const char *check_tool_output(cbm_mcp_server_t *srv, const char *req, int
 
 TEST(tool_output_regression_gate) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     struct {
@@ -2742,22 +2742,22 @@ TEST(tool_output_regression_gate) {
         }
     }
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
 
 TEST(tool_search_graph_query_honors_file_pattern_issue552) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
 
     const char *proj = "issue-552";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/issue-552");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/issue-552");
 
-    cbm_node_t lib_status = {0};
+    ani_node_t lib_status = {0};
     lib_status.project = proj;
     lib_status.label = "Function";
     lib_status.name = "status";
@@ -2765,9 +2765,9 @@ TEST(tool_search_graph_query_honors_file_pattern_issue552) {
     lib_status.file_path = "src/lib/status.c";
     lib_status.start_line = 1;
     lib_status.end_line = 3;
-    ASSERT_GT(cbm_store_upsert_node(st, &lib_status), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &lib_status), 0);
 
-    cbm_node_t component_status = {0};
+    ani_node_t component_status = {0};
     component_status.project = proj;
     component_status.label = "Function";
     component_status.name = "status";
@@ -2775,18 +2775,18 @@ TEST(tool_search_graph_query_honors_file_pattern_issue552) {
     component_status.file_path = "src/components/status.c";
     component_status.start_line = 1;
     component_status.end_line = 3;
-    ASSERT_GT(cbm_store_upsert_node(st, &component_status), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &component_status), 0);
 
-    cbm_store_exec(st, "INSERT INTO nodes_fts(nodes_fts) VALUES('delete-all');");
-    ASSERT_EQ(cbm_store_exec(st,
+    ani_store_exec(st, "INSERT INTO nodes_fts(nodes_fts) VALUES('delete-all');");
+    ASSERT_EQ(ani_store_exec(st,
                              "INSERT INTO nodes_fts(rowid, name, qualified_name, label, "
                              "file_path) "
-                             "SELECT id, cbm_camel_split(name), qualified_name, label, file_path "
+                             "SELECT id, ani_camel_split(name), qualified_name, label, file_path "
                              "FROM nodes;"),
-              CBM_STORE_OK);
+              ANI_STORE_OK);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":552,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":552,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"search_graph\","
                                    "\"arguments\":{\"project\":\"issue-552\",\"query\":\"status\","
                                    "\"file_pattern\":\"src/lib/*\",\"limit\":10}}}");
@@ -2799,7 +2799,7 @@ TEST(tool_search_graph_query_honors_file_pattern_issue552) {
 
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -2807,7 +2807,7 @@ TEST(tool_search_graph_query_honors_file_pattern_issue552) {
  * lists, not -32601 Method-not-found: clients like Cline probe them on connect
  * and surface the errors as a failed connection (#958). */
 TEST(mcp_resource_discovery_methods_return_empty_lists) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
     struct {
@@ -2821,21 +2821,21 @@ TEST(mcp_resource_discovery_methods_return_empty_lists) {
         char reqbuf[256];
         snprintf(reqbuf, sizeof(reqbuf), "{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"%s\"}",
                  100 + i, cases[i].method);
-        char *resp = cbm_mcp_server_handle(srv, reqbuf);
+        char *resp = ani_mcp_server_handle(srv, reqbuf);
         ASSERT_NOT_NULL(resp);
         ASSERT_NULL(strstr(resp, "Method not found"));
         ASSERT_NOT_NULL(strstr(resp, cases[i].want));
         free(resp);
     }
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_query_graph_basic) {
-    cbm_mcp_server_t *srv = setup_mcp_with_data();
+    ani_mcp_server_t *srv = setup_mcp_with_data();
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"query_graph\","
              "\"arguments\":{\"query\":\"MATCH (f:Function) RETURN f.name\"}}}");
@@ -2843,22 +2843,22 @@ TEST(tool_query_graph_basic) {
     ASSERT_NOT_NULL(strstr(resp, "\"result\""));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_index_status_no_project) {
-    cbm_mcp_server_t *srv = setup_mcp_with_data();
+    ani_mcp_server_t *srv = setup_mcp_with_data();
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":15,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":15,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"index_status\",\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     /* Should return error or empty status */
     ASSERT_NOT_NULL(strstr(resp, "\"result\""));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -2869,17 +2869,17 @@ TEST(tool_index_status_no_project) {
  * presentation response. */
 TEST(tool_check_index_coverage_finds_path_beyond_status_cap) {
     enum { ROW_COUNT = 502 };
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
 
     const char *project = "coverage-cap-regression";
-    ASSERT_EQ(cbm_store_upsert_project(st, project, "/tmp/coverage-cap-regression"), CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, project);
+    ASSERT_EQ(ani_store_upsert_project(st, project, "/tmp/coverage-cap-regression"), ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, project);
 
     char (*paths)[64] = calloc(ROW_COUNT, sizeof(*paths));
-    cbm_coverage_row_t *rows = calloc(ROW_COUNT, sizeof(*rows));
+    ani_coverage_row_t *rows = calloc(ROW_COUNT, sizeof(*rows));
     ASSERT_NOT_NULL(paths);
     ASSERT_NOT_NULL(rows);
     for (int i = 0; i < ROW_COUNT; i++) {
@@ -2887,13 +2887,13 @@ TEST(tool_check_index_coverage_finds_path_beyond_status_cap) {
         rows[i].rel_path = paths[i];
         rows[i].kind = "parse_partial";
         rows[i].detail = i == ROW_COUNT - 1 ? "777-790" : "1-2";
-        ASSERT_EQ(cbm_store_upsert_file_hash(st, project, paths[i], "fixture", i + 1, 10),
-                  CBM_STORE_OK);
+        ASSERT_EQ(ani_store_upsert_file_hash(st, project, paths[i], "fixture", i + 1, 10),
+                  ANI_STORE_OK);
     }
-    ASSERT_EQ(cbm_store_coverage_replace(st, project, rows, ROW_COUNT), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_coverage_replace(st, project, rows, ROW_COUNT), ANI_STORE_OK);
 
     char *status =
-        cbm_mcp_handle_tool(srv, "index_status", "{\"project\":\"coverage-cap-regression\"}");
+        ani_mcp_handle_tool(srv, "index_status", "{\"project\":\"coverage-cap-regression\"}");
     ASSERT_NOT_NULL(status);
     char *status_inner = extract_text_content(status);
     ASSERT_NOT_NULL(status_inner);
@@ -2902,7 +2902,7 @@ TEST(tool_check_index_coverage_finds_path_beyond_status_cap) {
     free(status_inner);
     free(status);
 
-    char *coverage = cbm_mcp_handle_tool(
+    char *coverage = ani_mcp_handle_tool(
         srv, "check_index_coverage",
         "{\"project\":\"coverage-cap-regression\",\"paths\":[\"src/partial-0501.c\"]}");
     ASSERT_NOT_NULL(coverage);
@@ -2916,28 +2916,28 @@ TEST(tool_check_index_coverage_finds_path_beyond_status_cap) {
     free(coverage);
     free(rows);
     free(paths);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_check_index_coverage_reports_paths_scopes_and_ranges) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
 
-    ASSERT_EQ(cbm_store_upsert_file_hash(st, "test-project", "main.go", "", 0, 0), CBM_STORE_OK);
-    ASSERT_EQ(cbm_store_upsert_file_hash(st, "test-project", "src/skip.c", "", 0, 0), CBM_STORE_OK);
-    cbm_coverage_row_t rows[] = {
+    ASSERT_EQ(ani_store_upsert_file_hash(st, "test-project", "main.go", "", 0, 0), ANI_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_file_hash(st, "test-project", "src/skip.c", "", 0, 0), ANI_STORE_OK);
+    ani_coverage_row_t rows[] = {
         {.rel_path = "main.go", .kind = "parse_partial", .detail = "3-4,9"},
         {.rel_path = "generated", .kind = "not_indexed_dir", .detail = "excluded subtree"},
         {.rel_path = "src/skip.c", .kind = "oversized", .detail = "file exceeds cap"},
     };
-    ASSERT_EQ(cbm_store_coverage_replace(st, "test-project", rows, 3), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_coverage_replace(st, "test-project", rows, 3), ANI_STORE_OK);
 
     char *coverage =
-        cbm_mcp_handle_tool(srv, "check_index_coverage",
+        ani_mcp_handle_tool(srv, "check_index_coverage",
                             "{\"project\":\"test-project\","
                             "\"paths\":[\"main.go\",\"generated/pkg/a.c\",\"../escape.c\"],"
                             "\"scopes\":[\".\"]}");
@@ -2958,17 +2958,17 @@ TEST(tool_check_index_coverage_reports_paths_scopes_and_ranges) {
 
     free(inner);
     free(coverage);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
 
 TEST(tool_check_index_coverage_preserves_multiple_scope_labels) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
-    char *coverage = cbm_mcp_handle_tool(srv, "check_index_coverage",
+    char *coverage = ani_mcp_handle_tool(srv, "check_index_coverage",
                                          "{\"project\":\"test-project\","
                                          "\"scopes\":[\"alpha/one\",\"bravo/two\",\"charl/tri\"]}");
     ASSERT_NOT_NULL(coverage);
@@ -2992,14 +2992,14 @@ TEST(tool_check_index_coverage_preserves_multiple_scope_labels) {
     yyjson_doc_free(doc);
     free(inner);
     free(coverage);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
 
-static int write_coverage_meta(cbm_store_t *store, const char *generation,
+static int write_coverage_meta(ani_store_t *store, const char *generation,
                                const char *recording_status) {
-    cbm_coverage_meta_t meta = {
+    ani_coverage_meta_t meta = {
         .generation = generation,
         .index_mode = "fast",
         .recorded_at = "2026-07-12T00:00:00Z",
@@ -3009,14 +3009,14 @@ static int write_coverage_meta(cbm_store_t *store, const char *generation,
         .coverage_version = 1,
         .hash_records_complete = true,
     };
-    return cbm_store_coverage_replace_ex(store, "test-project", NULL, 0, &meta);
+    return ani_store_coverage_replace_ex(store, "test-project", NULL, 0, &meta);
 }
 
 TEST(tool_check_index_coverage_accepts_truncated_ignored_catalog_for_fresh_path_issue1613) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *store = cbm_mcp_server_store(srv);
+    ani_store_t *store = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(store);
     char source_path[512];
     snprintf(source_path, sizeof(source_path), "%s/project/main.go", tmp);
@@ -3024,20 +3024,20 @@ TEST(tool_check_index_coverage_accepts_truncated_ignored_catalog_for_fresh_path_
     ASSERT_EQ(stat(source_path, &source_stat), 0);
 #ifdef __APPLE__
     int64_t source_mtime_ns =
-        ((int64_t)source_stat.st_mtimespec.tv_sec * (int64_t)CBM_NSEC_PER_SEC) +
+        ((int64_t)source_stat.st_mtimespec.tv_sec * (int64_t)ANI_NSEC_PER_SEC) +
         (int64_t)source_stat.st_mtimespec.tv_nsec;
 #elif defined(_WIN32)
-    int64_t source_mtime_ns = (int64_t)source_stat.st_mtime * (int64_t)CBM_NSEC_PER_SEC;
+    int64_t source_mtime_ns = (int64_t)source_stat.st_mtime * (int64_t)ANI_NSEC_PER_SEC;
 #else
-    int64_t source_mtime_ns = ((int64_t)source_stat.st_mtim.tv_sec * (int64_t)CBM_NSEC_PER_SEC) +
+    int64_t source_mtime_ns = ((int64_t)source_stat.st_mtim.tv_sec * (int64_t)ANI_NSEC_PER_SEC) +
                               (int64_t)source_stat.st_mtim.tv_nsec;
 #endif
-    ASSERT_EQ(cbm_store_upsert_file_hash(store, "test-project", "main.go", "", source_mtime_ns,
+    ASSERT_EQ(ani_store_upsert_file_hash(store, "test-project", "main.go", "", source_mtime_ns,
                                          source_stat.st_size),
-              CBM_STORE_OK);
-    cbm_project_t project = {0};
-    ASSERT_EQ(cbm_store_get_project(store, "test-project", &project), CBM_STORE_OK);
-    cbm_coverage_meta_t meta = {
+              ANI_STORE_OK);
+    ani_project_t project = {0};
+    ASSERT_EQ(ani_store_get_project(store, "test-project", &project), ANI_STORE_OK);
+    ani_coverage_meta_t meta = {
         .generation = project.indexed_at,
         .index_mode = "fast",
         .recorded_at = "2026-07-12T00:00:00Z",
@@ -3047,10 +3047,10 @@ TEST(tool_check_index_coverage_accepts_truncated_ignored_catalog_for_fresh_path_
         .coverage_version = 1,
         .hash_records_complete = true,
     };
-    ASSERT_EQ(cbm_store_coverage_replace_ex(store, "test-project", NULL, 0, &meta), CBM_STORE_OK);
-    cbm_project_free_fields(&project);
+    ASSERT_EQ(ani_store_coverage_replace_ex(store, "test-project", NULL, 0, &meta), ANI_STORE_OK);
+    ani_project_free_fields(&project);
 
-    char *response = cbm_mcp_handle_tool(
+    char *response = ani_mcp_handle_tool(
         srv, "check_index_coverage",
         "{\"project\":\"test-project\",\"paths\":[\"main.go\"],\"scopes\":[\".\"]}");
     ASSERT_NOT_NULL(response);
@@ -3070,20 +3070,20 @@ TEST(tool_check_index_coverage_accepts_truncated_ignored_catalog_for_fresh_path_
     yyjson_doc_free(doc);
     free(inner);
     free(response);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
 
 TEST(tool_check_index_coverage_rejects_stale_generation) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *store = cbm_mcp_server_store(srv);
+    ani_store_t *store = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(store);
-    ASSERT_EQ(write_coverage_meta(store, "stale-generation", "complete"), CBM_STORE_OK);
+    ASSERT_EQ(write_coverage_meta(store, "stale-generation", "complete"), ANI_STORE_OK);
 
-    char *response = cbm_mcp_handle_tool(srv, "check_index_coverage",
+    char *response = ani_mcp_handle_tool(srv, "check_index_coverage",
                                          "{\"project\":\"test-project\",\"paths\":[\"main.go\"]}");
     ASSERT_NOT_NULL(response);
     char *inner = extract_text_content(response);
@@ -3094,25 +3094,25 @@ TEST(tool_check_index_coverage_rejects_stale_generation) {
 
     free(inner);
     free(response);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
 
 TEST(tool_check_index_coverage_requires_source_when_file_metadata_changed) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *store = cbm_mcp_server_store(srv);
+    ani_store_t *store = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(store);
-    cbm_project_t project = {0};
-    ASSERT_EQ(cbm_store_get_project(store, "test-project", &project), CBM_STORE_OK);
-    ASSERT_EQ(write_coverage_meta(store, project.indexed_at, "complete"), CBM_STORE_OK);
-    cbm_project_free_fields(&project);
-    ASSERT_EQ(cbm_store_upsert_file_hash(store, "test-project", "main.go", "fixture", 0, 0),
-              CBM_STORE_OK);
+    ani_project_t project = {0};
+    ASSERT_EQ(ani_store_get_project(store, "test-project", &project), ANI_STORE_OK);
+    ASSERT_EQ(write_coverage_meta(store, project.indexed_at, "complete"), ANI_STORE_OK);
+    ani_project_free_fields(&project);
+    ASSERT_EQ(ani_store_upsert_file_hash(store, "test-project", "main.go", "fixture", 0, 0),
+              ANI_STORE_OK);
 
-    char *response = cbm_mcp_handle_tool(srv, "check_index_coverage",
+    char *response = ani_mcp_handle_tool(srv, "check_index_coverage",
                                          "{\"project\":\"test-project\",\"paths\":[\"main.go\"]}");
     ASSERT_NOT_NULL(response);
     char *inner = extract_text_content(response);
@@ -3123,26 +3123,26 @@ TEST(tool_check_index_coverage_requires_source_when_file_metadata_changed) {
 
     free(inner);
     free(response);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
 
 TEST(tool_check_index_coverage_surfaces_lookup_errors) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *store = cbm_mcp_server_store(srv);
+    ani_store_t *store = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(store);
-    cbm_project_t project = {0};
-    ASSERT_EQ(cbm_store_get_project(store, "test-project", &project), CBM_STORE_OK);
-    ASSERT_EQ(write_coverage_meta(store, project.indexed_at, "complete"), CBM_STORE_OK);
-    cbm_project_free_fields(&project);
+    ani_project_t project = {0};
+    ASSERT_EQ(ani_store_get_project(store, "test-project", &project), ANI_STORE_OK);
+    ASSERT_EQ(write_coverage_meta(store, project.indexed_at, "complete"), ANI_STORE_OK);
+    ani_project_free_fields(&project);
     ASSERT_EQ(
-        cbm_store_exec(store, "ALTER TABLE index_coverage RENAME COLUMN detail TO broken_detail;"),
-        CBM_STORE_OK);
+        ani_store_exec(store, "ALTER TABLE index_coverage RENAME COLUMN detail TO broken_detail;"),
+        ANI_STORE_OK);
 
-    char *response = cbm_mcp_handle_tool(
+    char *response = ani_mcp_handle_tool(
         srv, "check_index_coverage",
         "{\"project\":\"test-project\",\"paths\":[\"main.go\"],\"scopes\":[\".\"]}");
     ASSERT_NOT_NULL(response);
@@ -3154,7 +3154,7 @@ TEST(tool_check_index_coverage_surfaces_lookup_errors) {
 
     free(inner);
     free(response);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -3164,10 +3164,10 @@ TEST(tool_index_status_includes_git_metadata) {
      * TOON round 2) — this test pins the verbose path's content; the default-
      * omission guard lives in tool_lean_defaults_schema_and_status. */
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":16,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"index_status\","
              "\"arguments\":{\"project\":\"test-project\",\"verbose\":true}}}");
@@ -3181,7 +3181,7 @@ TEST(tool_index_status_includes_git_metadata) {
 
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -3191,10 +3191,10 @@ TEST(tool_index_status_includes_git_metadata) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(tool_trace_call_path_not_found) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"trace_call_path\","
                                    "\"arguments\":{\"function_name\":\"NonExistent\","
                                    "\"project\":\"nonexistent\"}}}");
@@ -3203,7 +3203,7 @@ TEST(tool_trace_call_path_not_found) {
     ASSERT_NOT_NULL(strstr(resp, "not found"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -3215,36 +3215,36 @@ TEST(tool_trace_call_path_not_found) {
 TEST(tool_call_invalid_project_name_leaves_no_corrupt_litter_issue1425) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/mcp-litter-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        FAIL("cbm_mkdtemp failed");
-    char oldcwd[CBM_SZ_1K];
-    if (!cbm_getcwd(oldcwd, sizeof(oldcwd)))
+    if (!ani_mkdtemp(tmpdir))
+        FAIL("ani_mkdtemp failed");
+    char oldcwd[ANI_SZ_1K];
+    if (!ani_getcwd(oldcwd, sizeof(oldcwd)))
         FAIL("getcwd failed");
-    if (cbm_chdir(tmpdir) != 0)
+    if (ani_chdir(tmpdir) != 0)
         FAIL("chdir failed");
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"search_graph\","
                                    "\"arguments\":{\"name_pattern\":\"x\","
                                    "\"project\":\"bad name\"}}}");
     bool clean_error = resp && strstr(resp, "not found") != NULL;
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
 
     int litter = 0;
-    cbm_dir_t *dir = cbm_opendir(tmpdir);
+    ani_dir_t *dir = ani_opendir(tmpdir);
     if (dir) {
-        cbm_dirent_t *entry;
-        while ((entry = cbm_readdir(dir)) != NULL) {
+        ani_dirent_t *entry;
+        while ((entry = ani_readdir(dir)) != NULL) {
             if (strstr(entry->name, ".corrupt.")) {
                 litter++;
             }
         }
-        cbm_closedir(dir);
+        ani_closedir(dir);
     }
-    if (cbm_chdir(oldcwd) != 0)
+    if (ani_chdir(oldcwd) != 0)
         FAIL("chdir back failed");
     th_rmtree(tmpdir);
     if (!clean_error)
@@ -3255,46 +3255,46 @@ TEST(tool_call_invalid_project_name_leaves_no_corrupt_litter_issue1425) {
 }
 
 TEST(tool_trace_missing_function_name) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"trace_call_path\","
                                    "\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "required"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 /* Regression: two same-named definitions with equal rank must be reported
  * ambiguous, not silently traced (trace_path previously took nodes[0]). */
 TEST(tool_trace_call_path_ambiguous) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "amb-proj";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/amb");
-    cbm_node_t a = {.project = proj,
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/amb");
+    ani_node_t a = {.project = proj,
                     .label = "Function",
                     .name = "amb",
                     .qualified_name = "amb-proj.a.amb",
                     .file_path = "a.c",
                     .start_line = 10,
                     .end_line = 20};
-    cbm_node_t b = {.project = proj,
+    ani_node_t b = {.project = proj,
                     .label = "Function",
                     .name = "amb",
                     .qualified_name = "amb-proj.b.amb",
                     .file_path = "b.c",
                     .start_line = 10,
                     .end_line = 20}; /* equal span -> genuine tie */
-    ASSERT_GT(cbm_store_upsert_node(st, &a), 0);
-    ASSERT_GT(cbm_store_upsert_node(st, &b), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &a), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &b), 0);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":61,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"trace_call_path\","
              "\"arguments\":{\"function_name\":\"amb\",\"project\":\"amb-proj\"}}}");
@@ -3306,7 +3306,7 @@ TEST(tool_trace_call_path_ambiguous) {
     ASSERT_NULL(strstr(inner, "\"callees\""));
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -3316,61 +3316,61 @@ TEST(tool_trace_call_path_ambiguous) {
  * (soon) pagination watermarks — it must be the MINIMUM across seeds, matching
  * the single-BFS MIN(hop) semantics (#797). */
 TEST(tool_trace_union_records_min_hop_across_seeds) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "dualproj";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/dual");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/dual");
 
     /* One real definition + one body-less stub (start==end) — the #546/#650
      * shape pick_resolved_node resolves WITHOUT ambiguity while
      * bfs_union_same_name still traverses both. Seed A (real def, lower id,
      * traversed first) reaches tgt only via mid (hop 2); the stub seed B
      * reaches tgt directly (hop 1). */
-    cbm_node_t sa = {.project = proj,
+    ani_node_t sa = {.project = proj,
                      .label = "Function",
                      .name = "dual",
                      .qualified_name = "dualproj.a.dual",
                      .file_path = "a.c",
                      .start_line = 1,
                      .end_line = 50};
-    cbm_node_t sb = {.project = proj,
+    ani_node_t sb = {.project = proj,
                      .label = "Function",
                      .name = "dual",
                      .qualified_name = "dualproj.b.dual",
                      .file_path = "b.d.ts",
                      .start_line = 1,
                      .end_line = 1};
-    cbm_node_t mid = {.project = proj,
+    ani_node_t mid = {.project = proj,
                       .label = "Function",
                       .name = "mid",
                       .qualified_name = "dualproj.c.mid",
                       .file_path = "c.c",
                       .start_line = 1,
                       .end_line = 5};
-    cbm_node_t tgt = {.project = proj,
+    ani_node_t tgt = {.project = proj,
                       .label = "Function",
                       .name = "tgt",
                       .qualified_name = "dualproj.c.tgt",
                       .file_path = "c.c",
                       .start_line = 10,
                       .end_line = 15};
-    int64_t ida = cbm_store_upsert_node(st, &sa);
-    int64_t idb = cbm_store_upsert_node(st, &sb);
-    int64_t idm = cbm_store_upsert_node(st, &mid);
-    int64_t idt = cbm_store_upsert_node(st, &tgt);
+    int64_t ida = ani_store_upsert_node(st, &sa);
+    int64_t idb = ani_store_upsert_node(st, &sb);
+    int64_t idm = ani_store_upsert_node(st, &mid);
+    int64_t idt = ani_store_upsert_node(st, &tgt);
     ASSERT_GT(ida, 0);
     ASSERT_GT(idb, 0);
     ASSERT_GT(idm, 0);
     ASSERT_GT(idt, 0);
-    cbm_edge_t e1 = {.project = proj, .source_id = ida, .target_id = idm, .type = "CALLS"};
-    cbm_edge_t e2 = {.project = proj, .source_id = idm, .target_id = idt, .type = "CALLS"};
-    cbm_edge_t e3 = {.project = proj, .source_id = idb, .target_id = idt, .type = "CALLS"};
-    ASSERT_GT(cbm_store_insert_edge(st, &e1), 0);
-    ASSERT_GT(cbm_store_insert_edge(st, &e2), 0);
-    ASSERT_GT(cbm_store_insert_edge(st, &e3), 0);
+    ani_edge_t e1 = {.project = proj, .source_id = ida, .target_id = idm, .type = "CALLS"};
+    ani_edge_t e2 = {.project = proj, .source_id = idm, .target_id = idt, .type = "CALLS"};
+    ani_edge_t e3 = {.project = proj, .source_id = idb, .target_id = idt, .type = "CALLS"};
+    ASSERT_GT(ani_store_insert_edge(st, &e1), 0);
+    ASSERT_GT(ani_store_insert_edge(st, &e2), 0);
+    ASSERT_GT(ani_store_insert_edge(st, &e3), 0);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":62,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"trace_call_path\","
              "\"arguments\":{\"function_name\":\"dual\",\"project\":\"dualproj\","
@@ -3383,7 +3383,7 @@ TEST(tool_trace_union_records_min_hop_across_seeds) {
     ASSERT_NULL(strstr(inner, "  tgt 2"));
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -3392,20 +3392,20 @@ TEST(tool_trace_union_records_min_hop_across_seeds) {
  * on every page, and a final page without a cursor. Stale and mismatched
  * cursors must fail with teaching errors, never silently restart. */
 TEST(tool_trace_pagination_exactly_once) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "pageproj";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/page");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/page");
 
-    cbm_node_t hub = {.project = proj,
+    ani_node_t hub = {.project = proj,
                       .label = "Function",
                       .name = "hub",
                       .qualified_name = "pageproj.h.hub",
                       .file_path = "h.c",
                       .start_line = 1,
                       .end_line = 9};
-    int64_t hid = cbm_store_upsert_node(st, &hub);
+    int64_t hid = ani_store_upsert_node(st, &hub);
     ASSERT_GT(hid, 0);
     enum { CALLEES = 12 };
     for (int i = 0; i < CALLEES; i++) {
@@ -3413,17 +3413,17 @@ TEST(tool_trace_pagination_exactly_once) {
         char qn[48];
         snprintf(nm, sizeof(nm), "c%02d", i);
         snprintf(qn, sizeof(qn), "pageproj.m.c%02d", i);
-        cbm_node_t n = {.project = proj,
+        ani_node_t n = {.project = proj,
                         .label = "Function",
                         .name = nm,
                         .qualified_name = qn,
                         .file_path = "m.c",
                         .start_line = 1,
                         .end_line = 3};
-        int64_t nid = cbm_store_upsert_node(st, &n);
+        int64_t nid = ani_store_upsert_node(st, &n);
         ASSERT_GT(nid, 0);
-        cbm_edge_t e = {.project = proj, .source_id = hid, .target_id = nid, .type = "CALLS"};
-        ASSERT_GT(cbm_store_insert_edge(st, &e), 0);
+        ani_edge_t e = {.project = proj, .source_id = hid, .target_id = nid, .type = "CALLS"};
+        ASSERT_GT(ani_store_insert_edge(st, &e), 0);
     }
 
     char pages[3][4096];
@@ -3444,7 +3444,7 @@ TEST(tool_trace_pagination_exactly_once) {
                      "\"name\":\"trace_call_path\",\"arguments\":{\"project\":\"pageproj\","
                      "\"function_name\":\"hub\",\"direction\":\"outbound\",\"limit\":5}}}");
         }
-        char *resp = cbm_mcp_server_handle(srv, req);
+        char *resp = ani_mcp_server_handle(srv, req);
         ASSERT_NOT_NULL(resp);
         char *inner = extract_text_content(resp);
         free(resp);
@@ -3498,7 +3498,7 @@ TEST(tool_trace_pagination_exactly_once) {
              "\"function_name\":\"hub\",\"direction\":\"outbound\",\"limit\":5,\"depth\":2,"
              "\"cursor\":\"%s\"}}}",
              tok1);
-    char *resp = cbm_mcp_server_handle(srv, req2);
+    char *resp = ani_mcp_server_handle(srv, req2);
     ASSERT_NOT_NULL(resp);
     char *inner = extract_text_content(resp);
     free(resp);
@@ -3508,14 +3508,14 @@ TEST(tool_trace_pagination_exactly_once) {
 
     /* Stale: an index run (upsert_project bumps the generation) invalidates
      * outstanding cursors with a loud, actionable error. */
-    cbm_store_upsert_project(st, proj, "/tmp/page");
+    ani_store_upsert_project(st, proj, "/tmp/page");
     snprintf(req2, sizeof(req2),
              "{\"jsonrpc\":\"2.0\",\"id\":82,\"method\":\"tools/call\",\"params\":{"
              "\"name\":\"trace_call_path\",\"arguments\":{\"project\":\"pageproj\","
              "\"function_name\":\"hub\",\"direction\":\"outbound\",\"limit\":5,"
              "\"cursor\":\"%s\"}}}",
              tok1);
-    resp = cbm_mcp_server_handle(srv, req2);
+    resp = ani_mcp_server_handle(srv, req2);
     ASSERT_NOT_NULL(resp);
     inner = extract_text_content(resp);
     free(resp);
@@ -3523,7 +3523,7 @@ TEST(tool_trace_pagination_exactly_once) {
     ASSERT_NOT_NULL(strstr(inner, "stale_cursor"));
     free(inner);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -3531,13 +3531,13 @@ TEST(tool_trace_pagination_exactly_once) {
  * definition (callable, larger body) — NOT nodes[0]. The Module is inserted
  * first; if trace took nodes[0] the outbound trace would be empty. */
 TEST(tool_trace_call_path_prefers_definition) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "pref-proj";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/pref");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/pref");
     /* nodes[0]: the WRONG match (a Module, tiny span), inserted first. */
-    cbm_node_t wrong = {.project = proj,
+    ani_node_t wrong = {.project = proj,
                         .label = "Module",
                         .name = "dup",
                         .qualified_name = "pref-proj.dup",
@@ -3545,29 +3545,29 @@ TEST(tool_trace_call_path_prefers_definition) {
                         .start_line = 1,
                         .end_line = 1};
     /* the real definition: a Function with a body. */
-    cbm_node_t def = {.project = proj,
+    ani_node_t def = {.project = proj,
                       .label = "Function",
                       .name = "dup",
                       .qualified_name = "pref-proj.src.dup",
                       .file_path = "src/dup.c",
                       .start_line = 10,
                       .end_line = 50};
-    cbm_node_t callee = {.project = proj,
+    ani_node_t callee = {.project = proj,
                          .label = "Function",
                          .name = "callee",
                          .qualified_name = "pref-proj.src.callee",
                          .file_path = "src/dup.c",
                          .start_line = 60,
                          .end_line = 70};
-    ASSERT_GT(cbm_store_upsert_node(st, &wrong), 0);
-    int64_t id_def = cbm_store_upsert_node(st, &def);
-    int64_t id_callee = cbm_store_upsert_node(st, &callee);
+    ASSERT_GT(ani_store_upsert_node(st, &wrong), 0);
+    int64_t id_def = ani_store_upsert_node(st, &def);
+    int64_t id_callee = ani_store_upsert_node(st, &callee);
     ASSERT_GT(id_def, 0);
     ASSERT_GT(id_callee, 0);
-    cbm_edge_t e = {.project = proj, .source_id = id_def, .target_id = id_callee, .type = "CALLS"};
-    cbm_store_insert_edge(st, &e);
+    ani_edge_t e = {.project = proj, .source_id = id_def, .target_id = id_callee, .type = "CALLS"};
+    ani_store_insert_edge(st, &e);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":62,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"trace_call_path\",\"arguments\":{\"function_name\":\"dup\","
              "\"project\":\"pref-proj\",\"direction\":\"outbound\"}}}");
@@ -3579,7 +3579,7 @@ TEST(tool_trace_call_path_prefers_definition) {
     ASSERT_NOT_NULL(strstr(inner, "callee"));
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -3602,34 +3602,34 @@ TEST(trace_evidence_strategy_class_vocabulary_is_closed) {
         "lsp_proc_macro",     "lsp_smart_ptr_dispatch", "lsp_strategy_cross_file",
         "lsp_trait_dispatch", "lsp_type_dispatch",      "lsp_virtual_dispatch"};
     for (size_t i = 0; i < sizeof(lsp) / sizeof(lsp[0]); i++) {
-        const char *cls = cbm_mcp_edge_strategy_class(lsp[i]);
+        const char *cls = ani_mcp_edge_strategy_class(lsp[i]);
         ASSERT_NOT_NULL(cls);
         ASSERT_STR_EQ(cls, "lsp");
     }
     static const char *const lang[] = {"php_self_static", "php_static_resolved",
                                        "perl_method_static", "perl_method_typed"};
     for (size_t i = 0; i < sizeof(lang) / sizeof(lang[0]); i++) {
-        const char *cls = cbm_mcp_edge_strategy_class(lang[i]);
+        const char *cls = ani_mcp_edge_strategy_class(lang[i]);
         ASSERT_NOT_NULL(cls);
         ASSERT_STR_EQ(cls, "language_rule");
     }
     static const char *const heur[] = {"callee_suffix", "field_type_hint", "service_pattern",
                                        "fastapi_depends"};
     for (size_t i = 0; i < sizeof(heur) / sizeof(heur[0]); i++) {
-        const char *cls = cbm_mcp_edge_strategy_class(heur[i]);
+        const char *cls = ani_mcp_edge_strategy_class(heur[i]);
         ASSERT_NOT_NULL(cls);
         ASSERT_STR_EQ(cls, "heuristic");
     }
     /* A failed LSP resolution is reported as unresolved, not as "lsp" — the
      * caller's question is whether the edge is trustworthy, and "we tried LSP
      * and it did not resolve" answers no. */
-    ASSERT_STR_EQ(cbm_mcp_edge_strategy_class("lsp_unresolved"), "unresolved");
-    ASSERT_STR_EQ(cbm_mcp_edge_strategy_class("unknown"), "unresolved");
+    ASSERT_STR_EQ(ani_mcp_edge_strategy_class("lsp_unresolved"), "unresolved");
+    ASSERT_STR_EQ(ani_mcp_edge_strategy_class("unknown"), "unresolved");
     /* Only a NULL/empty strategy is unclassified — an unmapped non-empty value
      * must never silently disappear from the output. */
-    ASSERT_NULL(cbm_mcp_edge_strategy_class(NULL));
-    ASSERT_NULL(cbm_mcp_edge_strategy_class(""));
-    ASSERT_STR_EQ(cbm_mcp_edge_strategy_class("some_future_resolver"), "heuristic");
+    ASSERT_NULL(ani_mcp_edge_strategy_class(NULL));
+    ASSERT_NULL(ani_mcp_edge_strategy_class(""));
+    ASSERT_STR_EQ(ani_mcp_edge_strategy_class("some_future_resolver"), "heuristic");
     PASS();
 }
 
@@ -3644,39 +3644,39 @@ TEST(trace_evidence_strategy_class_vocabulary_is_closed) {
  * A caller then cannot tell "the resolver was certain this is wrong" from
  * "nobody wrote a number here". */
 TEST(tool_trace_path_unreadable_confidence_reports_not_recorded) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "badconf-proj";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/badconf");
-    cbm_node_t caller = {.project = proj,
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/badconf");
+    ani_node_t caller = {.project = proj,
                          .label = "Function",
                          .name = "caller",
                          .qualified_name = "badconf-proj.src.caller",
                          .file_path = "src/a.c",
                          .start_line = 1,
                          .end_line = 5};
-    cbm_node_t callee = {.project = proj,
+    ani_node_t callee = {.project = proj,
                          .label = "Function",
                          .name = "target",
                          .qualified_name = "badconf-proj.src.target",
                          .file_path = "src/a.c",
                          .start_line = 10,
                          .end_line = 20};
-    int64_t id_caller = cbm_store_upsert_node(st, &caller);
-    int64_t id_callee = cbm_store_upsert_node(st, &callee);
+    int64_t id_caller = ani_store_upsert_node(st, &caller);
+    int64_t id_callee = ani_store_upsert_node(st, &callee);
     ASSERT_GT(id_caller, 0);
     ASSERT_GT(id_callee, 0);
     /* The strategy reads fine; only the confidence is malformed. */
-    cbm_edge_t e = {.project = proj,
+    ani_edge_t e = {.project = proj,
                     .source_id = id_caller,
                     .target_id = id_callee,
                     .type = "CALLS",
                     .properties_json = "{\"callee\":\"target\",\"confidence\":null,"
                                        "\"strategy\":\"lsp_trait_dispatch\",\"candidates\":1}"};
-    ASSERT_GT(cbm_store_insert_edge(st, &e), 0);
+    ASSERT_GT(ani_store_insert_edge(st, &e), 0);
 
-    char *ev = cbm_mcp_server_handle(
+    char *ev = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":93,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"trace_path\",\"arguments\":{\"function_name\":\"caller\","
              "\"project\":\"badconf-proj\",\"direction\":\"outbound\",\"include_evidence\":true}}}");
@@ -3692,7 +3692,7 @@ TEST(tool_trace_path_unreadable_confidence_reports_not_recorded) {
     free(ev_txt);
     free(ev);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -3707,40 +3707,40 @@ TEST(tool_trace_path_unreadable_confidence_reports_not_recorded) {
  * directions — no columns at all before, and "lsp_trait_dispatch" would leak
  * verbatim if the classifier were bypassed. */
 TEST(tool_trace_path_evidence_is_opt_in_and_class_mapped) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "ev-proj";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/ev");
-    cbm_node_t caller = {.project = proj,
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/ev");
+    ani_node_t caller = {.project = proj,
                          .label = "Function",
                          .name = "caller",
                          .qualified_name = "ev-proj.src.caller",
                          .file_path = "src/a.c",
                          .start_line = 1,
                          .end_line = 5};
-    cbm_node_t callee = {.project = proj,
+    ani_node_t callee = {.project = proj,
                          .label = "Function",
                          .name = "target",
                          .qualified_name = "ev-proj.src.target",
                          .file_path = "src/a.c",
                          .start_line = 10,
                          .end_line = 20};
-    int64_t id_caller = cbm_store_upsert_node(st, &caller);
-    int64_t id_callee = cbm_store_upsert_node(st, &callee);
+    int64_t id_caller = ani_store_upsert_node(st, &caller);
+    int64_t id_callee = ani_store_upsert_node(st, &callee);
     ASSERT_GT(id_caller, 0);
     ASSERT_GT(id_callee, 0);
     /* Exactly the shape pass_calls.c:355 writes in production. */
-    cbm_edge_t e = {.project = proj,
+    ani_edge_t e = {.project = proj,
                     .source_id = id_caller,
                     .target_id = id_callee,
                     .type = "CALLS",
                     .properties_json = "{\"callee\":\"target\",\"confidence\":0.95,"
                                        "\"strategy\":\"lsp_trait_dispatch\",\"candidates\":1}"};
-    ASSERT_GT(cbm_store_insert_edge(st, &e), 0);
+    ASSERT_GT(ani_store_insert_edge(st, &e), 0);
 
     /* Default: lean. No evidence columns, no strategy anywhere. */
-    char *plain = cbm_mcp_server_handle(
+    char *plain = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":91,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"trace_path\",\"arguments\":{\"function_name\":\"caller\","
              "\"project\":\"ev-proj\",\"direction\":\"outbound\"}}}");
@@ -3754,7 +3754,7 @@ TEST(tool_trace_path_evidence_is_opt_in_and_class_mapped) {
     free(plain);
 
     /* Opted in: the class and the confidence appear, the raw name does not. */
-    char *ev = cbm_mcp_server_handle(
+    char *ev = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":92,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"trace_path\",\"arguments\":{\"function_name\":\"caller\","
              "\"project\":\"ev-proj\",\"direction\":\"outbound\",\"include_evidence\":true}}}");
@@ -3773,7 +3773,7 @@ TEST(tool_trace_path_evidence_is_opt_in_and_class_mapped) {
      * — include_evidence was implemented on the tree path only, so the callers
      * most likely to ask for structured output were the ones who silently got
      * nothing. The two formats must promise the same fields. */
-    char *ev_json = cbm_mcp_server_handle(
+    char *ev_json = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":93,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"trace_path\",\"arguments\":{\"function_name\":\"caller\","
              "\"project\":\"ev-proj\",\"direction\":\"outbound\",\"include_evidence\":true,"
@@ -3788,7 +3788,7 @@ TEST(tool_trace_path_evidence_is_opt_in_and_class_mapped) {
     ASSERT_NULL(strstr(ev_json_txt, "lsp_trait_dispatch"));
     free(ev_json_txt);
     free(ev_json);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -3798,40 +3798,40 @@ TEST(tool_trace_path_evidence_is_opt_in_and_class_mapped) {
  * has len(cols)==len(row), and the strategy cell is the class not the args
  * array. */
 TEST(tool_trace_path_evidence_columns_match_header_issue1542) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "ev-order";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/ev-order");
-    cbm_node_t caller = {.project = proj,
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/ev-order");
+    ani_node_t caller = {.project = proj,
                          .label = "Function",
                          .name = "caller",
                          .qualified_name = "ev-order.src.caller",
                          .file_path = "src/a.c",
                          .start_line = 1,
                          .end_line = 5};
-    cbm_node_t callee = {.project = proj,
+    ani_node_t callee = {.project = proj,
                          .label = "Function",
                          .name = "target",
                          .qualified_name = "ev-order.src.target",
                          .file_path = "src/a.c",
                          .start_line = 10,
                          .end_line = 20};
-    int64_t id_caller = cbm_store_upsert_node(st, &caller);
-    int64_t id_callee = cbm_store_upsert_node(st, &callee);
+    int64_t id_caller = ani_store_upsert_node(st, &caller);
+    int64_t id_callee = ani_store_upsert_node(st, &callee);
     ASSERT_GT(id_caller, 0);
     ASSERT_GT(id_callee, 0);
-    cbm_edge_t e = {.project = proj,
+    ani_edge_t e = {.project = proj,
                     .source_id = id_caller,
                     .target_id = id_callee,
                     .type = "CALLS",
                     .properties_json = "{\"callee\":\"target\",\"confidence\":0.95,"
                                        "\"strategy\":\"lsp_trait_dispatch\",\"candidates\":1,"
                                        "\"args\":[\"x\"]}"};
-    ASSERT_GT(cbm_store_insert_edge(st, &e), 0);
+    ASSERT_GT(ani_store_insert_edge(st, &e), 0);
 
     /* json × data_flow × include_evidence: cols identity, not just count. */
-    char *js = cbm_mcp_server_handle(
+    char *js = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":94,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"trace_path\",\"arguments\":{\"function_name\":\"caller\","
              "\"project\":\"ev-order\",\"direction\":\"outbound\",\"include_evidence\":true,"
@@ -3884,7 +3884,7 @@ TEST(tool_trace_path_evidence_columns_match_header_issue1542) {
 
     /* tree × risk_labels × include_evidence used to drop evidence entirely
      * because flat_trace routed through bfs_to_toon_table without the flag. */
-    char *tree = cbm_mcp_server_handle(
+    char *tree = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":95,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"trace_path\",\"arguments\":{\"function_name\":\"caller\","
              "\"project\":\"ev-order\",\"direction\":\"outbound\",\"include_evidence\":true,"
@@ -3900,25 +3900,25 @@ TEST(tool_trace_path_evidence_columns_match_header_issue1542) {
     free(tree_txt);
     free(tree);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 /* Reproduce-first (#887): the client-supplied `depth` on trace_call_path must be
- * clamped to the MCP ceiling (cbm_mcp_max_depth(), default 15). On origin/main
+ * clamped to the MCP ceiling (ani_mcp_max_depth(), default 15). On origin/main
  * an MCP_MAX_DEPTH=15 constant was defined but never applied — `depth` flowed
  * straight into bfs_union_same_name, so an unbounded value drives the shared
- * cbm_store_bfs to arbitrary depth. Over an 18-node call chain, depth=1000
+ * ani_store_bfs to arbitrary depth. Over an 18-node call chain, depth=1000
  * reaches n16/n17 (RED); with the clamp the walk stops at hop 15, so n15 is
  * reached but n16 is not (GREEN). Quoted tokens ("n15"/"n16") match only the
  * node-name field, never the qualified_name (preceded by '.'), so the boundary
  * check is exact. */
 TEST(tool_trace_call_path_depth_clamped) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "depth-proj";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/depth");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/depth");
 
     /* Linear call chain n00 -CALLS-> n01 -> ... -> n17 (18 nodes). */
     int64_t ids[18];
@@ -3927,22 +3927,22 @@ TEST(tool_trace_call_path_depth_clamped) {
         char qn[32];
         snprintf(name, sizeof(name), "n%02d", i);
         snprintf(qn, sizeof(qn), "depth-proj.n%02d", i);
-        cbm_node_t n = {.project = proj,
+        ani_node_t n = {.project = proj,
                         .label = "Function",
                         .name = name,
                         .qualified_name = qn,
                         .file_path = "chain.c",
                         .start_line = 1,
                         .end_line = 2};
-        ids[i] = cbm_store_upsert_node(st, &n);
+        ids[i] = ani_store_upsert_node(st, &n);
     }
     for (int i = 0; i < 17; i++) {
-        cbm_edge_t e = {
+        ani_edge_t e = {
             .project = proj, .source_id = ids[i], .target_id = ids[i + 1], .type = "CALLS"};
-        cbm_store_insert_edge(st, &e);
+        ani_store_insert_edge(st, &e);
     }
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":71,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"trace_call_path\",\"arguments\":{\"function_name\":\"n00\","
              "\"project\":\"depth-proj\",\"direction\":\"outbound\",\"depth\":1000}}}");
@@ -3957,7 +3957,7 @@ TEST(tool_trace_call_path_depth_clamped) {
 
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -3969,54 +3969,54 @@ TEST(tool_trace_call_path_depth_clamped) {
  * distinct symbols. RED before the pick_resolved_node real_def_count rule (response
  * merged callerA+callerB), GREEN after (response is ambiguous, no "callers"). */
 TEST(tool_trace_call_path_distinct_defs_not_over_unioned) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "ou-proj";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/ou");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/ou");
     /* two unrelated real definitions of "dupreal", DIFFERENT body spans */
-    cbm_node_t da = {.project = proj,
+    ani_node_t da = {.project = proj,
                      .label = "Function",
                      .name = "dupreal",
                      .qualified_name = "ou-proj.a.dupreal",
                      .file_path = "a.c",
                      .start_line = 10,
                      .end_line = 20}; /* span 10 */
-    cbm_node_t db = {.project = proj,
+    ani_node_t db = {.project = proj,
                      .label = "Function",
                      .name = "dupreal",
                      .qualified_name = "ou-proj.b.dupreal",
                      .file_path = "b.c",
                      .start_line = 10,
                      .end_line = 40}; /* span 30 (no tie) */
-    cbm_node_t ca = {.project = proj,
+    ani_node_t ca = {.project = proj,
                      .label = "Function",
                      .name = "callerA",
                      .qualified_name = "ou-proj.a.callerA",
                      .file_path = "a.c",
                      .start_line = 30,
                      .end_line = 40};
-    cbm_node_t cb = {.project = proj,
+    ani_node_t cb = {.project = proj,
                      .label = "Function",
                      .name = "callerB",
                      .qualified_name = "ou-proj.b.callerB",
                      .file_path = "b.c",
                      .start_line = 50,
                      .end_line = 60};
-    int64_t id_da = cbm_store_upsert_node(st, &da);
-    int64_t id_db = cbm_store_upsert_node(st, &db);
-    int64_t id_ca = cbm_store_upsert_node(st, &ca);
-    int64_t id_cb = cbm_store_upsert_node(st, &cb);
+    int64_t id_da = ani_store_upsert_node(st, &da);
+    int64_t id_db = ani_store_upsert_node(st, &db);
+    int64_t id_ca = ani_store_upsert_node(st, &ca);
+    int64_t id_cb = ani_store_upsert_node(st, &cb);
     ASSERT_GT(id_da, 0);
     ASSERT_GT(id_db, 0);
     ASSERT_GT(id_ca, 0);
     ASSERT_GT(id_cb, 0);
-    cbm_edge_t ea = {.project = proj, .source_id = id_ca, .target_id = id_da, .type = "CALLS"};
-    cbm_edge_t eb = {.project = proj, .source_id = id_cb, .target_id = id_db, .type = "CALLS"};
-    cbm_store_insert_edge(st, &ea);
-    cbm_store_insert_edge(st, &eb);
+    ani_edge_t ea = {.project = proj, .source_id = id_ca, .target_id = id_da, .type = "CALLS"};
+    ani_edge_t eb = {.project = proj, .source_id = id_cb, .target_id = id_db, .type = "CALLS"};
+    ani_store_insert_edge(st, &ea);
+    ani_store_insert_edge(st, &eb);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv,
         "{\"jsonrpc\":\"2.0\",\"id\":63,\"method\":\"tools/call\","
         "\"params\":{\"name\":\"trace_call_path\",\"arguments\":{\"function_name\":\"dupreal\","
@@ -4030,7 +4030,7 @@ TEST(tool_trace_call_path_distinct_defs_not_over_unioned) {
     ASSERT_NULL(strstr(inner, "\"callers\""));
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -4039,54 +4039,54 @@ TEST(tool_trace_call_path_distinct_defs_not_over_unioned) {
  * (one real callable def + a fragment), so it must stay non-ambiguous and the
  * caller sets from both nodes must be unioned. */
 TEST(tool_trace_call_path_dts_stub_unions_with_impl) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "dts-proj";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/dts");
-    cbm_node_t impl = {.project = proj,
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/dts");
+    ani_node_t impl = {.project = proj,
                        .label = "Function",
                        .name = "sym546",
                        .qualified_name = "dts-proj.impl.sym546",
                        .file_path = "src/sym.ts",
                        .start_line = 10,
                        .end_line = 30}; /* real body */
-    cbm_node_t stub = {.project = proj,
+    ani_node_t stub = {.project = proj,
                        .label = "Function",
                        .name = "sym546",
                        .qualified_name = "dts-proj.stub.sym546",
                        .file_path = "types/sym.d.ts",
                        .start_line = 5,
                        .end_line = 5}; /* body-less ambient decl */
-    cbm_node_t crel = {.project = proj,
+    ani_node_t crel = {.project = proj,
                        .label = "Function",
                        .name = "callerRel",
                        .qualified_name = "dts-proj.callerRel",
                        .file_path = "src/rel.ts",
                        .start_line = 1,
                        .end_line = 8};
-    cbm_node_t cali = {.project = proj,
+    ani_node_t cali = {.project = proj,
                        .label = "Function",
                        .name = "callerAlias",
                        .qualified_name = "dts-proj.callerAlias",
                        .file_path = "src/ali.ts",
                        .start_line = 1,
                        .end_line = 8};
-    int64_t id_impl = cbm_store_upsert_node(st, &impl);
-    int64_t id_stub = cbm_store_upsert_node(st, &stub);
-    int64_t id_crel = cbm_store_upsert_node(st, &crel);
-    int64_t id_cali = cbm_store_upsert_node(st, &cali);
+    int64_t id_impl = ani_store_upsert_node(st, &impl);
+    int64_t id_stub = ani_store_upsert_node(st, &stub);
+    int64_t id_crel = ani_store_upsert_node(st, &crel);
+    int64_t id_cali = ani_store_upsert_node(st, &cali);
     ASSERT_GT(id_impl, 0);
     ASSERT_GT(id_stub, 0);
     ASSERT_GT(id_crel, 0);
     ASSERT_GT(id_cali, 0);
     /* callers split by import style: relative -> impl, path-alias -> stub */
-    cbm_edge_t er = {.project = proj, .source_id = id_crel, .target_id = id_impl, .type = "CALLS"};
-    cbm_edge_t el = {.project = proj, .source_id = id_cali, .target_id = id_stub, .type = "CALLS"};
-    cbm_store_insert_edge(st, &er);
-    cbm_store_insert_edge(st, &el);
+    ani_edge_t er = {.project = proj, .source_id = id_crel, .target_id = id_impl, .type = "CALLS"};
+    ani_edge_t el = {.project = proj, .source_id = id_cali, .target_id = id_stub, .type = "CALLS"};
+    ani_store_insert_edge(st, &er);
+    ani_store_insert_edge(st, &el);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":64,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"trace_call_path\",\"arguments\":{\"function_name\":\"sym546\","
              "\"project\":\"dts-proj\",\"direction\":\"inbound\"}}}");
@@ -4099,99 +4099,99 @@ TEST(tool_trace_call_path_dts_stub_unions_with_impl) {
     ASSERT_NOT_NULL(strstr(inner, "callerAlias"));
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_delete_project_not_found) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"delete_project\","
                                    "\"arguments\":{\"project\":\"nonexistent\"}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "not_found"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_delete_project_mutation_guard_blocks_then_releases) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-mcp-delete-guard-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
+    snprintf(cache, sizeof(cache), "/tmp/ani-mcp-delete-guard-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
         PASS();
     }
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     const char *project = "guard-delete-project";
-    char db_path[CBM_SZ_1K];
+    char db_path[ANI_SZ_1K];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", cache, project);
-    cbm_store_t *setup = cbm_store_open_path(db_path);
+    ani_store_t *setup = ani_store_open_path(db_path);
     ASSERT_NOT_NULL(setup);
-    ASSERT_EQ(cbm_store_upsert_project(setup, project, "/tmp/guard-delete-project"), CBM_STORE_OK);
-    cbm_store_close(setup);
-    ASSERT_TRUE(cbm_file_exists(db_path));
+    ASSERT_EQ(ani_store_upsert_project(setup, project, "/tmp/guard-delete-project"), ANI_STORE_OK);
+    ani_store_close(setup);
+    ASSERT_TRUE(ani_file_exists(db_path));
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
     mcp_mutation_guard_probe_t probe = {.deny_begin_call = 1};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
 
     char *resp =
-        cbm_mcp_handle_tool(srv, "delete_project", "{\"project\":\"guard-delete-project\"}");
+        ani_mcp_handle_tool(srv, "delete_project", "{\"project\":\"guard-delete-project\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "blocked"));
     ASSERT_EQ(probe.begin_count, 1);
     ASSERT_EQ(probe.end_count, 0);
     ASSERT_STR_EQ(probe.begin_projects[0], project);
-    ASSERT_TRUE(cbm_file_exists(db_path));
+    ASSERT_TRUE(ani_file_exists(db_path));
     free(resp);
 
     probe.deny_begin_call = 0;
-    resp = cbm_mcp_handle_tool(srv, "delete_project", "{\"project\":\"guard-delete-project\"}");
+    resp = ani_mcp_handle_tool(srv, "delete_project", "{\"project\":\"guard-delete-project\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "deleted"));
     ASSERT_EQ(probe.begin_count, 2);
     ASSERT_EQ(probe.end_count, 1);
     ASSERT_STR_EQ(probe.begin_projects[1], project);
     ASSERT_STR_EQ(probe.end_projects[0], project);
-    ASSERT_FALSE(cbm_file_exists(db_path));
+    ASSERT_FALSE(ani_file_exists(db_path));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_project_db(cache, project);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
     PASS();
 }
 
 TEST(tool_index_repository_mutation_guard_blocks_before_local_worker) {
-    char root[CBM_SZ_1K];
-    (void)snprintf(root, sizeof(root), "%s/cbm-index-guard-XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(root));
+    char root[ANI_SZ_1K];
+    (void)snprintf(root, sizeof(root), "%s/ani-index-guard-XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(root));
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
     mcp_mutation_guard_probe_t probe = {.deny_begin_call = 1};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
 
-    char args[CBM_SZ_2K];
+    char args[ANI_SZ_2K];
     (void)snprintf(args, sizeof(args),
                    "{\"repo_path\":\"%s\",\"name\":\"GuardedIndex\","
                    "\"mode\":\"fast\"}",
                    root);
-    int spawn_before = cbm_index_supervisor_spawn_count();
-    char *response = cbm_mcp_handle_tool(srv, "index_repository", args);
-    int spawn_after = cbm_index_supervisor_spawn_count();
+    int spawn_before = ani_index_supervisor_spawn_count();
+    char *response = ani_mcp_handle_tool(srv, "index_repository", args);
+    int spawn_after = ani_index_supervisor_spawn_count();
 
     ASSERT_NOT_NULL(response);
     ASSERT_NOT_NULL(strstr(response, "blocked"));
@@ -4201,16 +4201,16 @@ TEST(tool_index_repository_mutation_guard_blocks_before_local_worker) {
     ASSERT_EQ(spawn_after, spawn_before);
 
     free(response);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     (void)th_rmtree(root);
     PASS();
 }
 
 TEST(tool_get_architecture_empty) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"get_architecture\","
                                    "\"arguments\":{\"project\":\"nonexistent\"}}}");
     ASSERT_NOT_NULL(resp);
@@ -4218,29 +4218,29 @@ TEST(tool_get_architecture_empty) {
     ASSERT_TRUE(strstr(resp, "not found") || strstr(resp, "not indexed"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 /* Regression for #281: handle_get_architecture must actually call
- * cbm_store_get_architecture and surface its sections. Before the fix
+ * ani_store_get_architecture and surface its sections. Before the fix
  * only label/edge histograms were emitted regardless of which aspects
  * were requested. The store-side arch_entry_points query reads
  * properties.is_entry_point on Function nodes, so we tag one node and
  * assert the resulting JSON surfaces an "entry_points" array containing
  * the tagged function — which is impossible without the wiring. */
 TEST(tool_get_architecture_emits_populated_sections) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
 
     const char *proj = "arch-test";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/arch-test");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/arch-test");
 
-    cbm_node_t main_fn = {0};
+    ani_node_t main_fn = {0};
     main_fn.project = proj;
     main_fn.label = "Function";
     main_fn.name = "main";
@@ -4249,9 +4249,9 @@ TEST(tool_get_architecture_emits_populated_sections) {
     main_fn.start_line = 1;
     main_fn.end_line = 3;
     main_fn.properties_json = "{\"is_entry_point\":true}";
-    ASSERT_GT(cbm_store_upsert_node(st, &main_fn), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &main_fn), 0);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":91,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"get_architecture\","
              "\"arguments\":{\"project\":\"arch-test\",\"aspects\":[\"all\"]}}}");
@@ -4261,14 +4261,14 @@ TEST(tool_get_architecture_emits_populated_sections) {
 
     /* The handler always emits node/edge counts and schema histograms;
      * those existed before #281. The "entry_points" array only appears
-     * when cbm_store_get_architecture is actually called and its result
+     * when ani_store_get_architecture is actually called and its result
      * is serialized — which is exactly what #281 wires up. */
     ASSERT_NOT_NULL(strstr(inner, "entry_points:"));
     ASSERT_NOT_NULL(strstr(inner, "main"));
 
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -4278,17 +4278,17 @@ TEST(tool_get_architecture_emits_populated_sections) {
  * mcp.c), so aspects=["overview"] silently degraded to just
  * {total_nodes,total_edges}. RED on unfixed code: no "entry_points" key. */
 TEST(tool_get_architecture_overview_compact_subset_pr560) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
 
     const char *proj = "arch560";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/arch560");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/arch560");
 
-    cbm_node_t main_fn = {0};
+    ani_node_t main_fn = {0};
     main_fn.project = proj;
     main_fn.label = "Function";
     main_fn.name = "main";
@@ -4297,19 +4297,19 @@ TEST(tool_get_architecture_overview_compact_subset_pr560) {
     main_fn.start_line = 1;
     main_fn.end_line = 3;
     main_fn.properties_json = "{\"is_entry_point\":true}";
-    ASSERT_GT(cbm_store_upsert_node(st, &main_fn), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &main_fn), 0);
 
     /* A File node so the file_tree aspect has real content — makes the
      * "overview drops file_tree" assertion below non-vacuous. */
-    cbm_node_t file_node = {.project = proj,
+    ani_node_t file_node = {.project = proj,
                             .label = "File",
                             .name = "main.go",
                             .qualified_name = "arch560.cmd.main.go",
                             .file_path = "cmd/main.go"};
-    ASSERT_GT(cbm_store_upsert_node(st, &file_node), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &file_node), 0);
 
     /* Sanity: with "all", both entry_points and file_tree surface. */
-    char *resp_all = cbm_mcp_server_handle(
+    char *resp_all = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":560,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"get_architecture\","
              "\"arguments\":{\"project\":\"arch560\",\"aspects\":[\"all\"]}}}");
@@ -4323,7 +4323,7 @@ TEST(tool_get_architecture_overview_compact_subset_pr560) {
 
     /* "overview": substantive content (entry_points, node_labels) but NO
      * file_tree section. */
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":561,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"get_architecture\","
              "\"arguments\":{\"project\":\"arch560\",\"aspects\":[\"overview\"]}}}");
@@ -4336,7 +4336,7 @@ TEST(tool_get_architecture_overview_compact_subset_pr560) {
 
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -4346,17 +4346,17 @@ TEST(tool_get_architecture_overview_compact_subset_pr560) {
  * matched, so a typo like "bogus_aspect" produced a silent near-empty payload
  * with isError:false. RED on unfixed code: no isError, no "Unknown aspect". */
 TEST(tool_get_architecture_rejects_unknown_aspect_pr560) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
 
     const char *proj = "arch560v";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/arch560v");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/arch560v");
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":562,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"get_architecture\","
              "\"arguments\":{\"project\":\"arch560v\",\"aspects\":[\"bogus_aspect\"]}}}");
@@ -4368,7 +4368,7 @@ TEST(tool_get_architecture_rejects_unknown_aspect_pr560) {
     ASSERT_NOT_NULL(strstr(resp, "file_tree"));
 
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -4380,17 +4380,17 @@ TEST(tool_get_architecture_rejects_unknown_aspect_pr560) {
  * not found or not indexed" even though the project is indexed. Mirrors
  * tool_get_architecture_emits_populated_sections but with the alias key. */
 TEST(tool_get_architecture_accepts_project_name_alias_issue640) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
 
     const char *proj = "alias640";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/alias640");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/alias640");
 
-    cbm_node_t main_fn = {0};
+    ani_node_t main_fn = {0};
     main_fn.project = proj;
     main_fn.label = "Function";
     main_fn.name = "main";
@@ -4399,10 +4399,10 @@ TEST(tool_get_architecture_accepts_project_name_alias_issue640) {
     main_fn.start_line = 1;
     main_fn.end_line = 3;
     main_fn.properties_json = "{\"is_entry_point\":true}";
-    ASSERT_GT(cbm_store_upsert_node(st, &main_fn), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &main_fn), 0);
 
     /* Caller passes `project_name` (the natural guess) instead of `project`. */
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":640,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"get_architecture\","
              "\"arguments\":{\"project_name\":\"alias640\",\"aspects\":[\"all\"]}}}");
@@ -4417,24 +4417,24 @@ TEST(tool_get_architecture_accepts_project_name_alias_issue640) {
 
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 /* Reproduce-first for #640: the alias must apply across query handlers, not
  * just get_architecture. search_graph with `project_name` must resolve too. */
 TEST(tool_search_graph_accepts_project_name_alias_issue640) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
 
     const char *proj = "alias640b";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/alias640b");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/alias640b");
 
-    cbm_node_t fn = {0};
+    ani_node_t fn = {0};
     fn.project = proj;
     fn.label = "Function";
     fn.name = "WidgetHandler";
@@ -4442,9 +4442,9 @@ TEST(tool_search_graph_accepts_project_name_alias_issue640) {
     fn.file_path = "svc/widget.go";
     fn.start_line = 1;
     fn.end_line = 2;
-    ASSERT_GT(cbm_store_upsert_node(st, &fn), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &fn), 0);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":641,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_graph\","
              "\"arguments\":{\"project_name\":\"alias640b\",\"name_pattern\":\"Widget.*\"}}}");
@@ -4457,11 +4457,11 @@ TEST(tool_search_graph_accepts_project_name_alias_issue640) {
 
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
-/* #1025: agents pass the repo FOLDER name ("codebase-memory-mcp"), but
+/* #1025: agents pass the repo FOLDER name ("ani"), but
  * indexed project names derive from the full path
  * (E:\project\graph\x -> "E-project-graph-x"), so exact lookup fails with
  * "project not found" while list_projects clearly shows the project. A
@@ -4469,9 +4469,9 @@ TEST(tool_search_graph_accepts_project_name_alias_issue640) {
  * tail ("-<name>" suffix) must resolve to it; zero or several matches keep
  * the existing error. Runs against real cache-dir .db files (the resolution
  * scans filenames), so this test indexes real fixtures under an overridden
- * CBM_CACHE_DIR. */
+ * ANI_CACHE_DIR. */
 static void i1025_write_repo(const char *dir, const char *fn_name) {
-    char path[CBM_SZ_512];
+    char path[ANI_SZ_512];
     snprintf(path, sizeof(path), "%s/mod.py", dir);
     FILE *f = fopen(path, "w");
     if (!f)
@@ -4481,47 +4481,47 @@ static void i1025_write_repo(const char *dir, const char *fn_name) {
 }
 
 TEST(tool_project_arg_resolves_unique_tail_issue1025) {
-    char repo_a[CBM_SZ_256];
-    char repo_b[CBM_SZ_256];
-    char repo_c[CBM_SZ_256];
-    char cache[CBM_SZ_256];
-    snprintf(repo_a, sizeof(repo_a), "/tmp/cbm-i1025a-XXXXXX");
-    snprintf(repo_b, sizeof(repo_b), "/tmp/cbm-i1025b-XXXXXX");
-    snprintf(repo_c, sizeof(repo_c), "/tmp/cbm-i1025c-XXXXXX");
-    snprintf(cache, sizeof(cache), "/tmp/cbm-i1025d-XXXXXX");
-    if (!cbm_mkdtemp(repo_a) || !cbm_mkdtemp(repo_b) || !cbm_mkdtemp(repo_c) ||
-        !cbm_mkdtemp(cache)) {
+    char repo_a[ANI_SZ_256];
+    char repo_b[ANI_SZ_256];
+    char repo_c[ANI_SZ_256];
+    char cache[ANI_SZ_256];
+    snprintf(repo_a, sizeof(repo_a), "/tmp/ani-i1025a-XXXXXX");
+    snprintf(repo_b, sizeof(repo_b), "/tmp/ani-i1025b-XXXXXX");
+    snprintf(repo_c, sizeof(repo_c), "/tmp/ani-i1025c-XXXXXX");
+    snprintf(cache, sizeof(cache), "/tmp/ani-i1025d-XXXXXX");
+    if (!ani_mkdtemp(repo_a) || !ani_mkdtemp(repo_b) || !ani_mkdtemp(repo_c) ||
+        !ani_mkdtemp(cache)) {
         FAIL("mkdtemp failed");
     }
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
-    char *saved_cache_copy = saved_cache ? cbm_strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
-    cbm_setenv("CBM_INDEX_SUPERVISOR", "0", 1);
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
+    char *saved_cache_copy = saved_cache ? ani_strdup(saved_cache) : NULL;
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_INDEX_SUPERVISOR", "0", 1);
 
     i1025_write_repo(repo_a, "unique_tail_target");
     i1025_write_repo(repo_b, "amb_one");
     i1025_write_repo(repo_c, "amb_two");
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
-    char args[CBM_SZ_1K];
+    char args[ANI_SZ_1K];
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\",\"name\":\"E-project-graph-suffix1025\"}",
              repo_a);
-    char *r = cbm_mcp_handle_tool(srv, "index_repository", args);
+    char *r = ani_mcp_handle_tool(srv, "index_repository", args);
     ASSERT_NOT_NULL(r);
     free(r);
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\",\"name\":\"F-alpha-amb1025\"}", repo_b);
-    r = cbm_mcp_handle_tool(srv, "index_repository", args);
+    r = ani_mcp_handle_tool(srv, "index_repository", args);
     ASSERT_NOT_NULL(r);
     free(r);
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\",\"name\":\"G-beta-amb1025\"}", repo_c);
-    r = cbm_mcp_handle_tool(srv, "index_repository", args);
+    r = ani_mcp_handle_tool(srv, "index_repository", args);
     ASSERT_NOT_NULL(r);
     free(r);
 
     /* 1. Unique tail resolves (RED today: "project not found"). */
-    r = cbm_mcp_handle_tool(srv, "search_graph",
+    r = ani_mcp_handle_tool(srv, "search_graph",
                             "{\"project\":\"suffix1025\",\"name_pattern\":\".*target.*\"}");
     ASSERT_NOT_NULL(r);
     if (strstr(r, "project not found")) {
@@ -4532,26 +4532,26 @@ TEST(tool_project_arg_resolves_unique_tail_issue1025) {
     free(r);
 
     /* 2. Ambiguous tail stays an error (never guess between projects). */
-    r = cbm_mcp_handle_tool(srv, "search_graph",
+    r = ani_mcp_handle_tool(srv, "search_graph",
                             "{\"project\":\"amb1025\",\"name_pattern\":\".*\"}");
     ASSERT_NOT_NULL(r);
     ASSERT_NOT_NULL(strstr(r, "project not found"));
     free(r);
 
     /* 3. Exact full name keeps working unchanged. */
-    r = cbm_mcp_handle_tool(srv, "search_graph",
+    r = ani_mcp_handle_tool(srv, "search_graph",
                             "{\"project\":\"E-project-graph-suffix1025\","
                             "\"name_pattern\":\".*target.*\"}");
     ASSERT_NOT_NULL(r);
     ASSERT_NULL(strstr(r, "project not found"));
     free(r);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     if (saved_cache_copy) {
-        cbm_setenv("CBM_CACHE_DIR", saved_cache_copy, 1);
+        ani_setenv("ANI_CACHE_DIR", saved_cache_copy, 1);
         free(saved_cache_copy);
     } else {
-        cbm_unsetenv("CBM_CACHE_DIR");
+        ani_unsetenv("ANI_CACHE_DIR");
     }
     th_rmtree(repo_a);
     th_rmtree(repo_b);
@@ -4562,45 +4562,45 @@ TEST(tool_project_arg_resolves_unique_tail_issue1025) {
 
 /* Regression for #604: path scopes architecture totals and content. */
 TEST(tool_get_architecture_path_scoping) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
 
     const char *proj = "arch-path";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/arch-path");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/arch-path");
 
-    cbm_node_t pkg_global = {.project = proj,
+    ani_node_t pkg_global = {.project = proj,
                              .label = "Package",
                              .name = "Django",
                              .qualified_name = "arch-path.Django",
                              .file_path = "vendor/django/__init__.py"};
-    cbm_store_upsert_node(st, &pkg_global);
+    ani_store_upsert_node(st, &pkg_global);
 
-    cbm_node_t pkg_local = {.project = proj,
+    ani_node_t pkg_local = {.project = proj,
                             .label = "Package",
                             .name = "hoa",
                             .qualified_name = "arch-path.hoa",
                             .file_path = "apps/hoa/main.go"};
-    cbm_store_upsert_node(st, &pkg_local);
+    ani_store_upsert_node(st, &pkg_local);
 
-    cbm_node_t f_hoa = {.project = proj,
+    ani_node_t f_hoa = {.project = proj,
                         .label = "File",
                         .name = "main.go",
                         .qualified_name = "arch-path.apps.hoa.main.go",
                         .file_path = "apps/hoa/main.go"};
-    cbm_store_upsert_node(st, &f_hoa);
+    ani_store_upsert_node(st, &f_hoa);
 
-    cbm_node_t f_other = {.project = proj,
+    ani_node_t f_other = {.project = proj,
                           .label = "File",
                           .name = "other.go",
                           .qualified_name = "arch-path.other.go",
                           .file_path = "lib/other.go"};
-    cbm_store_upsert_node(st, &f_other);
+    ani_store_upsert_node(st, &f_other);
 
-    char *resp_root = cbm_mcp_server_handle(
+    char *resp_root = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":92,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"get_architecture\","
              "\"arguments\":{\"project\":\"arch-path\",\"aspects\":[\"packages\"]}}}");
@@ -4610,7 +4610,7 @@ TEST(tool_get_architecture_path_scoping) {
     ASSERT_NOT_NULL(strstr(inner_root, "Django"));
 
     char *resp_scoped =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":93,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":93,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"get_architecture\","
                                    "\"arguments\":{\"project\":\"arch-path\",\"path\":\"apps/hoa\","
                                    "\"aspects\":[\"packages\"]}}}");
@@ -4646,15 +4646,15 @@ TEST(tool_get_architecture_path_scoping) {
     free(resp_scoped);
     free(inner_root);
     free(resp_root);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_query_graph_missing_query) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":23,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":23,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"query_graph\","
                                    "\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
@@ -4662,7 +4662,7 @@ TEST(tool_query_graph_missing_query) {
     ASSERT_NOT_NULL(strstr(resp, "required"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -4671,40 +4671,40 @@ TEST(tool_query_graph_missing_query) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(tool_index_repository_missing_path) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"index_repository\","
                                    "\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "required"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_get_code_snippet_missing_qn) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"get_code_snippet\","
                                    "\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "required"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_get_code_snippet_not_found) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":32,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":32,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"get_code_snippet\","
                                    "\"arguments\":{\"qualified_name\":\"nonexistent.func\","
                                    "\"project\":\"nonexistent\"}}}");
@@ -4712,22 +4712,22 @@ TEST(tool_get_code_snippet_not_found) {
     ASSERT_NOT_NULL(strstr(resp, "not found"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_search_code_missing_pattern) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":33,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":33,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"search_code\","
                                    "\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "required"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -4737,22 +4737,22 @@ TEST(tool_search_code_missing_pattern) {
  * so well-behaved clients never send it, and the handler clamps because a
  * schema is a request to the client, never a guarantee to the server. */
 TEST(tool_search_code_negative_limit_is_not_echoed_issue1511) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":35,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":35,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"search_code\","
                                    "\"arguments\":{\"pattern\":\"func main\","
                                    "\"project\":\"nonexistent\",\"limit\":-5}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NULL(strstr(resp, "results: -5"));
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_search_code_limit_declares_a_minimum_issue1511) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    char *resp = cbm_mcp_server_handle(
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":36,\"method\":\"tools/list\",\"params\":{}}");
     ASSERT_NOT_NULL(resp);
 
@@ -4779,17 +4779,17 @@ TEST(tool_search_code_limit_declares_a_minimum_issue1511) {
     bool declared = minimum && yyjson_is_int(minimum) && yyjson_get_int(minimum) >= 1;
     yyjson_doc_free(doc);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
 
     ASSERT_TRUE(declared);
     PASS();
 }
 
 TEST(tool_search_code_no_project) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":34,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":34,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"search_code\","
                                    "\"arguments\":{\"pattern\":\"func main\","
                                    "\"project\":\"nonexistent\"}}}");
@@ -4799,13 +4799,13 @@ TEST(tool_search_code_no_project) {
                 strstr(resp, "required"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(search_code_multi_word) {
     char tmp[512];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* Multi-word query "HandleRequest error" — should find the line
@@ -4817,7 +4817,7 @@ TEST(search_code_multi_word) {
              "\"arguments\":{\"pattern\":\"HandleRequest error\","
              "\"project\":\"test-project\"}}}");
 
-    char *resp = cbm_mcp_server_handle(srv, req);
+    char *resp = ani_mcp_server_handle(srv, req);
     ASSERT_NOT_NULL(resp);
     /* Should find at least one result (not zero) */
     ASSERT_TRUE(strstr(resp, "HandleRequest") != NULL);
@@ -4826,7 +4826,7 @@ TEST(search_code_multi_word) {
     free(resp);
 
     cleanup_snippet_dir(tmp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -4835,43 +4835,43 @@ static bool is_valid_json_response(const char *json);
 
 TEST(search_code_full_preserves_utf8_source) {
     char tmp[512];
-    snprintf(tmp, sizeof(tmp), "/tmp/cbm_srch_utf8_XXXXXX");
-    ASSERT_TRUE(cbm_mkdtemp(tmp) != NULL);
+    snprintf(tmp, sizeof(tmp), "/tmp/ani_srch_utf8_XXXXXX");
+    ASSERT_TRUE(ani_mkdtemp(tmp) != NULL);
 
     char project_dir[640];
     snprintf(project_dir, sizeof(project_dir), "%s/project", tmp);
-    ASSERT_EQ(cbm_mkdir(project_dir), 0);
+    ASSERT_EQ(ani_mkdir(project_dir), 0);
     char design_dir[768];
     snprintf(design_dir, sizeof(design_dir), "%s/design", project_dir);
-    ASSERT_EQ(cbm_mkdir(design_dir), 0);
+    ASSERT_EQ(ani_mkdir(design_dir), 0);
 
     char source_path[768];
     snprintf(source_path, sizeof(source_path), "%s/design.md", design_dir);
-    FILE *fp = cbm_fopen(source_path, "wb");
+    FILE *fp = ani_fopen(source_path, "wb");
     ASSERT_NOT_NULL(fp);
     const char source[] = "# accounting-design\nРусский текст: бухгалтерский учет.\n";
     ASSERT_EQ(fwrite(source, 1, sizeof(source) - SKIP_ONE, fp), sizeof(source) - SKIP_ONE);
     ASSERT_EQ(fclose(fp), 0);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
     const char *project = "utf8-search";
-    cbm_mcp_server_set_project(srv, project);
-    cbm_store_upsert_project(st, project, project_dir);
+    ani_mcp_server_set_project(srv, project);
+    ani_store_upsert_project(st, project, project_dir);
 
-    cbm_node_t section = {.project = project,
+    ani_node_t section = {.project = project,
                           .label = "Section",
                           .name = "accounting-design",
                           .qualified_name = "utf8-search.design.accounting-design",
                           .file_path = "design/design.md",
                           .start_line = 1,
                           .end_line = 2};
-    ASSERT_GT(cbm_store_upsert_node(st, &section), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &section), 0);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":97,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":97,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"search_code\",\"arguments\":{"
                                    "\"project\":\"utf8-search\",\"pattern\":\"accounting-design\","
                                    "\"file_pattern\":\"*.md\",\"path_filter\":\"^design/\","
@@ -4894,41 +4894,41 @@ TEST(search_code_full_preserves_utf8_source) {
 
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
-    cbm_unlink(source_path);
-    cbm_rmdir(design_dir);
-    cbm_rmdir(project_dir);
-    cbm_rmdir(tmp);
+    ani_mcp_server_free(srv);
+    ani_unlink(source_path);
+    ani_rmdir(design_dir);
+    ani_rmdir(project_dir);
+    ani_rmdir(tmp);
     PASS();
 }
 
 TEST(search_code_raw_match_preserves_utf8_content) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     char raw_path[512];
     snprintf(raw_path, sizeof(raw_path), "%s/project/raw.md", tmp);
     const char raw_source[] = "header\nraw-Русский content\n";
-    FILE *fp = cbm_fopen(raw_path, "wb");
+    FILE *fp = ani_fopen(raw_path, "wb");
     ASSERT_NOT_NULL(fp);
     ASSERT_EQ(fwrite(raw_source, 1, sizeof(raw_source) - SKIP_ONE, fp),
               sizeof(raw_source) - SKIP_ONE);
     ASSERT_EQ(fclose(fp), 0);
 
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    cbm_node_t node = {.project = "test-project",
+    ani_node_t node = {.project = "test-project",
                        .label = "Section",
                        .name = "raw",
                        .qualified_name = "test-project.raw",
                        .file_path = "raw.md",
                        .start_line = 1,
                        .end_line = 1};
-    ASSERT_GT(cbm_store_upsert_node(st, &node), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &node), 0);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":98,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":98,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"search_code\",\"arguments\":{"
                                    "\"project\":\"test-project\",\"pattern\":\"raw-\","
                                    "\"file_pattern\":\"*.md\",\"format\":\"json\",\"limit\":5}}}");
@@ -4948,38 +4948,38 @@ TEST(search_code_raw_match_preserves_utf8_content) {
 
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
 
 TEST(search_code_context_preserves_utf8_context) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     char context_path[512];
     snprintf(context_path, sizeof(context_path), "%s/project/context.md", tmp);
     const char context_source[] = "before-до\ncontext-needle\nпосле-после\n";
-    FILE *fp = cbm_fopen(context_path, "wb");
+    FILE *fp = ani_fopen(context_path, "wb");
     ASSERT_NOT_NULL(fp);
     ASSERT_EQ(fwrite(context_source, 1, sizeof(context_source) - SKIP_ONE, fp),
               sizeof(context_source) - SKIP_ONE);
     ASSERT_EQ(fclose(fp), 0);
 
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    cbm_node_t node = {.project = "test-project",
+    ani_node_t node = {.project = "test-project",
                        .label = "Section",
                        .name = "context",
                        .qualified_name = "test-project.context",
                        .file_path = "context.md",
                        .start_line = 1,
                        .end_line = 3};
-    ASSERT_GT(cbm_store_upsert_node(st, &node), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &node), 0);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":99,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":99,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"search_code\",\"arguments\":{"
                                    "\"project\":\"test-project\",\"pattern\":\"context-needle\","
                                    "\"format\":\"json\",\"context\":1,\"limit\":5}}}");
@@ -5013,14 +5013,14 @@ TEST(search_code_context_preserves_utf8_context) {
 
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
 
 TEST(search_code_invalid_utf8_still_returns_valid_json) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     char invalid_path[512];
@@ -5029,24 +5029,24 @@ TEST(search_code_invalid_utf8_still_returns_valid_json) {
         'i', 'n',  'v', 'a', 'l', 'i', 'd', '-', 'n', 'e', 'e',  'd',  'l',
         'e', '\n', 'c', 'o', 'n', 't', 'e', 'x', 't', ' ', 0xFF, '\n',
     };
-    FILE *fp = cbm_fopen(invalid_path, "wb");
+    FILE *fp = ani_fopen(invalid_path, "wb");
     ASSERT_NOT_NULL(fp);
     ASSERT_EQ(fwrite(invalid_source, 1, sizeof(invalid_source), fp), sizeof(invalid_source));
     ASSERT_EQ(fclose(fp), 0);
 
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    cbm_node_t node = {.project = "test-project",
+    ani_node_t node = {.project = "test-project",
                        .label = "Section",
                        .name = "invalid",
                        .qualified_name = "test-project.invalid",
                        .file_path = "invalid.md",
                        .start_line = 1,
                        .end_line = 2};
-    ASSERT_GT(cbm_store_upsert_node(st, &node), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &node), 0);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":100,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":100,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"search_code\",\"arguments\":{"
                                    "\"project\":\"test-project\",\"pattern\":\"invalid-needle\","
                                    "\"mode\":\"full\",\"format\":\"json\",\"limit\":5}}}");
@@ -5069,7 +5069,7 @@ TEST(search_code_invalid_utf8_still_returns_valid_json) {
 
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -5084,15 +5084,15 @@ TEST(search_code_invalid_utf8_still_returns_valid_json) {
  * which already handles spaces, so this asserts correct behavior there too. */
 TEST(search_code_scoped_path_with_spaces_issue687) {
     char tmp[512];
-    snprintf(tmp, sizeof(tmp), "/tmp/cbm_srch_space_XXXXXX");
-    if (!cbm_mkdtemp(tmp)) {
-        FAIL("cbm_mkdtemp failed");
+    snprintf(tmp, sizeof(tmp), "/tmp/ani_srch_space_XXXXXX");
+    if (!ani_mkdtemp(tmp)) {
+        FAIL("ani_mkdtemp failed");
     }
 
     /* Project root deliberately contains a space. */
     char proj_dir[640];
     snprintf(proj_dir, sizeof(proj_dir), "%s/my project", tmp);
-    cbm_mkdir(proj_dir);
+    ani_mkdir(proj_dir);
 
     char src_path[768];
     snprintf(src_path, sizeof(src_path), "%s/main.go", proj_dir);
@@ -5105,26 +5105,26 @@ TEST(search_code_scoped_path_with_spaces_issue687) {
     fprintf(fp, "package main\n\nfunc HandleRequest() error {\n\treturn nil\n}\n");
     fclose(fp);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
     const char *proj = "space-search";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, proj_dir);
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, proj_dir);
 
-    /* A node so the file is "indexed" (cbm_store_list_files -> scoped grep path)
+    /* A node so the file is "indexed" (ani_store_list_files -> scoped grep path)
      * and the grep hit classifies to a result. */
-    cbm_node_t n = {.project = proj,
+    ani_node_t n = {.project = proj,
                     .label = "Function",
                     .name = "HandleRequest",
                     .qualified_name = "space-search.main.HandleRequest",
                     .file_path = "main.go",
                     .start_line = 3,
                     .end_line = 5};
-    ASSERT_GT(cbm_store_upsert_node(st, &n), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &n), 0);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":94,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_code\","
              "\"arguments\":{\"pattern\":\"HandleRequest\",\"project\":\"space-search\"}}}");
@@ -5145,7 +5145,7 @@ TEST(search_code_scoped_path_with_spaces_issue687) {
 
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     unlink(src_path);
     rmdir(proj_dir);
     rmdir(tmp);
@@ -5160,48 +5160,48 @@ TEST(search_code_scoped_path_with_spaces_issue687) {
  * Select-String sees the LiteralPath. */
 TEST(search_code_scoped_path_with_cjk_root_issue903) {
     char tmp[512];
-    snprintf(tmp, sizeof(tmp), "%s/cbm_srch_cjk_XXXXXX", cbm_tmpdir());
-    if (!cbm_mkdtemp(tmp)) {
-        FAIL("cbm_mkdtemp failed");
+    snprintf(tmp, sizeof(tmp), "%s/ani_srch_cjk_XXXXXX", ani_tmpdir());
+    if (!ani_mkdtemp(tmp)) {
+        FAIL("ani_mkdtemp failed");
     }
 
     char proj_dir[640];
     snprintf(proj_dir, sizeof(proj_dir), "%s/%s", tmp,
              "\xE4\xB8\xAD\xE6\x96\x87\xE9\xA1\xB9\xE7\x9B\xAE");
-    if (!cbm_mkdir_p(proj_dir, 0755)) {
-        cbm_rmdir(tmp);
+    if (!ani_mkdir_p(proj_dir, 0755)) {
+        ani_rmdir(tmp);
         FAIL("cannot create CJK project dir");
     }
 
     char src_path[768];
     snprintf(src_path, sizeof(src_path), "%s/main.go", proj_dir);
-    FILE *fp = cbm_fopen(src_path, "wb");
+    FILE *fp = ani_fopen(src_path, "wb");
     if (!fp) {
-        cbm_rmdir(proj_dir);
-        cbm_rmdir(tmp);
+        ani_rmdir(proj_dir);
+        ani_rmdir(tmp);
         FAIL("cannot write source file under CJK path");
     }
     fprintf(fp, "package main\n\nfunc HandleRequest() error {\n\treturn nil\n}\n");
     fclose(fp);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
     const char *proj = "cjk-search";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, proj_dir);
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, proj_dir);
 
-    cbm_node_t n = {.project = proj,
+    ani_node_t n = {.project = proj,
                     .label = "Function",
                     .name = "HandleRequest",
                     .qualified_name = "cjk-search.main.HandleRequest",
                     .file_path = "main.go",
                     .start_line = 3,
                     .end_line = 5};
-    ASSERT_GT(cbm_store_upsert_node(st, &n), 0);
+    ASSERT_GT(ani_store_upsert_node(st, &n), 0);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":903,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_code\","
              "\"arguments\":{\"pattern\":\"HandleRequest\",\"project\":\"cjk-search\"}}}");
@@ -5221,10 +5221,10 @@ TEST(search_code_scoped_path_with_cjk_root_issue903) {
 
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
-    cbm_unlink(src_path);
-    cbm_rmdir(proj_dir);
-    cbm_rmdir(tmp);
+    ani_mcp_server_free(srv);
+    ani_unlink(src_path);
+    ani_rmdir(proj_dir);
+    ani_rmdir(tmp);
     PASS();
 }
 #endif
@@ -5232,18 +5232,18 @@ TEST(search_code_scoped_path_with_cjk_root_issue903) {
 /* Shared fixture for the path_filter prefilter tests (PR #756 distilled):
  * a project with two indexed files that both contain the search pattern —
  * src/handler.go (inside the filter) and vendor/other.go (outside it). */
-static cbm_mcp_server_t *setup_prefilter_server(char *tmp, size_t tmp_sz, char *src_path,
+static ani_mcp_server_t *setup_prefilter_server(char *tmp, size_t tmp_sz, char *src_path,
                                                 size_t src_sz, char *vendor_path,
                                                 size_t vendor_sz) {
-    snprintf(tmp, tmp_sz, "/tmp/cbm_srch_pref_XXXXXX");
-    if (!cbm_mkdtemp(tmp)) {
+    snprintf(tmp, tmp_sz, "/tmp/ani_srch_pref_XXXXXX");
+    if (!ani_mkdtemp(tmp)) {
         return NULL;
     }
     char dir[640];
     snprintf(dir, sizeof(dir), "%s/src", tmp);
-    cbm_mkdir(dir);
+    ani_mkdir(dir);
     snprintf(dir, sizeof(dir), "%s/vendor", tmp);
-    cbm_mkdir(dir);
+    ani_mkdir(dir);
 
     snprintf(src_path, src_sz, "%s/src/handler.go", tmp);
     snprintf(vendor_path, vendor_sz, "%s/vendor/other.go", tmp);
@@ -5260,31 +5260,31 @@ static cbm_mcp_server_t *setup_prefilter_server(char *tmp, size_t tmp_sz, char *
     fprintf(fp, "package vendored\n\nfunc HandleRequest() error {\n\treturn nil\n}\n");
     fclose(fp);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     if (!srv) {
         return NULL;
     }
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "prefilter-search";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, tmp);
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, tmp);
 
-    cbm_node_t n1 = {.project = proj,
+    ani_node_t n1 = {.project = proj,
                      .label = "Function",
                      .name = "HandleRequest",
                      .qualified_name = "prefilter-search.main.HandleRequest",
                      .file_path = "src/handler.go",
                      .start_line = 3,
                      .end_line = 5};
-    cbm_node_t n2 = {.project = proj,
+    ani_node_t n2 = {.project = proj,
                      .label = "Function",
                      .name = "HandleRequest",
                      .qualified_name = "prefilter-search.vendored.HandleRequest",
                      .file_path = "vendor/other.go",
                      .start_line = 3,
                      .end_line = 5};
-    if (cbm_store_upsert_node(st, &n1) <= 0 || cbm_store_upsert_node(st, &n2) <= 0) {
-        cbm_mcp_server_free(srv);
+    if (ani_store_upsert_node(st, &n1) <= 0 || ani_store_upsert_node(st, &n2) <= 0) {
+        ani_mcp_server_free(srv);
         return NULL;
     }
     return srv;
@@ -5310,11 +5310,11 @@ static void cleanup_prefilter_dir(const char *tmp, const char *src_path, const c
  * produced the same results): the change is results-preserving perf-only. */
 TEST(search_code_path_filter_prefilter_keeps_matches) {
     char tmp[512], src_path[768], vendor_path[768];
-    cbm_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
+    ani_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
                                                    vendor_path, sizeof(vendor_path));
     ASSERT_NOT_NULL(srv);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":95,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_code\","
              "\"arguments\":{\"pattern\":\"HandleRequest\",\"project\":\"prefilter-search\","
@@ -5342,7 +5342,7 @@ TEST(search_code_path_filter_prefilter_keeps_matches) {
 
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_prefilter_dir(tmp, src_path, vendor_path);
     PASS();
 }
@@ -5357,11 +5357,11 @@ TEST(search_code_path_filter_prefilter_keeps_matches) {
  * unreachable on main): guards the edge the prefilter introduces. */
 TEST(search_code_path_filter_matches_nothing) {
     char tmp[512], src_path[768], vendor_path[768];
-    cbm_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
+    ani_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
                                                    vendor_path, sizeof(vendor_path));
     ASSERT_NOT_NULL(srv);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":96,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_code\","
              "\"arguments\":{\"pattern\":\"HandleRequest\",\"project\":\"prefilter-search\","
@@ -5393,37 +5393,37 @@ TEST(search_code_path_filter_matches_nothing) {
 
     free(inner);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_prefilter_dir(tmp, src_path, vendor_path);
     PASS();
 }
 
 TEST(search_code_file_pattern_prefilter_boundaries) {
-    ASSERT_TRUE(cbm_search_code_file_pattern_can_prefilter("*.pas"));
-    ASSERT_TRUE(cbm_search_code_file_pattern_can_prefilter("*.PAS"));
-    ASSERT_TRUE(cbm_search_code_file_pattern_can_prefilter("*.d.ts"));
-    ASSERT_TRUE(cbm_search_code_file_pattern_can_prefilter("*.foo-bar_1"));
+    ASSERT_TRUE(ani_search_code_file_pattern_can_prefilter("*.pas"));
+    ASSERT_TRUE(ani_search_code_file_pattern_can_prefilter("*.PAS"));
+    ASSERT_TRUE(ani_search_code_file_pattern_can_prefilter("*.d.ts"));
+    ASSERT_TRUE(ani_search_code_file_pattern_can_prefilter("*.foo-bar_1"));
 
-    ASSERT_FALSE(cbm_search_code_file_pattern_can_prefilter(NULL));
-    ASSERT_FALSE(cbm_search_code_file_pattern_can_prefilter(""));
-    ASSERT_FALSE(cbm_search_code_file_pattern_can_prefilter(".pas"));
-    ASSERT_FALSE(cbm_search_code_file_pattern_can_prefilter("*.*"));
-    ASSERT_FALSE(cbm_search_code_file_pattern_can_prefilter("src/*.pas"));
-    ASSERT_FALSE(cbm_search_code_file_pattern_can_prefilter("src\\*.pas"));
-    ASSERT_FALSE(cbm_search_code_file_pattern_can_prefilter("*.c++"));
-    ASSERT_FALSE(cbm_search_code_file_pattern_can_prefilter("*R&D*.go"));
+    ASSERT_FALSE(ani_search_code_file_pattern_can_prefilter(NULL));
+    ASSERT_FALSE(ani_search_code_file_pattern_can_prefilter(""));
+    ASSERT_FALSE(ani_search_code_file_pattern_can_prefilter(".pas"));
+    ASSERT_FALSE(ani_search_code_file_pattern_can_prefilter("*.*"));
+    ASSERT_FALSE(ani_search_code_file_pattern_can_prefilter("src/*.pas"));
+    ASSERT_FALSE(ani_search_code_file_pattern_can_prefilter("src\\*.pas"));
+    ASSERT_FALSE(ani_search_code_file_pattern_can_prefilter("*.c++"));
+    ASSERT_FALSE(ani_search_code_file_pattern_can_prefilter("*R&D*.go"));
 
-    ASSERT_TRUE(cbm_search_code_windows_path_matches_prefilter("src/UnitMain.PAS", "*.pas"));
-    ASSERT_TRUE(cbm_search_code_windows_path_matches_prefilter("types/index.D.TS", "*.d.ts"));
-    ASSERT_FALSE(cbm_search_code_windows_path_matches_prefilter("src/UnitMain.pas.bak", "*.pas"));
-    ASSERT_FALSE(cbm_search_code_windows_path_matches_prefilter("types/index.ts", "*.d.ts"));
+    ASSERT_TRUE(ani_search_code_windows_path_matches_prefilter("src/UnitMain.PAS", "*.pas"));
+    ASSERT_TRUE(ani_search_code_windows_path_matches_prefilter("types/index.D.TS", "*.d.ts"));
+    ASSERT_FALSE(ani_search_code_windows_path_matches_prefilter("src/UnitMain.pas.bak", "*.pas"));
+    ASSERT_FALSE(ani_search_code_windows_path_matches_prefilter("types/index.ts", "*.d.ts"));
     PASS();
 }
 
 TEST(search_code_windows_scope_prefilter_removes_pipeline_filter) {
 #ifdef _WIN32
-    char command[CBM_SZ_4K];
-    cbm_search_code_build_grep_cmd(command, sizeof(command), false, true, "*.go", "C:/tmp/pattern",
+    char command[ANI_SZ_4K];
+    ani_search_code_build_grep_cmd(command, sizeof(command), false, true, "*.go", "C:/tmp/pattern",
                                    "C:/tmp/filelist", "C:/tmp/root");
 
     const char *content_scan = strstr(command, "ForEach-Object { Select-String");
@@ -5433,7 +5433,7 @@ TEST(search_code_windows_scope_prefilter_removes_pipeline_filter) {
     ASSERT_NOT_NULL(postfilter);
     ASSERT_TRUE(content_scan < postfilter);
 
-    cbm_search_code_build_grep_cmd(command, sizeof(command), false, true, "*handler*.go",
+    ani_search_code_build_grep_cmd(command, sizeof(command), false, true, "*handler*.go",
                                    "C:/tmp/pattern", "C:/tmp/filelist", "C:/tmp/root");
     ASSERT_NULL(strstr(command, "Where-Object { $_ -like '*handler*.go' }"));
     ASSERT_NOT_NULL(strstr(command, "Where-Object { $_.Path -like '**handler*.go' }"));
@@ -5445,20 +5445,20 @@ TEST(search_code_windows_scope_prefilter_removes_pipeline_filter) {
 
 TEST(search_code_cancel_cleans_supervised_scan) {
     mcp_search_cache_t cache;
-    ASSERT_TRUE(mcp_search_cache_open(&cache, "cbm-search-cancel"));
+    ASSERT_TRUE(mcp_search_cache_open(&cache, "ani-search-cancel"));
 
     char tmp[512], src_path[768], vendor_path[768];
-    cbm_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
+    ani_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
                                                    vendor_path, sizeof(vendor_path));
     ASSERT_NOT_NULL(srv);
     mcp_search_command_probe_t probe = {
         .server = srv,
         .cancel_on_call = true,
     };
-    cbm_mcp_server_set_command_test_hook(srv, mcp_search_command_hook_probe, &probe);
+    ani_mcp_server_set_command_test_hook(srv, mcp_search_command_hook_probe, &probe);
 
     char *response =
-        cbm_mcp_handle_tool(srv, "search_code",
+        ani_mcp_handle_tool(srv, "search_code",
                             "{\"pattern\":\"HandleRequest\",\"project\":\"prefilter-search\","
                             "\"file_pattern\":\"*.go\"}");
     ASSERT_NOT_NULL(response);
@@ -5471,7 +5471,7 @@ TEST(search_code_cancel_cleans_supervised_scan) {
     ASSERT_EQ(mcp_count_directory_entries_with_prefix(logs, ".mcp-command-"), 0);
 
     free(response);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_prefilter_dir(tmp, src_path, vendor_path);
     ASSERT_TRUE(mcp_search_cache_close(&cache));
     PASS();
@@ -5479,15 +5479,15 @@ TEST(search_code_cancel_cleans_supervised_scan) {
 
 TEST(search_code_output_limit_fails_closed_and_cleans_scan) {
     mcp_search_cache_t cache;
-    ASSERT_TRUE(mcp_search_cache_open(&cache, "cbm-search-limit"));
+    ASSERT_TRUE(mcp_search_cache_open(&cache, "ani-search-limit"));
 
     char tmp[512], src_path[768], vendor_path[768];
-    cbm_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
+    ani_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
                                                    vendor_path, sizeof(vendor_path));
     ASSERT_NOT_NULL(srv);
-    cbm_mcp_server_set_search_output_limit_for_test(srv, 512);
+    ani_mcp_server_set_search_output_limit_for_test(srv, 512);
 
-    FILE *source = cbm_fopen(src_path, "ab");
+    FILE *source = ani_fopen(src_path, "ab");
     ASSERT_NOT_NULL(source);
     for (int i = 0; i < 256; i++) {
         ASSERT_GT(fprintf(source, "func HandleRequest%d() error { return nil }\n", i), 0);
@@ -5495,7 +5495,7 @@ TEST(search_code_output_limit_fails_closed_and_cleans_scan) {
     ASSERT_EQ(fclose(source), 0);
 
     char *response =
-        cbm_mcp_handle_tool(srv, "search_code",
+        ani_mcp_handle_tool(srv, "search_code",
                             "{\"pattern\":\"HandleRequest\",\"project\":\"prefilter-search\","
                             "\"file_pattern\":\"*.go\"}");
     ASSERT_NOT_NULL(response);
@@ -5507,7 +5507,7 @@ TEST(search_code_output_limit_fails_closed_and_cleans_scan) {
     ASSERT_EQ(mcp_count_directory_entries_with_prefix(logs, ".mcp-command-"), 0);
 
     free(response);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_prefilter_dir(tmp, src_path, vendor_path);
     ASSERT_TRUE(mcp_search_cache_close(&cache));
     PASS();
@@ -5515,18 +5515,18 @@ TEST(search_code_output_limit_fails_closed_and_cleans_scan) {
 
 TEST(search_code_scan_deadline_fails_closed_and_resets) {
     mcp_search_cache_t cache;
-    ASSERT_TRUE(mcp_search_cache_open(&cache, "cbm-search-deadline"));
-    int scratch_before = mcp_count_directory_entries_with_prefix(cbm_tmpdir(), "cbm-search-");
+    ASSERT_TRUE(mcp_search_cache_open(&cache, "ani-search-deadline"));
+    int scratch_before = mcp_count_directory_entries_with_prefix(ani_tmpdir(), "ani-search-");
     ASSERT_TRUE(scratch_before >= 0);
 
     char tmp[512], src_path[768], vendor_path[768];
-    cbm_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
+    ani_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
                                                    vendor_path, sizeof(vendor_path));
     ASSERT_NOT_NULL(srv);
-    cbm_mcp_server_set_search_scan_timeout_for_test(srv, 0, true);
+    ani_mcp_server_set_search_scan_timeout_for_test(srv, 0, true);
 
     char *response =
-        cbm_mcp_handle_tool(srv, "search_code",
+        ani_mcp_handle_tool(srv, "search_code",
                             "{\"pattern\":\"HandleRequest\",\"project\":\"prefilter-search\","
                             "\"file_pattern\":\"*.go\"}");
     ASSERT_NOT_NULL(response);
@@ -5546,11 +5546,11 @@ TEST(search_code_scan_deadline_fails_closed_and_resets) {
     /* An immediate deadline can return before the log directory is created;
      * both a missing directory (-1) and an empty one (0) prove no artifact. */
     ASSERT_TRUE(mcp_count_directory_entries_with_prefix(logs, ".mcp-command-") <= 0);
-    ASSERT_EQ(mcp_count_directory_entries_with_prefix(cbm_tmpdir(), "cbm-search-"), scratch_before);
+    ASSERT_EQ(mcp_count_directory_entries_with_prefix(ani_tmpdir(), "ani-search-"), scratch_before);
     free(response);
 
-    cbm_mcp_server_set_search_scan_timeout_for_test(srv, 0, false);
-    response = cbm_mcp_handle_tool(srv, "search_code",
+    ani_mcp_server_set_search_scan_timeout_for_test(srv, 0, false);
+    response = ani_mcp_handle_tool(srv, "search_code",
                                    "{\"pattern\":\"HandleRequest\",\"project\":\"prefilter-"
                                    "search\",\"file_pattern\":\"*.go\"}");
     ASSERT_NOT_NULL(response);
@@ -5558,7 +5558,7 @@ TEST(search_code_scan_deadline_fails_closed_and_resets) {
     ASSERT_NOT_NULL(strstr(response, "src/handler.go"));
     free(response);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_prefilter_dir(tmp, src_path, vendor_path);
     ASSERT_TRUE(mcp_search_cache_close(&cache));
     PASS();
@@ -5567,18 +5567,18 @@ TEST(search_code_scan_deadline_fails_closed_and_resets) {
 TEST(search_code_scan_deadline_override_is_per_server) {
     char tmp_a[512], src_a[768], vendor_a[768];
     char tmp_b[512], src_b[768], vendor_b[768];
-    cbm_mcp_server_t *server_a = setup_prefilter_server(tmp_a, sizeof(tmp_a), src_a, sizeof(src_a),
+    ani_mcp_server_t *server_a = setup_prefilter_server(tmp_a, sizeof(tmp_a), src_a, sizeof(src_a),
                                                         vendor_a, sizeof(vendor_a));
-    cbm_mcp_server_t *server_b = setup_prefilter_server(tmp_b, sizeof(tmp_b), src_b, sizeof(src_b),
+    ani_mcp_server_t *server_b = setup_prefilter_server(tmp_b, sizeof(tmp_b), src_b, sizeof(src_b),
                                                         vendor_b, sizeof(vendor_b));
     ASSERT_NOT_NULL(server_a);
     ASSERT_NOT_NULL(server_b);
-    cbm_mcp_server_set_search_scan_timeout_for_test(server_a, 0, true);
+    ani_mcp_server_set_search_scan_timeout_for_test(server_a, 0, true);
 
-    char *timed_out = cbm_mcp_handle_tool(server_a, "search_code",
+    char *timed_out = ani_mcp_handle_tool(server_a, "search_code",
                                           "{\"pattern\":\"HandleRequest\",\"project\":\"prefilter-"
                                           "search\",\"file_pattern\":\"*.go\"}");
-    char *normal = cbm_mcp_handle_tool(server_b, "search_code",
+    char *normal = ani_mcp_handle_tool(server_b, "search_code",
                                        "{\"pattern\":\"HandleRequest\",\"project\":\"prefilter-"
                                        "search\",\"file_pattern\":\"*.go\"}");
     ASSERT_NOT_NULL(timed_out);
@@ -5589,8 +5589,8 @@ TEST(search_code_scan_deadline_override_is_per_server) {
 
     free(timed_out);
     free(normal);
-    cbm_mcp_server_free(server_a);
-    cbm_mcp_server_free(server_b);
+    ani_mcp_server_free(server_a);
+    ani_mcp_server_free(server_b);
     cleanup_prefilter_dir(tmp_a, src_a, vendor_a);
     cleanup_prefilter_dir(tmp_b, src_b, vendor_b);
     PASS();
@@ -5598,45 +5598,45 @@ TEST(search_code_scan_deadline_override_is_per_server) {
 
 TEST(search_code_scan_setup_failures_respect_cause_precedence) {
     mcp_search_cache_t cache;
-    ASSERT_TRUE(mcp_search_cache_open(&cache, "cbm-search-setup-precedence"));
+    ASSERT_TRUE(mcp_search_cache_open(&cache, "ani-search-setup-precedence"));
 
     char cache_blocker[640];
     snprintf(cache_blocker, sizeof(cache_blocker), "%s/not-a-directory", cache.path);
-    FILE *blocker = cbm_fopen(cache_blocker, "wb");
+    FILE *blocker = ani_fopen(cache_blocker, "wb");
     ASSERT_NOT_NULL(blocker);
     ASSERT_EQ(fclose(blocker), 0);
 
     char tmp[512], src_path[768], vendor_path[768];
-    cbm_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
+    ani_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
                                                    vendor_path, sizeof(vendor_path));
     ASSERT_NOT_NULL(srv);
-    ASSERT_EQ(cbm_setenv("CBM_CACHE_DIR", cache_blocker, 1), 0);
-    cbm_mcp_server_set_search_scan_timeout_for_test(srv, 0, true);
+    ASSERT_EQ(ani_setenv("ANI_CACHE_DIR", cache_blocker, 1), 0);
+    ani_mcp_server_set_search_scan_timeout_for_test(srv, 0, true);
 
     /* Keep an outer request scope active so cancellation is latched before the
      * nested tool call starts. It must beat both the zero deadline and the
      * deliberately broken command-output directory. */
-    ASSERT_TRUE(cbm_mcp_server_request_scope_begin(srv));
-    ASSERT_TRUE(cbm_mcp_server_cancel_active(srv));
-    char *response = cbm_mcp_handle_tool(
+    ASSERT_TRUE(ani_mcp_server_request_scope_begin(srv));
+    ASSERT_TRUE(ani_mcp_server_cancel_active(srv));
+    char *response = ani_mcp_handle_tool(
         srv, "search_code", "{\"pattern\":\"HandleRequest\",\"project\":\"prefilter-search\"}");
     bool cancellation_won = response && strstr(response, "cancelled") != NULL &&
                             strstr(response, "request_timeout") == NULL &&
                             strstr(response, "contained command") == NULL;
     free(response);
-    cbm_mcp_server_request_scope_end(srv);
+    ani_mcp_server_request_scope_end(srv);
 
     /* With cancellation cleared, the same broken setup must not hide the
      * already-latched deadline. */
-    response = cbm_mcp_handle_tool(
+    response = ani_mcp_handle_tool(
         srv, "search_code", "{\"pattern\":\"HandleRequest\",\"project\":\"prefilter-search\"}");
     bool deadline_won = response && strstr(response, "request_timeout") != NULL &&
                         strstr(response, "contained command") == NULL;
     free(response);
 
-    ASSERT_EQ(cbm_setenv("CBM_CACHE_DIR", cache.path, 1), 0);
-    ASSERT_EQ(cbm_unlink(cache_blocker), 0);
-    cbm_mcp_server_free(srv);
+    ASSERT_EQ(ani_setenv("ANI_CACHE_DIR", cache.path, 1), 0);
+    ASSERT_EQ(ani_unlink(cache_blocker), 0);
+    ani_mcp_server_free(srv);
     cleanup_prefilter_dir(tmp, src_path, vendor_path);
     ASSERT_TRUE(mcp_search_cache_close(&cache));
     ASSERT_TRUE(cancellation_won);
@@ -5646,12 +5646,12 @@ TEST(search_code_scan_setup_failures_respect_cause_precedence) {
 
 TEST(search_code_scan_live_child_deadline_is_bounded_and_fails_closed) {
     mcp_search_cache_t cache;
-    ASSERT_TRUE(mcp_search_cache_open(&cache, "cbm-search-live-deadline"));
-    int scratch_before = mcp_count_directory_entries_with_prefix(cbm_tmpdir(), "cbm-search-");
+    ASSERT_TRUE(mcp_search_cache_open(&cache, "ani-search-live-deadline"));
+    int scratch_before = mcp_count_directory_entries_with_prefix(ani_tmpdir(), "ani-search-");
     ASSERT_TRUE(scratch_before >= 0);
 
     char tmp[512], src_path[768], vendor_path[768];
-    cbm_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
+    ani_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
                                                    vendor_path, sizeof(vendor_path));
     ASSERT_NOT_NULL(srv);
 #ifdef _WIN32
@@ -5661,13 +5661,13 @@ TEST(search_code_scan_live_child_deadline_is_bounded_and_fails_closed) {
 #else
     const char *slow_command = "printf 'deadline-partial-output\\n'; trap '' TERM; sleep 6";
 #endif
-    cbm_mcp_server_set_search_scan_command_for_test(srv, slow_command);
-    cbm_mcp_server_set_search_scan_timeout_for_test(srv, 100, true);
+    ani_mcp_server_set_search_scan_command_for_test(srv, slow_command);
+    ani_mcp_server_set_search_scan_timeout_for_test(srv, 100, true);
 
-    uint64_t started = cbm_now_ms();
-    char *response = cbm_mcp_handle_tool(
+    uint64_t started = ani_now_ms();
+    char *response = ani_mcp_handle_tool(
         srv, "search_code", "{\"pattern\":\"HandleRequest\",\"project\":\"prefilter-search\"}");
-    uint64_t elapsed = cbm_now_ms() - started;
+    uint64_t elapsed = ani_now_ms() - started;
     bool bounded = elapsed < 3000U;
     bool timed_out = response && strstr(response, "request_timeout") != NULL &&
                      strstr(response, "\"isError\":true") != NULL;
@@ -5676,12 +5676,12 @@ TEST(search_code_scan_live_child_deadline_is_bounded_and_fails_closed) {
     char logs[640];
     snprintf(logs, sizeof(logs), "%s/logs", cache.path);
     int command_artifacts = mcp_count_directory_entries_with_prefix(logs, ".mcp-command-");
-    int scratch_after = mcp_count_directory_entries_with_prefix(cbm_tmpdir(), "cbm-search-");
+    int scratch_after = mcp_count_directory_entries_with_prefix(ani_tmpdir(), "ani-search-");
 
     free(response);
-    cbm_mcp_server_set_search_scan_command_for_test(srv, NULL);
-    cbm_mcp_server_set_search_scan_timeout_for_test(srv, 0, false);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_set_search_scan_command_for_test(srv, NULL);
+    ani_mcp_server_set_search_scan_timeout_for_test(srv, 0, false);
+    ani_mcp_server_free(srv);
     cleanup_prefilter_dir(tmp, src_path, vendor_path);
     ASSERT_TRUE(mcp_search_cache_close(&cache));
     ASSERT_TRUE(bounded);
@@ -5694,14 +5694,14 @@ TEST(search_code_scan_live_child_deadline_is_bounded_and_fails_closed) {
 
 TEST(search_code_scan_cancellation_precedes_zero_deadline) {
     char tmp[512], src_path[768], vendor_path[768];
-    cbm_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
+    ani_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
                                                    vendor_path, sizeof(vendor_path));
     ASSERT_NOT_NULL(srv);
-    cbm_mcp_server_set_search_scan_timeout_for_test(srv, 0, true);
-    ASSERT_TRUE(cbm_mcp_server_request_scope_begin(srv));
-    ASSERT_TRUE(cbm_mcp_server_cancel_active(srv));
+    ani_mcp_server_set_search_scan_timeout_for_test(srv, 0, true);
+    ASSERT_TRUE(ani_mcp_server_request_scope_begin(srv));
+    ASSERT_TRUE(ani_mcp_server_cancel_active(srv));
 
-    char *response = cbm_mcp_handle_tool(srv, "search_code",
+    char *response = ani_mcp_handle_tool(srv, "search_code",
                                          "{\"pattern\":\"HandleRequest\",\"project\":\"prefilter-"
                                          "search\",\"file_pattern\":\"*.go\"}");
     ASSERT_NOT_NULL(response);
@@ -5710,28 +5710,28 @@ TEST(search_code_scan_cancellation_precedes_zero_deadline) {
     ASSERT_NOT_NULL(strstr(response, "\"isError\":true"));
 
     free(response);
-    cbm_mcp_server_request_scope_end(srv);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_request_scope_end(srv);
+    ani_mcp_server_free(srv);
     cleanup_prefilter_dir(tmp, src_path, vendor_path);
     PASS();
 }
 
 TEST(search_code_scan_deadline_precedes_output_limit) {
     mcp_search_cache_t cache;
-    ASSERT_TRUE(mcp_search_cache_open(&cache, "cbm-search-precedence"));
+    ASSERT_TRUE(mcp_search_cache_open(&cache, "ani-search-precedence"));
     char logs[640];
     snprintf(logs, sizeof(logs), "%s/logs", cache.path);
 
     char tmp[512], src_path[768], vendor_path[768];
-    cbm_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
+    ani_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
                                                    vendor_path, sizeof(vendor_path));
     ASSERT_NOT_NULL(srv);
     mcp_search_command_probe_t probe = {.fill_output_directory = logs, .delay_ms = 1100};
-    cbm_mcp_server_set_command_test_hook(srv, mcp_search_command_hook_probe, &probe);
-    cbm_mcp_server_set_search_scan_timeout_for_test(srv, 1000, true);
-    cbm_mcp_server_set_search_output_limit_for_test(srv, 1);
+    ani_mcp_server_set_command_test_hook(srv, mcp_search_command_hook_probe, &probe);
+    ani_mcp_server_set_search_scan_timeout_for_test(srv, 1000, true);
+    ani_mcp_server_set_search_output_limit_for_test(srv, 1);
 
-    char *response = cbm_mcp_handle_tool(srv, "search_code",
+    char *response = ani_mcp_handle_tool(srv, "search_code",
                                          "{\"pattern\":\"HandleRequest\",\"project\":\"prefilter-"
                                          "search\",\"file_pattern\":\"*.go\"}");
     ASSERT_NOT_NULL(response);
@@ -5742,7 +5742,7 @@ TEST(search_code_scan_deadline_precedes_output_limit) {
     ASSERT_EQ(mcp_count_directory_entries_with_prefix(logs, ".mcp-command-"), 0);
 
     free(response);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_prefilter_dir(tmp, src_path, vendor_path);
     ASSERT_TRUE(mcp_search_cache_close(&cache));
     PASS();
@@ -5750,18 +5750,18 @@ TEST(search_code_scan_deadline_precedes_output_limit) {
 
 TEST(search_code_scan_hook_rejection_is_contained_and_cleans_up) {
     mcp_search_cache_t cache;
-    ASSERT_TRUE(mcp_search_cache_open(&cache, "cbm-search-reject"));
-    int scratch_before = mcp_count_directory_entries_with_prefix(cbm_tmpdir(), "cbm-search-");
+    ASSERT_TRUE(mcp_search_cache_open(&cache, "ani-search-reject"));
+    int scratch_before = mcp_count_directory_entries_with_prefix(ani_tmpdir(), "ani-search-");
     ASSERT_TRUE(scratch_before >= 0);
 
     char tmp[512], src_path[768], vendor_path[768];
-    cbm_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
+    ani_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
                                                    vendor_path, sizeof(vendor_path));
     ASSERT_NOT_NULL(srv);
     mcp_search_command_probe_t probe = {.reject = true};
-    cbm_mcp_server_set_command_test_hook(srv, mcp_search_command_hook_probe, &probe);
+    ani_mcp_server_set_command_test_hook(srv, mcp_search_command_hook_probe, &probe);
 
-    char *response = cbm_mcp_handle_tool(srv, "search_code",
+    char *response = ani_mcp_handle_tool(srv, "search_code",
                                          "{\"pattern\":\"HandleRequest\",\"project\":\"prefilter-"
                                          "search\",\"file_pattern\":\"*.go\"}");
     ASSERT_NOT_NULL(response);
@@ -5773,9 +5773,9 @@ TEST(search_code_scan_hook_rejection_is_contained_and_cleans_up) {
     char logs[640];
     snprintf(logs, sizeof(logs), "%s/logs", cache.path);
     ASSERT_EQ(mcp_count_directory_entries_with_prefix(logs, ".mcp-command-"), 0);
-    ASSERT_EQ(mcp_count_directory_entries_with_prefix(cbm_tmpdir(), "cbm-search-"), scratch_before);
+    ASSERT_EQ(mcp_count_directory_entries_with_prefix(ani_tmpdir(), "ani-search-"), scratch_before);
     free(response);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_prefilter_dir(tmp, src_path, vendor_path);
     ASSERT_TRUE(mcp_search_cache_close(&cache));
     PASS();
@@ -5783,23 +5783,23 @@ TEST(search_code_scan_hook_rejection_is_contained_and_cleans_up) {
 
 TEST(search_code_scoped_exit_one_is_not_no_match) {
     char tmp[512], src_path[768], vendor_path[768];
-    cbm_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
+    ani_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
                                                    vendor_path, sizeof(vendor_path));
     ASSERT_NOT_NULL(srv);
 #ifdef _WIN32
-    cbm_mcp_server_set_search_scan_command_for_test(srv, "exit /b 1");
+    ani_mcp_server_set_search_scan_command_for_test(srv, "exit /b 1");
 #else
-    cbm_mcp_server_set_search_scan_command_for_test(srv, "exit 1");
+    ani_mcp_server_set_search_scan_command_for_test(srv, "exit 1");
 #endif
 
-    char *response = cbm_mcp_handle_tool(
+    char *response = ani_mcp_handle_tool(
         srv, "search_code", "{\"pattern\":\"HandleRequest\",\"project\":\"prefilter-search\"}");
     bool failed_closed = response && strstr(response, "contained command could not complete") &&
                          strstr(response, "\"isError\":true") &&
                          !strstr(response, "total_grep_matches: 0");
 
     free(response);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_prefilter_dir(tmp, src_path, vendor_path);
     ASSERT_TRUE(failed_closed);
     PASS();
@@ -5807,23 +5807,23 @@ TEST(search_code_scoped_exit_one_is_not_no_match) {
 
 TEST(search_code_no_match_is_empty_for_direct_and_scoped_routes) {
     char tmp[512], src_path[768], vendor_path[768];
-    cbm_mcp_server_t *scoped = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
+    ani_mcp_server_t *scoped = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
                                                       vendor_path, sizeof(vendor_path));
     ASSERT_NOT_NULL(scoped);
-    char *scoped_response = cbm_mcp_handle_tool(
+    char *scoped_response = ani_mcp_handle_tool(
         scoped, "search_code",
         "{\"pattern\":\"DefinitelyAbsentSymbol\",\"project\":\"prefilter-search\"}");
     ASSERT_NOT_NULL(scoped_response);
     ASSERT_NULL(strstr(scoped_response, "\"isError\":true"));
     ASSERT_NOT_NULL(strstr(scoped_response, "total_grep_matches: 0"));
 
-    cbm_mcp_server_t *direct = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *direct = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(direct);
-    cbm_store_t *store = cbm_mcp_server_store(direct);
+    ani_store_t *store = ani_mcp_server_store(direct);
     ASSERT_NOT_NULL(store);
-    cbm_mcp_server_set_project(direct, "direct-search");
-    ASSERT_EQ(cbm_store_upsert_project(store, "direct-search", tmp), CBM_STORE_OK);
-    char *direct_response = cbm_mcp_handle_tool(
+    ani_mcp_server_set_project(direct, "direct-search");
+    ASSERT_EQ(ani_store_upsert_project(store, "direct-search", tmp), ANI_STORE_OK);
+    char *direct_response = ani_mcp_handle_tool(
         direct, "search_code",
         "{\"pattern\":\"DefinitelyAbsentSymbol\",\"project\":\"direct-search\"}");
     ASSERT_NOT_NULL(direct_response);
@@ -5832,8 +5832,8 @@ TEST(search_code_no_match_is_empty_for_direct_and_scoped_routes) {
 
     free(scoped_response);
     free(direct_response);
-    cbm_mcp_server_free(scoped);
-    cbm_mcp_server_free(direct);
+    ani_mcp_server_free(scoped);
+    ani_mcp_server_free(direct);
     cleanup_prefilter_dir(tmp, src_path, vendor_path);
     PASS();
 }
@@ -5844,40 +5844,40 @@ TEST(search_code_no_match_is_empty_for_direct_and_scoped_routes) {
  * contained. */
 TEST(search_code_scoped_scan_skips_non_regular_indexed_paths) {
     char tmp[512], src_path[768], vendor_path[768];
-    cbm_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
+    ani_mcp_server_t *srv = setup_prefilter_server(tmp, sizeof(tmp), src_path, sizeof(src_path),
                                                    vendor_path, sizeof(vendor_path));
     ASSERT_NOT_NULL(srv);
 
     char indexed_dir[768];
     snprintf(indexed_dir, sizeof(indexed_dir), "%s/indexed-dir", tmp);
-    ASSERT_EQ(cbm_mkdir(indexed_dir), 0);
-    cbm_store_t *store = cbm_mcp_server_store(srv);
-    cbm_node_t directory_node = {.project = "prefilter-search",
+    ASSERT_EQ(ani_mkdir(indexed_dir), 0);
+    ani_store_t *store = ani_mcp_server_store(srv);
+    ani_node_t directory_node = {.project = "prefilter-search",
                                  .label = "File",
                                  .name = "indexed-dir",
                                  .qualified_name = "prefilter-search.indexed-dir",
                                  .file_path = "indexed-dir",
                                  .start_line = 1,
                                  .end_line = 1};
-    ASSERT_GT(cbm_store_upsert_node(store, &directory_node), 0);
-    cbm_node_t missing_node = {.project = "prefilter-search",
+    ASSERT_GT(ani_store_upsert_node(store, &directory_node), 0);
+    ani_node_t missing_node = {.project = "prefilter-search",
                                .label = "File",
                                .name = "missing.go",
                                .qualified_name = "prefilter-search.missing.go",
                                .file_path = "missing.go",
                                .start_line = 1,
                                .end_line = 1};
-    ASSERT_GT(cbm_store_upsert_node(store, &missing_node), 0);
+    ASSERT_GT(ani_store_upsert_node(store, &missing_node), 0);
 
-    char *response = cbm_mcp_handle_tool(
+    char *response = ani_mcp_handle_tool(
         srv, "search_code", "{\"pattern\":\"HandleRequest\",\"project\":\"prefilter-search\"}");
     ASSERT_NOT_NULL(response);
     ASSERT_NULL(strstr(response, "\"isError\":true"));
     ASSERT_NOT_NULL(strstr(response, "src/handler.go"));
 
     free(response);
-    cbm_mcp_server_free(srv);
-    ASSERT_EQ(cbm_rmdir(indexed_dir), 0);
+    ani_mcp_server_free(srv);
+    ASSERT_EQ(ani_rmdir(indexed_dir), 0);
     cleanup_prefilter_dir(tmp, src_path, vendor_path);
     PASS();
 }
@@ -5890,7 +5890,7 @@ TEST(search_code_windows_scan_pins_utf8_output) {
 #ifdef _WIN32
     static const char prelude[] =
         "powershell -Command \"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; ";
-    char command[CBM_SZ_4K];
+    char command[ANI_SZ_4K];
     struct {
         bool scoped;
         const char *file_pattern;
@@ -5900,7 +5900,7 @@ TEST(search_code_windows_scan_pins_utf8_output) {
                  {false, "*.go"},    /* unscoped + pattern */
                  {false, NULL}};     /* unscoped, no pattern */
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-        cbm_search_code_build_grep_cmd(command, sizeof(command), false, cases[i].scoped,
+        ani_search_code_build_grep_cmd(command, sizeof(command), false, cases[i].scoped,
                                        cases[i].file_pattern, "C:/tmp/pattern", "C:/tmp/filelist",
                                        "C:/tmp/root");
         ASSERT_TRUE(strncmp(command, prelude, sizeof(prelude) - 1) == 0);
@@ -5916,12 +5916,12 @@ TEST(search_code_windows_scan_pins_utf8_output) {
  * legitimate no-match. */
 TEST(search_code_invalid_regex_errors_issue283) {
     char tmp[512];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* Unclosed group under regex=true → must be flagged as an error. */
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":91,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":91,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"search_code\","
                                    "\"arguments\":{\"pattern\":\"func(\",\"regex\":true,"
                                    "\"project\":\"test-project\"}}}");
@@ -5931,7 +5931,7 @@ TEST(search_code_invalid_regex_errors_issue283) {
     free(resp);
 
     /* Same pattern as a literal (regex=false) must NOT error. */
-    resp = cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":92,\"method\":\"tools/call\","
+    resp = ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":92,\"method\":\"tools/call\","
                                       "\"params\":{\"name\":\"search_code\","
                                       "\"arguments\":{\"pattern\":\"func(\",\"regex\":false,"
                                       "\"project\":\"test-project\"}}}");
@@ -5940,7 +5940,7 @@ TEST(search_code_invalid_regex_errors_issue283) {
     free(resp);
 
     cleanup_snippet_dir(tmp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -5948,11 +5948,11 @@ TEST(search_code_invalid_regex_errors_issue283) {
  * now be surfaced as a warning (and the result carries elapsed_ms). */
 TEST(search_code_literal_pipe_warns_issue282) {
     char tmp[512];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":93,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":93,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"search_code\","
                                    "\"arguments\":{\"pattern\":\"HandleRequest|Nope\","
                                    "\"regex\":false,\"project\":\"test-project\"}}}");
@@ -5963,16 +5963,16 @@ TEST(search_code_literal_pipe_warns_issue282) {
     free(resp);
 
     cleanup_snippet_dir(tmp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(search_code_reports_phase_timings_only_in_debug_mode) {
     char tmp[512];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
-    char *response = cbm_mcp_handle_tool(
+    char *response = ani_mcp_handle_tool(
         srv, "search_code", "{\"pattern\":\"HandleRequest\",\"project\":\"test-project\"}");
     ASSERT_NOT_NULL(response);
     ASSERT_NULL(strstr(response, "scope_ms"));
@@ -5981,7 +5981,7 @@ TEST(search_code_reports_phase_timings_only_in_debug_mode) {
     ASSERT_NOT_NULL(strstr(response, "elapsed_ms"));
     free(response);
 
-    response = cbm_mcp_handle_tool(
+    response = ani_mcp_handle_tool(
         srv, "search_code",
         "{\"pattern\":\"HandleRequest\",\"project\":\"test-project\",\"debug\":true}");
     ASSERT_NOT_NULL(response);
@@ -5991,7 +5991,7 @@ TEST(search_code_reports_phase_timings_only_in_debug_mode) {
     ASSERT_NOT_NULL(strstr(response, "elapsed_ms"));
     free(response);
 
-    response = cbm_mcp_handle_tool(
+    response = ani_mcp_handle_tool(
         srv, "search_code",
         "{\"pattern\":\"HandleRequest\",\"project\":\"test-project\",\"format\":\"json\","
         "\"debug\":true}");
@@ -6003,7 +6003,7 @@ TEST(search_code_reports_phase_timings_only_in_debug_mode) {
     free(response);
 
     cleanup_snippet_dir(tmp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -6011,11 +6011,11 @@ TEST(search_code_reports_phase_timings_only_in_debug_mode) {
  * quoting and must no longer be rejected as "invalid characters". */
 TEST(search_code_ampersand_accepted_issue272) {
     char tmp[512];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":94,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":94,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"search_code\","
                                    "\"arguments\":{\"pattern\":\"HandleRequest\","
                                    "\"file_pattern\":\"*R&D*.go\",\"project\":\"test-project\"}}}");
@@ -6024,37 +6024,37 @@ TEST(search_code_ampersand_accepted_issue272) {
     free(resp);
 
     cleanup_snippet_dir(tmp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_detect_changes_no_project) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":35,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":35,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"detect_changes\","
                                    "\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "missing required argument: project"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_manage_adr_no_project) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":36,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":36,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"manage_adr\","
                                    "\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "missing required argument: project"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -6062,16 +6062,16 @@ TEST(tool_manage_adr_no_project) {
  * MUST FAIL before fix: free(buf) is called before yy_doc_to_str serializes doc,
  * so result field is missing or contains garbage. MUST PASS after fix. */
 TEST(tool_manage_adr_get_with_existing_adr) {
-    /* Create a temp directory with .codebase-memory/adr.md */
+    /* Create a temp directory with .ani/adr.md */
     char tmp_dir[256];
-    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/cbm-adr-test-XXXXXX");
-    if (!cbm_mkdtemp(tmp_dir)) {
+    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/ani-adr-test-XXXXXX");
+    if (!ani_mkdtemp(tmp_dir)) {
         PASS(); /* skip if mkdtemp fails */
     }
 
     char adr_dir[512];
-    snprintf(adr_dir, sizeof(adr_dir), "%s/.codebase-memory", tmp_dir);
-    cbm_mkdir(adr_dir);
+    snprintf(adr_dir, sizeof(adr_dir), "%s/.ani", tmp_dir);
+    ani_mkdir(adr_dir);
 
     char adr_path[512];
     snprintf(adr_path, sizeof(adr_path), "%s/adr.md", adr_dir);
@@ -6084,17 +6084,17 @@ TEST(tool_manage_adr_get_with_existing_adr) {
     fclose(fp);
 
     /* Create server and register the project */
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    cbm_store_upsert_project(st, "test-adr-uaf", tmp_dir);
-    cbm_mcp_server_set_project(srv, "test-adr-uaf");
+    ani_store_upsert_project(st, "test-adr-uaf", tmp_dir);
+    ani_mcp_server_set_project(srv, "test-adr-uaf");
 
-    /* Call manage_adr via full JSON-RPC path to exercise cbm_jsonrpc_format_response.
+    /* Call manage_adr via full JSON-RPC path to exercise ani_jsonrpc_format_response.
      * The bug: free(buf) before yy_doc_to_str causes garbage JSON; format_response
      * then fails to parse the result and omits the "result" field entirely. */
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":99,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"manage_adr\","
              "\"arguments\":{\"project\":\"test-adr-uaf\",\"mode\":\"get\"}}}");
@@ -6108,7 +6108,7 @@ TEST(tool_manage_adr_get_with_existing_adr) {
     free(resp);
 
     /* Clean up */
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     remove(adr_path);
     rmdir(adr_dir);
     rmdir(tmp_dir);
@@ -6116,18 +6116,18 @@ TEST(tool_manage_adr_get_with_existing_adr) {
 }
 
 /* issue #256: manage_adr (MCP) and the UI /api/adr endpoints must share ONE
- * backend. A manage_adr(update) write must be readable via cbm_store_adr_get
+ * backend. A manage_adr(update) write must be readable via ani_store_adr_get
  * (the exact API the UI's /api/adr GET uses). */
 TEST(tool_manage_adr_unified_backend_issue256) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    cbm_store_upsert_project(st, "adr-unify", "/tmp/adr-unify");
-    cbm_mcp_server_set_project(srv, "adr-unify");
+    ani_store_upsert_project(st, "adr-unify", "/tmp/adr-unify");
+    ani_mcp_server_set_project(srv, "adr-unify");
 
     /* Write via the MCP tool. */
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":120,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"manage_adr\",\"arguments\":{\"project\":\"adr-unify\","
              "\"mode\":\"update\",\"content\":\"## PURPOSE\\nUnified ADR backend.\\n\"}}}");
@@ -6136,15 +6136,15 @@ TEST(tool_manage_adr_unified_backend_issue256) {
     free(resp);
 
     /* Read DIRECTLY via the store API the UI /api/adr uses — must see it. */
-    cbm_adr_t adr;
+    ani_adr_t adr;
     memset(&adr, 0, sizeof(adr));
-    ASSERT_EQ(cbm_store_adr_get(st, "adr-unify", &adr), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_get(st, "adr-unify", &adr), ANI_STORE_OK);
     ASSERT_NOT_NULL(adr.content);
     ASSERT_NOT_NULL(strstr(adr.content, "Unified ADR backend."));
-    cbm_store_adr_free(&adr);
+    ani_store_adr_free(&adr);
 
     /* And manage_adr(get) round-trips the same content. */
-    resp = cbm_mcp_server_handle(
+    resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":121,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"manage_adr\",\"arguments\":{\"project\":\"adr-unify\","
              "\"mode\":\"get\"}}}");
@@ -6153,26 +6153,26 @@ TEST(tool_manage_adr_unified_backend_issue256) {
     ASSERT_NULL(strstr(resp, "\"isError\":true"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_manage_adr_rejects_removed_sections_argument) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    ASSERT_EQ(cbm_store_upsert_project(st, "adr-sections-guard", "/tmp/adr-sections-guard"),
-              CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, "adr-sections-guard");
-    ASSERT_EQ(cbm_store_adr_store(st, "adr-sections-guard", "## PURPOSE\nOriginal ADR.\n"),
-              CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(st, "adr-sections-guard", "/tmp/adr-sections-guard"),
+              ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, "adr-sections-guard");
+    ASSERT_EQ(ani_store_adr_store(st, "adr-sections-guard", "## PURPOSE\nOriginal ADR.\n"),
+              ANI_STORE_OK);
 
     mcp_mutation_guard_probe_t probe = {0};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":122,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"manage_adr\",\"arguments\":{"
              "\"project\":\"adr-sections-guard\",\"mode\":\"update\","
@@ -6185,13 +6185,13 @@ TEST(tool_manage_adr_rejects_removed_sections_argument) {
     ASSERT_EQ(probe.begin_count, 0);
     ASSERT_EQ(probe.end_count, 0);
 
-    cbm_adr_t adr;
+    ani_adr_t adr;
     memset(&adr, 0, sizeof(adr));
-    ASSERT_EQ(cbm_store_adr_get(st, "adr-sections-guard", &adr), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_get(st, "adr-sections-guard", &adr), ANI_STORE_OK);
     ASSERT_STR_EQ(adr.content, "## PURPOSE\nOriginal ADR.\n");
-    cbm_store_adr_free(&adr);
+    ani_store_adr_free(&adr);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -6200,22 +6200,22 @@ TEST(tool_manage_adr_rejects_removed_sections_argument) {
  * the caller did not mean to touch survives only as well as that round-trip. */
 TEST(tool_manage_adr_set_sections_replaces_only_named) {
     const char *project = "adr-sec-named";
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    ASSERT_EQ(cbm_store_upsert_project(st, project, "/tmp/adr-sec-named"), CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, project);
-    ASSERT_EQ(cbm_store_adr_store(st, project, "## PURPOSE\nOriginal purpose.\n\n## STACK\nC."),
-              CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(st, project, "/tmp/adr-sec-named"), ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, project);
+    ASSERT_EQ(ani_store_adr_store(st, project, "## PURPOSE\nOriginal purpose.\n\n## STACK\nC."),
+              ANI_STORE_OK);
 
     /* A section write is a mutation: it must take the per-project lease, or it
      * runs concurrently with an index through a query-only store handle. */
     mcp_mutation_guard_probe_t probe = {0};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
 
-    char *resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    char *resp = ani_mcp_handle_tool(srv, "manage_adr",
                                      "{\"project\":\"adr-sec-named\",\"mode\":\"set_sections\","
                                      "\"section_updates\":{\"PATTERNS\":\"- Pipeline stages.\"}}");
     ASSERT_NOT_NULL(resp);
@@ -6227,16 +6227,16 @@ TEST(tool_manage_adr_set_sections_replaces_only_named) {
     ASSERT_STR_EQ(probe.begin_projects[0], project);
 
     /* The sections nobody named survive verbatim, and the named one landed. */
-    cbm_adr_t adr;
+    ani_adr_t adr;
     memset(&adr, 0, sizeof(adr));
-    ASSERT_EQ(cbm_store_adr_get(st, project, &adr), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_get(st, project, &adr), ANI_STORE_OK);
     ASSERT_NOT_NULL(adr.content);
     ASSERT_NOT_NULL(strstr(adr.content, "## PURPOSE\nOriginal purpose."));
     ASSERT_NOT_NULL(strstr(adr.content, "## STACK\nC."));
     ASSERT_NOT_NULL(strstr(adr.content, "## PATTERNS\n- Pipeline stages."));
-    cbm_store_adr_free(&adr);
+    ani_store_adr_free(&adr);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -6247,48 +6247,48 @@ TEST(tool_manage_adr_set_sections_is_idempotent) {
     const char *project = "adr-sec-idem";
     const char *request = "{\"project\":\"adr-sec-idem\",\"mode\":\"set_sections\","
                           "\"section_updates\":{\"PATTERNS\":\"- Pipeline stages.\"}}";
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    ASSERT_EQ(cbm_store_upsert_project(st, project, "/tmp/adr-sec-idem"), CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, project);
-    ASSERT_EQ(cbm_store_adr_store(st, project, "## PURPOSE\nOriginal purpose.\n\n## STACK\nC."),
-              CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(st, project, "/tmp/adr-sec-idem"), ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, project);
+    ASSERT_EQ(ani_store_adr_store(st, project, "## PURPOSE\nOriginal purpose.\n\n## STACK\nC."),
+              ANI_STORE_OK);
 
-    char *resp = cbm_mcp_handle_tool(srv, "manage_adr", request);
+    char *resp = ani_mcp_handle_tool(srv, "manage_adr", request);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "sections_updated"));
     free(resp);
 
-    cbm_adr_t first;
+    ani_adr_t first;
     memset(&first, 0, sizeof(first));
-    ASSERT_EQ(cbm_store_adr_get(st, project, &first), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_get(st, project, &first), ANI_STORE_OK);
     ASSERT_NOT_NULL(first.content);
     char *after_first = strdup(first.content);
     ASSERT_NOT_NULL(after_first);
-    cbm_store_adr_free(&first);
+    ani_store_adr_free(&first);
 
     /* Replay the identical request — the lost-response retry. */
-    resp = cbm_mcp_handle_tool(srv, "manage_adr", request);
+    resp = ani_mcp_handle_tool(srv, "manage_adr", request);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "sections_updated"));
     ASSERT_NULL(strstr(resp, "\"isError\":true"));
     free(resp);
 
-    cbm_adr_t second;
+    ani_adr_t second;
     memset(&second, 0, sizeof(second));
-    ASSERT_EQ(cbm_store_adr_get(st, project, &second), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_get(st, project, &second), ANI_STORE_OK);
     ASSERT_NOT_NULL(second.content);
     ASSERT_STR_EQ(second.content, after_first);
     /* And the body is present exactly once, not appended twice. */
     const char *hit = strstr(second.content, "- Pipeline stages.");
     ASSERT_NOT_NULL(hit);
     ASSERT_NULL(strstr(hit + 1, "- Pipeline stages."));
-    cbm_store_adr_free(&second);
+    ani_store_adr_free(&second);
     free(after_first);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -6296,14 +6296,14 @@ TEST(tool_manage_adr_set_sections_is_idempotent) {
  * the store primitive requires an existing row, so the handler seeds one. */
 TEST(tool_manage_adr_set_sections_creates_when_absent) {
     const char *project = "adr-sec-new";
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    ASSERT_EQ(cbm_store_upsert_project(st, project, "/tmp/adr-sec-new"), CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, project);
+    ASSERT_EQ(ani_store_upsert_project(st, project, "/tmp/adr-sec-new"), ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, project);
 
-    char *resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    char *resp = ani_mcp_handle_tool(srv, "manage_adr",
                                      "{\"project\":\"adr-sec-new\",\"mode\":\"set_sections\","
                                      "\"section_updates\":{\"PURPOSE\":\"Only entry.\"}}");
     ASSERT_NOT_NULL(resp);
@@ -6311,14 +6311,14 @@ TEST(tool_manage_adr_set_sections_creates_when_absent) {
     ASSERT_NULL(strstr(resp, "\"isError\":true"));
     free(resp);
 
-    cbm_adr_t adr;
+    ani_adr_t adr;
     memset(&adr, 0, sizeof(adr));
-    ASSERT_EQ(cbm_store_adr_get(st, project, &adr), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_get(st, project, &adr), ANI_STORE_OK);
     /* Exact match: a create must not leave a leading separator behind. */
     ASSERT_STR_EQ(adr.content, "## PURPOSE\nOnly entry.");
-    cbm_store_adr_free(&adr);
+    ani_store_adr_free(&adr);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -6327,19 +6327,19 @@ TEST(tool_manage_adr_set_sections_creates_when_absent) {
  * must not take the mutation lease on the way to being rejected. */
 TEST(tool_manage_adr_set_sections_without_updates_errors) {
     const char *project = "adr-sec-missing";
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    ASSERT_EQ(cbm_store_upsert_project(st, project, "/tmp/adr-sec-missing"), CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, project);
-    ASSERT_EQ(cbm_store_adr_store(st, project, "## PURPOSE\nUntouched.\n"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(st, project, "/tmp/adr-sec-missing"), ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, project);
+    ASSERT_EQ(ani_store_adr_store(st, project, "## PURPOSE\nUntouched.\n"), ANI_STORE_OK);
 
     mcp_mutation_guard_probe_t probe = {0};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
 
-    char *resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    char *resp = ani_mcp_handle_tool(srv, "manage_adr",
                                      "{\"project\":\"adr-sec-missing\",\"mode\":\"set_sections\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "missing_section_updates"));
@@ -6350,13 +6350,13 @@ TEST(tool_manage_adr_set_sections_without_updates_errors) {
     ASSERT_EQ(probe.begin_count, 0);
     ASSERT_EQ(probe.end_count, 0);
 
-    cbm_adr_t adr;
+    ani_adr_t adr;
     memset(&adr, 0, sizeof(adr));
-    ASSERT_EQ(cbm_store_adr_get(st, project, &adr), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_get(st, project, &adr), ANI_STORE_OK);
     ASSERT_STR_EQ(adr.content, "## PURPOSE\nUntouched.\n");
-    cbm_store_adr_free(&adr);
+    ani_store_adr_free(&adr);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -6366,15 +6366,15 @@ TEST(tool_manage_adr_set_sections_without_updates_errors) {
  * writing it twice would duplicate it. Both are refused before a store opens. */
 TEST(tool_manage_adr_set_sections_rejects_unwritable_sections) {
     const char *project = "adr-sec-guards";
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    ASSERT_EQ(cbm_store_upsert_project(st, project, "/tmp/adr-sec-guards"), CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, project);
-    ASSERT_EQ(cbm_store_adr_store(st, project, "## PURPOSE\nUntouched.\n"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(st, project, "/tmp/adr-sec-guards"), ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, project);
+    ASSERT_EQ(ani_store_adr_store(st, project, "## PURPOSE\nUntouched.\n"), ANI_STORE_OK);
 
-    char *resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    char *resp = ani_mcp_handle_tool(srv, "manage_adr",
                                      "{\"project\":\"adr-sec-guards\",\"mode\":\"set_sections\","
                                      "\"section_updates\":{\"PURPOSE\":\"\"}}");
     ASSERT_NOT_NULL(resp);
@@ -6383,7 +6383,7 @@ TEST(tool_manage_adr_set_sections_rejects_unwritable_sections) {
     free(resp);
 
     /* A '#'-leading name would render "## # PURPOSE" and scan back different. */
-    resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    resp = ani_mcp_handle_tool(srv, "manage_adr",
                                "{\"project\":\"adr-sec-guards\",\"mode\":\"set_sections\","
                                "\"section_updates\":{\"# PURPOSE\":\"x\"}}");
     ASSERT_NOT_NULL(resp);
@@ -6392,7 +6392,7 @@ TEST(tool_manage_adr_set_sections_rejects_unwritable_sections) {
     free(resp);
 
     /* A newline in the name would forge a second heading line. */
-    resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    resp = ani_mcp_handle_tool(srv, "manage_adr",
                                "{\"project\":\"adr-sec-guards\",\"mode\":\"set_sections\","
                                "\"section_updates\":{\"A\\nB\":\"x\"}}");
     ASSERT_NOT_NULL(resp);
@@ -6400,7 +6400,7 @@ TEST(tool_manage_adr_set_sections_rejects_unwritable_sections) {
     ASSERT_NOT_NULL(strstr(resp, "\"isError\":true"));
     free(resp);
 
-    resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    resp = ani_mcp_handle_tool(srv, "manage_adr",
                                "{\"project\":\"adr-sec-guards\",\"mode\":\"set_sections\","
                                "\"section_updates\":{}}");
     ASSERT_NOT_NULL(resp);
@@ -6409,13 +6409,13 @@ TEST(tool_manage_adr_set_sections_rejects_unwritable_sections) {
     free(resp);
 
     /* Every rejection left the stored ADR byte-identical. */
-    cbm_adr_t adr;
+    ani_adr_t adr;
     memset(&adr, 0, sizeof(adr));
-    ASSERT_EQ(cbm_store_adr_get(st, project, &adr), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_get(st, project, &adr), ANI_STORE_OK);
     ASSERT_STR_EQ(adr.content, "## PURPOSE\nUntouched.\n");
-    cbm_store_adr_free(&adr);
+    ani_store_adr_free(&adr);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -6426,39 +6426,39 @@ TEST(tool_manage_adr_set_sections_adds_custom_heading) {
     const char *project = "adr-sec-custom";
     const char *request = "{\"project\":\"adr-sec-custom\",\"mode\":\"set_sections\","
                           "\"section_updates\":{\"DECISIONS\":\"- Chose SQLite.\"}}";
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    ASSERT_EQ(cbm_store_upsert_project(st, project, "/tmp/adr-sec-custom"), CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, project);
-    ASSERT_EQ(cbm_store_adr_store(st, project, "## PURPOSE\nFoo"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(st, project, "/tmp/adr-sec-custom"), ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, project);
+    ASSERT_EQ(ani_store_adr_store(st, project, "## PURPOSE\nFoo"), ANI_STORE_OK);
 
-    char *resp = cbm_mcp_handle_tool(srv, "manage_adr", request);
+    char *resp = ani_mcp_handle_tool(srv, "manage_adr", request);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "sections_updated"));
     ASSERT_NULL(strstr(resp, "\"isError\":true"));
     free(resp);
 
-    cbm_adr_t adr;
+    ani_adr_t adr;
     memset(&adr, 0, sizeof(adr));
-    ASSERT_EQ(cbm_store_adr_get(st, project, &adr), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_get(st, project, &adr), ANI_STORE_OK);
     ASSERT_STR_EQ(adr.content, "## PURPOSE\nFoo\n\n## DECISIONS\n- Chose SQLite.");
-    cbm_store_adr_free(&adr);
+    ani_store_adr_free(&adr);
 
     /* Retry the identical request: byte-identical, not duplicated. */
-    resp = cbm_mcp_handle_tool(srv, "manage_adr", request);
+    resp = ani_mcp_handle_tool(srv, "manage_adr", request);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "sections_updated"));
     free(resp);
 
     memset(&adr, 0, sizeof(adr));
-    ASSERT_EQ(cbm_store_adr_get(st, project, &adr), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_get(st, project, &adr), ANI_STORE_OK);
     ASSERT_STR_EQ(adr.content, "## PURPOSE\nFoo\n\n## DECISIONS\n- Chose SQLite.");
-    cbm_store_adr_free(&adr);
+    ani_store_adr_free(&adr);
 
     /* And it is now a real section the write path can target again. */
-    resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    resp = ani_mcp_handle_tool(srv, "manage_adr",
                                "{\"project\":\"adr-sec-custom\",\"mode\":\"set_sections\","
                                "\"section_updates\":{\"DECISIONS\":\"- Chose DuckDB.\"}}");
     ASSERT_NOT_NULL(resp);
@@ -6466,11 +6466,11 @@ TEST(tool_manage_adr_set_sections_adds_custom_heading) {
     free(resp);
 
     memset(&adr, 0, sizeof(adr));
-    ASSERT_EQ(cbm_store_adr_get(st, project, &adr), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_get(st, project, &adr), ANI_STORE_OK);
     ASSERT_STR_EQ(adr.content, "## PURPOSE\nFoo\n\n## DECISIONS\n- Chose DuckDB.");
-    cbm_store_adr_free(&adr);
+    ani_store_adr_free(&adr);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -6487,32 +6487,32 @@ TEST(tool_manage_adr_set_sections_preserves_preamble_and_order) {
                          "```md\n## Example\nfenced sample\n```\n\n"
                          "## STACK\nC and SQLite.\n\n"
                          "## PURPOSE\nCanonical one.";
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    ASSERT_EQ(cbm_store_upsert_project(st, project, "/tmp/adr-sec-preserve"), CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, project);
-    ASSERT_EQ(cbm_store_adr_store(st, project, stored), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(st, project, "/tmp/adr-sec-preserve"), ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, project);
+    ASSERT_EQ(ani_store_adr_store(st, project, stored), ANI_STORE_OK);
 
-    char *resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    char *resp = ani_mcp_handle_tool(srv, "manage_adr",
                                      "{\"project\":\"adr-sec-preserve\",\"mode\":\"set_sections\","
                                      "\"section_updates\":{\"STACK\":\"C only.\"}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "sections_updated"));
     free(resp);
 
-    cbm_adr_t adr;
+    ani_adr_t adr;
     memset(&adr, 0, sizeof(adr));
-    ASSERT_EQ(cbm_store_adr_get(st, project, &adr), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_get(st, project, &adr), ANI_STORE_OK);
     ASSERT_STR_EQ(adr.content, "Notes before any heading.\n\n"
                                "## Purpose\nMis-cased but real.\n\n"
                                "```md\n## Example\nfenced sample\n```\n\n"
                                "## STACK\nC only.\n\n"
                                "## PURPOSE\nCanonical one.");
-    cbm_store_adr_free(&adr);
+    ani_store_adr_free(&adr);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -6522,15 +6522,15 @@ TEST(tool_manage_adr_set_sections_preserves_preamble_and_order) {
 TEST(tool_manage_adr_set_sections_refuses_unterminated_fence) {
     const char *project = "adr-sec-fence";
     const char *stored = "## PURPOSE\nFoo\n\n```\nunclosed sample\n\n## STACK\nBar";
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    ASSERT_EQ(cbm_store_upsert_project(st, project, "/tmp/adr-sec-fence"), CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, project);
-    ASSERT_EQ(cbm_store_adr_store(st, project, stored), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(st, project, "/tmp/adr-sec-fence"), ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, project);
+    ASSERT_EQ(ani_store_adr_store(st, project, stored), ANI_STORE_OK);
 
-    char *resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    char *resp = ani_mcp_handle_tool(srv, "manage_adr",
                                      "{\"project\":\"adr-sec-fence\",\"mode\":\"set_sections\","
                                      "\"section_updates\":{\"STACK\":\"New bar.\"}}");
     ASSERT_NOT_NULL(resp);
@@ -6539,20 +6539,20 @@ TEST(tool_manage_adr_set_sections_refuses_unterminated_fence) {
     ASSERT_NOT_NULL(strstr(resp, "\"isError\":true"));
     free(resp);
 
-    cbm_adr_t adr;
+    ani_adr_t adr;
     memset(&adr, 0, sizeof(adr));
-    ASSERT_EQ(cbm_store_adr_get(st, project, &adr), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_get(st, project, &adr), ANI_STORE_OK);
     ASSERT_STR_EQ(adr.content, stored);
-    cbm_store_adr_free(&adr);
+    ani_store_adr_free(&adr);
 
     /* mode='sections' reports the same ambiguity rather than a partial list. */
-    resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    resp = ani_mcp_handle_tool(srv, "manage_adr",
                                "{\"project\":\"adr-sec-fence\",\"mode\":\"sections\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "unterminated_code_fence"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -6569,15 +6569,15 @@ TEST(tool_manage_adr_sections_agrees_with_write_path) {
                          "### Sub\n\n"
                          "```md\n## Fenced\n```\n\n"
                          "## DECISIONS\nBar";
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    ASSERT_EQ(cbm_store_upsert_project(st, project, "/tmp/adr-sec-agree"), CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, project);
-    ASSERT_EQ(cbm_store_adr_store(st, project, stored), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(st, project, "/tmp/adr-sec-agree"), ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, project);
+    ASSERT_EQ(ani_store_adr_store(st, project, stored), ANI_STORE_OK);
 
-    char *resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    char *resp = ani_mcp_handle_tool(srv, "manage_adr",
                                      "{\"project\":\"adr-sec-agree\",\"mode\":\"sections\"}");
     ASSERT_NOT_NULL(resp);
     /* Listed: exactly the two headings the write path can target. */
@@ -6590,7 +6590,7 @@ TEST(tool_manage_adr_sections_agrees_with_write_path) {
     free(resp);
 
     /* Every listed heading is writable, and the unlisted ones stay as text. */
-    resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    resp = ani_mcp_handle_tool(srv, "manage_adr",
                                "{\"project\":\"adr-sec-agree\",\"mode\":\"set_sections\","
                                "\"section_updates\":{\"DECISIONS\":\"New bar\"}}");
     ASSERT_NOT_NULL(resp);
@@ -6599,36 +6599,36 @@ TEST(tool_manage_adr_sections_agrees_with_write_path) {
 
     /* The '#', '###' and fenced lines are body text of PURPOSE, and writing a
      * different section leaves every byte of them alone. */
-    cbm_adr_t adr;
+    ani_adr_t adr;
     memset(&adr, 0, sizeof(adr));
-    ASSERT_EQ(cbm_store_adr_get(st, project, &adr), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_get(st, project, &adr), ANI_STORE_OK);
     ASSERT_STR_EQ(adr.content, "Preamble.\n\n"
                                "# Title\n\n"
                                "## PURPOSE\nFoo\n\n"
                                "### Sub\n\n"
                                "```md\n## Fenced\n```\n\n"
                                "## DECISIONS\nNew bar");
-    cbm_store_adr_free(&adr);
+    ani_store_adr_free(&adr);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
-/* CBM_ADR_MAX_LENGTH is enforced on this path — mode='update' bypasses it, so
+/* ANI_ADR_MAX_LENGTH is enforced on this path — mode='update' bypasses it, so
  * exposing an incremental writer without the cap would make unbounded growth
  * cheap. The rejected merge must also roll back to the byte-identical prior
  * document rather than leaving a half-applied write. */
 TEST(tool_manage_adr_set_sections_rejects_oversize) {
     const char *project = "adr-sec-cap";
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    ASSERT_EQ(cbm_store_upsert_project(st, project, "/tmp/adr-sec-cap"), CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, project);
-    ASSERT_EQ(cbm_store_adr_store(st, project, "## PURPOSE\nSmall.\n"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(st, project, "/tmp/adr-sec-cap"), ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, project);
+    ASSERT_EQ(ani_store_adr_store(st, project, "## PURPOSE\nSmall.\n"), ANI_STORE_OK);
 
-    size_t huge_len = (size_t)CBM_ADR_MAX_LENGTH + 100;
+    size_t huge_len = (size_t)ANI_ADR_MAX_LENGTH + 100;
     char *huge = malloc(huge_len + 1);
     ASSERT_NOT_NULL(huge);
     memset(huge, 'x', huge_len);
@@ -6642,7 +6642,7 @@ TEST(tool_manage_adr_set_sections_rejects_oversize) {
              "\"section_updates\":{\"STACK\":\"%s\"}}",
              huge);
 
-    char *resp = cbm_mcp_handle_tool(srv, "manage_adr", args);
+    char *resp = ani_mcp_handle_tool(srv, "manage_adr", args);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "write_error"));
     ASSERT_NOT_NULL(strstr(resp, "exceeds"));
@@ -6651,22 +6651,22 @@ TEST(tool_manage_adr_set_sections_rejects_oversize) {
     free(args);
     free(huge);
 
-    cbm_adr_t adr;
+    ani_adr_t adr;
     memset(&adr, 0, sizeof(adr));
-    ASSERT_EQ(cbm_store_adr_get(st, project, &adr), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_adr_get(st, project, &adr), ANI_STORE_OK);
     ASSERT_STR_EQ(adr.content, "## PURPOSE\nSmall.\n");
-    cbm_store_adr_free(&adr);
+    ani_store_adr_free(&adr);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 /* The mode must be advertised, or callers never learn it exists and keep
  * paying for whole-document rewrites. */
 TEST(tool_manage_adr_set_sections_is_advertised) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}");
     ASSERT_NOT_NULL(resp);
     const char *adr_tool = strstr(resp, "manage_adr");
@@ -6674,24 +6674,24 @@ TEST(tool_manage_adr_set_sections_is_advertised) {
     ASSERT_NOT_NULL(strstr(adr_tool, "set_sections"));
     ASSERT_NOT_NULL(strstr(adr_tool, "section_updates"));
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_manage_adr_mutation_guard_balances_success) {
     const char *project = "guard-adr-success";
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *store = cbm_mcp_server_store(srv);
+    ani_store_t *store = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(store);
-    ASSERT_EQ(cbm_store_upsert_project(store, project, "/tmp/guard-adr-success"), CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, project);
+    ASSERT_EQ(ani_store_upsert_project(store, project, "/tmp/guard-adr-success"), ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, project);
 
     mcp_mutation_guard_probe_t probe = {0};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
 
-    char *resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    char *resp = ani_mcp_handle_tool(srv, "manage_adr",
                                      "{\"project\":\"guard-adr-success\",\"mode\":\"update\","
                                      "\"content\":\"## PURPOSE\\nGuarded ADR.\\n\"}");
     ASSERT_NOT_NULL(resp);
@@ -6702,7 +6702,7 @@ TEST(tool_manage_adr_mutation_guard_balances_success) {
     ASSERT_STR_EQ(probe.end_projects[0], project);
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -6711,23 +6711,23 @@ TEST(tool_manage_adr_mutation_guard_balances_success) {
  * and sections must not invoke the blocking guard. */
 TEST(tool_manage_adr_read_paths_skip_blocking_mutation_guard) {
     const char *project = "guard-adr-read";
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *store = cbm_mcp_server_store(srv);
+    ani_store_t *store = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(store);
-    ASSERT_EQ(cbm_store_upsert_project(store, project, "/tmp/guard-adr-read"), CBM_STORE_OK);
+    ASSERT_EQ(ani_store_upsert_project(store, project, "/tmp/guard-adr-read"), ANI_STORE_OK);
     ASSERT_EQ(
-        cbm_store_adr_store(store, project, "## PURPOSE\nNonblocking read.\n\n## STACK\nC.\n"),
-        CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, project);
+        ani_store_adr_store(store, project, "## PURPOSE\nNonblocking read.\n\n## STACK\nC.\n"),
+        ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, project);
 
     mcp_mutation_guard_probe_t probe = {.deny_begin_call = 1};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
 
     char *get_response =
-        cbm_mcp_handle_tool(srv, "manage_adr", "{\"project\":\"guard-adr-read\",\"mode\":\"get\"}");
-    char *sections_response = cbm_mcp_handle_tool(
+        ani_mcp_handle_tool(srv, "manage_adr", "{\"project\":\"guard-adr-read\",\"mode\":\"get\"}");
+    char *sections_response = ani_mcp_handle_tool(
         srv, "manage_adr", "{\"project\":\"guard-adr-read\",\"mode\":\"sections\"}");
     bool get_returned_adr = get_response && strstr(get_response, "Nonblocking read.") &&
                             !strstr(get_response, "\"isError\":true");
@@ -6737,7 +6737,7 @@ TEST(tool_manage_adr_read_paths_skip_blocking_mutation_guard) {
 
     free(get_response);
     free(sections_response);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
 
     ASSERT_TRUE(get_returned_adr);
     ASSERT_TRUE(sections_returned_adr);
@@ -6748,23 +6748,23 @@ TEST(tool_manage_adr_read_paths_skip_blocking_mutation_guard) {
 
 TEST(tool_manage_adr_read_missing_store_skips_mutation_guard) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-mcp-adr-guard-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
+    snprintf(cache, sizeof(cache), "/tmp/ani-mcp-adr-guard-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
         PASS();
     }
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     const char *project = "guard-adr-missing";
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
     mcp_mutation_guard_probe_t probe = {0};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
 
-    char *resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    char *resp = ani_mcp_handle_tool(srv, "manage_adr",
                                      "{\"project\":\"guard-adr-missing\",\"mode\":\"get\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_TRUE(strstr(resp, "not found") || strstr(resp, "not indexed"));
@@ -6772,9 +6772,9 @@ TEST(tool_manage_adr_read_missing_store_skips_mutation_guard) {
     ASSERT_EQ(probe.end_count, 0);
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_project_db(cache, project);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
     PASS();
@@ -6784,48 +6784,48 @@ TEST(tool_manage_adr_legacy_migration_tries_without_blocking) {
     const char *project = "guard-adr-legacy";
     char root[256];
     char cache[256];
-    snprintf(root, sizeof(root), "%s/cbm-adr-legacy-XXXXXX", cbm_tmpdir());
-    snprintf(cache, sizeof(cache), "%s/cbm-adr-legacy-cache-XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(root));
-    ASSERT_NOT_NULL(cbm_mkdtemp(cache));
+    snprintf(root, sizeof(root), "%s/ani-adr-legacy-XXXXXX", ani_tmpdir());
+    snprintf(cache, sizeof(cache), "%s/ani-adr-legacy-cache-XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(root));
+    ASSERT_NOT_NULL(ani_mkdtemp(cache));
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    ASSERT_EQ(cbm_setenv("CBM_CACHE_DIR", cache, 1), 0);
+    ASSERT_EQ(ani_setenv("ANI_CACHE_DIR", cache, 1), 0);
 
-    char adr_dir[CBM_SZ_1K];
-    char adr_path[CBM_SZ_1K];
-    snprintf(adr_dir, sizeof(adr_dir), "%s/.codebase-memory", root);
+    char adr_dir[ANI_SZ_1K];
+    char adr_path[ANI_SZ_1K];
+    snprintf(adr_dir, sizeof(adr_dir), "%s/.ani", root);
     snprintf(adr_path, sizeof(adr_path), "%s/adr.md", adr_dir);
-    ASSERT_EQ(cbm_mkdir(adr_dir), 0);
-    FILE *fp = cbm_fopen(adr_path, "w");
+    ASSERT_EQ(ani_mkdir(adr_dir), 0);
+    FILE *fp = ani_fopen(adr_path, "w");
     ASSERT_NOT_NULL(fp);
     ASSERT_TRUE(fputs("## PURPOSE\nLegacy ADR.\n", fp) >= 0);
     ASSERT_EQ(fclose(fp), 0);
 
-    char db_path[CBM_SZ_1K];
+    char db_path[ANI_SZ_1K];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", cache, project);
-    cbm_store_t *writer = cbm_store_open_path(db_path);
+    ani_store_t *writer = ani_store_open_path(db_path);
     ASSERT_NOT_NULL(writer);
-    ASSERT_EQ(cbm_store_upsert_project(writer, project, root), CBM_STORE_OK);
-    cbm_store_close(writer);
+    ASSERT_EQ(ani_store_upsert_project(writer, project, root), ANI_STORE_OK);
+    ani_store_close(writer);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
     mcp_mutation_guard_probe_t probe = {.deny_try_begin_call = 1};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
-    cbm_mcp_server_set_project_mutation_try_guard(srv, mcp_mutation_guard_probe_try_begin);
+    ani_mcp_server_set_project_mutation_try_guard(srv, mcp_mutation_guard_probe_try_begin);
 
-    char *busy_response = cbm_mcp_handle_tool(
+    char *busy_response = ani_mcp_handle_tool(
         srv, "manage_adr", "{\"project\":\"guard-adr-legacy\",\"mode\":\"get\"}");
-    char *migrated_response = cbm_mcp_handle_tool(
+    char *migrated_response = ani_mcp_handle_tool(
         srv, "manage_adr", "{\"project\":\"guard-adr-legacy\",\"mode\":\"get\"}");
     /* A successful migration invalidates the request-scoped query store; prove
      * persistence through the next public read instead of retaining its former
      * borrowed test handle. */
-    char *persisted_response = cbm_mcp_handle_tool(
+    char *persisted_response = ani_mcp_handle_tool(
         srv, "manage_adr", "{\"project\":\"guard-adr-legacy\",\"mode\":\"get\"}");
     bool busy_read_returned_legacy = busy_response && strstr(busy_response, "Legacy ADR.") &&
                                      !strstr(busy_response, "\"isError\":true");
@@ -6838,14 +6838,14 @@ TEST(tool_manage_adr_legacy_migration_tries_without_blocking) {
     free(busy_response);
     free(migrated_response);
     free(persisted_response);
-    cbm_mcp_server_free(srv);
-    cbm_unlink(adr_path);
-    cbm_rmdir(adr_dir);
-    cbm_rmdir(root);
+    ani_mcp_server_free(srv);
+    ani_unlink(adr_path);
+    ani_rmdir(adr_dir);
+    ani_rmdir(root);
     cleanup_project_db(cache, project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
 
     ASSERT_TRUE(busy_read_returned_legacy);
     ASSERT_TRUE(migrated_read_returned_legacy);
@@ -6859,67 +6859,67 @@ TEST(tool_manage_adr_legacy_migration_tries_without_blocking) {
     PASS();
 }
 
-/* A raw cbm_mcp_handle_tool() call is still one request lifetime. Cancellation
+/* A raw ani_mcp_handle_tool() call is still one request lifetime. Cancellation
  * published from inside a non-pipeline handler must therefore be accepted,
  * observed before the write, and retired at completion so the next raw request
  * on the same server is not poisoned. */
 TEST(tool_raw_dispatch_cancel_is_scoped_non_mutating_and_next_request_clean) {
     const char *project = "raw-cancel-adr";
     char root[256];
-    snprintf(root, sizeof(root), "%s/cbm-mcp-raw-adr-XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(root));
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    snprintf(root, sizeof(root), "%s/ani-mcp-raw-adr-XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(root));
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *store = cbm_mcp_server_store(srv);
+    ani_store_t *store = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(store);
-    ASSERT_EQ(cbm_store_upsert_project(store, project, root), CBM_STORE_OK);
-    cbm_mcp_server_set_project(srv, project);
+    ASSERT_EQ(ani_store_upsert_project(store, project, root), ANI_STORE_OK);
+    ani_mcp_server_set_project(srv, project);
 
     mcp_mutation_guard_probe_t probe = {
         .cancel_on_begin_call = 1,
         .cancel_server = srv,
     };
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
 
     char *cancelled_response =
-        cbm_mcp_handle_tool(srv, "manage_adr",
+        ani_mcp_handle_tool(srv, "manage_adr",
                             "{\"project\":\"raw-cancel-adr\",\"mode\":\"update\","
                             "\"content\":\"## PURPOSE\\nMUST NOT COMMIT.\\n\"}");
     bool cancellation_reported = cancelled_response && strstr(cancelled_response, "cancelled") &&
                                  strstr(cancelled_response, "\"isError\":true");
 
-    cbm_adr_t cancelled_adr = {0};
-    int cancelled_lookup = cbm_store_adr_get(store, project, &cancelled_adr);
-    if (cancelled_lookup == CBM_STORE_OK) {
-        cbm_store_adr_free(&cancelled_adr);
+    ani_adr_t cancelled_adr = {0};
+    int cancelled_lookup = ani_store_adr_get(store, project, &cancelled_adr);
+    if (cancelled_lookup == ANI_STORE_OK) {
+        ani_store_adr_free(&cancelled_adr);
     }
 
     char *next_response =
-        cbm_mcp_handle_tool(srv, "manage_adr",
+        ani_mcp_handle_tool(srv, "manage_adr",
                             "{\"project\":\"raw-cancel-adr\",\"mode\":\"update\","
                             "\"content\":\"## PURPOSE\\nClean next request.\\n\"}");
     bool next_response_clean = next_response && strstr(next_response, "updated") &&
                                !strstr(next_response, "cancelled") &&
                                !strstr(next_response, "\"isError\":true");
-    cbm_adr_t next_adr = {0};
-    int next_lookup = cbm_store_adr_get(store, project, &next_adr);
-    bool next_write_committed = next_lookup == CBM_STORE_OK && next_adr.content &&
+    ani_adr_t next_adr = {0};
+    int next_lookup = ani_store_adr_get(store, project, &next_adr);
+    bool next_write_committed = next_lookup == ANI_STORE_OK && next_adr.content &&
                                 strstr(next_adr.content, "Clean next request") &&
                                 !strstr(next_adr.content, "MUST NOT COMMIT");
-    if (next_lookup == CBM_STORE_OK) {
-        cbm_store_adr_free(&next_adr);
+    if (next_lookup == ANI_STORE_OK) {
+        ani_store_adr_free(&next_adr);
     }
 
     free(cancelled_response);
     free(next_response);
-    cbm_mcp_server_free(srv);
-    (void)cbm_rmdir(root);
+    ani_mcp_server_free(srv);
+    (void)ani_rmdir(root);
 
     ASSERT_TRUE(probe.cancel_attempted);
     ASSERT_TRUE(probe.cancel_accepted);
     ASSERT_TRUE(cancellation_reported);
-    ASSERT_EQ(cancelled_lookup, CBM_STORE_NOT_FOUND);
+    ASSERT_EQ(cancelled_lookup, ANI_STORE_NOT_FOUND);
     ASSERT_TRUE(next_response_clean);
     ASSERT_TRUE(next_write_committed);
     ASSERT_EQ(probe.begin_count, 2);
@@ -6937,34 +6937,34 @@ TEST(tool_raw_dispatch_cancel_is_scoped_non_mutating_and_next_request_clean) {
 TEST(tool_outer_request_scope_preserves_predispatch_cancel) {
     const char *project = "outer-scope-cancel-adr";
     char root[256];
-    (void)snprintf(root, sizeof(root), "%s/cbm-mcp-outer-cancel-XXXXXX", cbm_tmpdir());
-    bool root_created = cbm_mkdtemp(root) != NULL;
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    cbm_store_t *store = cbm_mcp_server_store(srv);
+    (void)snprintf(root, sizeof(root), "%s/ani-mcp-outer-cancel-XXXXXX", ani_tmpdir());
+    bool root_created = ani_mkdtemp(root) != NULL;
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    ani_store_t *store = ani_mcp_server_store(srv);
     bool project_ready =
-        root_created && store && cbm_store_upsert_project(store, project, root) == CBM_STORE_OK;
-    cbm_mcp_server_set_project(srv, project);
-    bool outer_scope = project_ready && cbm_mcp_server_request_scope_begin(srv);
-    bool cancel_accepted = outer_scope && cbm_mcp_server_cancel_active(srv);
+        root_created && store && ani_store_upsert_project(store, project, root) == ANI_STORE_OK;
+    ani_mcp_server_set_project(srv, project);
+    bool outer_scope = project_ready && ani_mcp_server_request_scope_begin(srv);
+    bool cancel_accepted = outer_scope && ani_mcp_server_cancel_active(srv);
     char *cancelled_response =
         cancel_accepted
-            ? cbm_mcp_handle_tool(srv, "manage_adr",
+            ? ani_mcp_handle_tool(srv, "manage_adr",
                                   "{\"project\":\"outer-scope-cancel-adr\","
                                   "\"mode\":\"update\",\"content\":\"MUST NOT COMMIT\"}")
             : NULL;
     bool cancellation_reported = cancelled_response && strstr(cancelled_response, "cancelled") &&
                                  strstr(cancelled_response, "\"isError\":true");
-    cbm_mcp_server_request_scope_end(srv);
+    ani_mcp_server_request_scope_end(srv);
 
-    char *next_response = srv ? cbm_mcp_handle_tool(srv, "ingest_traces", "{\"traces\":[]}") : NULL;
+    char *next_response = srv ? ani_mcp_handle_tool(srv, "ingest_traces", "{\"traces\":[]}") : NULL;
     bool next_response_clean = next_response && strstr(next_response, "accepted") &&
                                !strstr(next_response, "cancelled") &&
                                !strstr(next_response, "\"isError\":true");
 
     free(cancelled_response);
     free(next_response);
-    cbm_mcp_server_free(srv);
-    (void)cbm_rmdir(root);
+    ani_mcp_server_free(srv);
+    (void)ani_rmdir(root);
 
     ASSERT_TRUE(root_created);
     ASSERT_NOT_NULL(srv);
@@ -6983,54 +6983,54 @@ TEST(tool_outer_request_scope_preserves_predispatch_cancel) {
 TEST(tool_index_repository_early_raw_cancel_survives_index_entry) {
     char cache[256];
     char repo[256];
-    snprintf(cache, sizeof(cache), "%s/cbm-mcp-raw-index-cache-XXXXXX", cbm_tmpdir());
-    snprintf(repo, sizeof(repo), "%s/cbm-mcp-raw-index-repo-XXXXXX", cbm_tmpdir());
-    bool cache_created = cbm_mkdtemp(cache) != NULL;
-    bool repo_created = cbm_mkdtemp(repo) != NULL;
+    snprintf(cache, sizeof(cache), "%s/ani-mcp-raw-index-cache-XXXXXX", ani_tmpdir());
+    snprintf(repo, sizeof(repo), "%s/ani-mcp-raw-index-repo-XXXXXX", ani_tmpdir());
+    bool cache_created = ani_mkdtemp(cache) != NULL;
+    bool repo_created = ani_mkdtemp(repo) != NULL;
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
     if (cache_created) {
-        cbm_setenv("CBM_CACHE_DIR", cache, 1);
+        ani_setenv("ANI_CACHE_DIR", cache, 1);
     }
 
-    char *project = repo_created ? cbm_project_name_from_path(repo) : NULL;
-    cbm_mcp_server_t *srv =
-        cache_created && repo_created && project ? cbm_mcp_server_new(NULL) : NULL;
+    char *project = repo_created ? ani_project_name_from_path(repo) : NULL;
+    ani_mcp_server_t *srv =
+        cache_created && repo_created && project ? ani_mcp_server_new(NULL) : NULL;
     mcp_mutation_guard_probe_t probe = {
         .cancel_on_begin_call = 1,
         .cancel_server = srv,
     };
     if (srv) {
-        cbm_mcp_server_set_background_tasks(srv, false);
-        cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+        ani_mcp_server_set_background_tasks(srv, false);
+        ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                                   mcp_mutation_guard_probe_end, &probe);
     }
 
-    char args[CBM_SZ_1K];
+    char args[ANI_SZ_1K];
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\",\"mode\":\"fast\"}", repo);
-    char *cancelled_response = srv ? cbm_mcp_handle_tool(srv, "index_repository", args) : NULL;
+    char *cancelled_response = srv ? ani_mcp_handle_tool(srv, "index_repository", args) : NULL;
     bool cancellation_reported = cancelled_response && strstr(cancelled_response, "cancelled") &&
                                  strstr(cancelled_response, "\"isError\":true");
 
-    char db_path[CBM_SZ_1K];
+    char db_path[ANI_SZ_1K];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", cache, project ? project : "missing-project");
-    bool no_project_published = !cbm_file_exists(db_path);
+    bool no_project_published = !ani_file_exists(db_path);
 
-    char *next_response = srv ? cbm_mcp_handle_tool(srv, "ingest_traces", "{\"traces\":[]}") : NULL;
+    char *next_response = srv ? ani_mcp_handle_tool(srv, "ingest_traces", "{\"traces\":[]}") : NULL;
     bool next_response_clean = next_response && strstr(next_response, "accepted") &&
                                !strstr(next_response, "cancelled") &&
                                !strstr(next_response, "\"isError\":true");
 
     free(cancelled_response);
     free(next_response);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_project_db(cache, project);
     if (cache_created) {
-        (void)cbm_rmdir(cache);
+        (void)ani_rmdir(cache);
     }
     if (repo_created) {
-        (void)cbm_rmdir(repo);
+        (void)ani_rmdir(repo);
     }
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
@@ -7051,14 +7051,14 @@ TEST(tool_index_repository_early_raw_cancel_survives_index_entry) {
 
 static bool mcp_cross_repo_create_project_store(const char *cache, const char *project,
                                                 const char *root_path) {
-    char db_path[CBM_SZ_1K];
+    char db_path[ANI_SZ_1K];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", cache, project);
-    cbm_store_t *store = cbm_store_open_path(db_path);
+    ani_store_t *store = ani_store_open_path(db_path);
     if (!store) {
         return false;
     }
-    bool created = cbm_store_upsert_project(store, project, root_path) == CBM_STORE_OK;
-    cbm_store_close(store);
+    bool created = ani_store_upsert_project(store, project, root_path) == ANI_STORE_OK;
+    ani_store_close(store);
     return created;
 }
 
@@ -7067,93 +7067,93 @@ static bool mcp_cross_repo_create_project_store(const char *cache, const char *p
  * count observable instead of relying on an empty (zero-edge) scan. */
 static bool mcp_cross_repo_seed_http_match(const char *cache, const char *source_project,
                                            const char *target_project, const char *root_path) {
-    char source_path[CBM_SZ_1K];
-    char target_path[CBM_SZ_1K];
+    char source_path[ANI_SZ_1K];
+    char target_path[ANI_SZ_1K];
     snprintf(source_path, sizeof(source_path), "%s/%s.db", cache, source_project);
     snprintf(target_path, sizeof(target_path), "%s/%s.db", cache, target_project);
 
-    cbm_store_t *source = cbm_store_open_path(source_path);
-    cbm_store_t *target = cbm_store_open_path(target_path);
+    ani_store_t *source = ani_store_open_path(source_path);
+    ani_store_t *target = ani_store_open_path(target_path);
     if (!source || !target) {
-        cbm_store_close(source);
-        cbm_store_close(target);
+        ani_store_close(source);
+        ani_store_close(target);
         return false;
     }
 
-    bool ok = cbm_store_upsert_project(source, source_project, root_path) == CBM_STORE_OK &&
-              cbm_store_upsert_project(target, target_project, root_path) == CBM_STORE_OK;
+    bool ok = ani_store_upsert_project(source, source_project, root_path) == ANI_STORE_OK &&
+              ani_store_upsert_project(target, target_project, root_path) == ANI_STORE_OK;
 
-    cbm_node_t caller = {.project = source_project,
+    ani_node_t caller = {.project = source_project,
                          .label = "Function",
                          .name = "call_once",
                          .qualified_name = "cross.source.call_once",
                          .file_path = "client.c",
                          .start_line = 1,
                          .end_line = 2};
-    cbm_node_t local_route = {.project = source_project,
+    ani_node_t local_route = {.project = source_project,
                               .label = "Route",
                               .name = "GET /dedupe",
                               .qualified_name = "__route__GET__/dedupe",
                               .file_path = "client.c",
                               .start_line = 3,
                               .end_line = 3};
-    int64_t caller_id = ok ? cbm_store_upsert_node(source, &caller) : 0;
-    int64_t local_route_id = ok ? cbm_store_upsert_node(source, &local_route) : 0;
-    cbm_edge_t http_call = {.project = source_project,
+    int64_t caller_id = ok ? ani_store_upsert_node(source, &caller) : 0;
+    int64_t local_route_id = ok ? ani_store_upsert_node(source, &local_route) : 0;
+    ani_edge_t http_call = {.project = source_project,
                             .source_id = caller_id,
                             .target_id = local_route_id,
                             .type = "HTTP_CALLS",
                             .properties_json = "{\"url_path\":\"/dedupe\",\"method\":\"GET\"}"};
-    ok = ok && caller_id > 0 && local_route_id > 0 && cbm_store_insert_edge(source, &http_call) > 0;
+    ok = ok && caller_id > 0 && local_route_id > 0 && ani_store_insert_edge(source, &http_call) > 0;
 
-    cbm_node_t target_route = {.project = target_project,
+    ani_node_t target_route = {.project = target_project,
                                .label = "Route",
                                .name = "GET /dedupe",
                                .qualified_name = "__route__GET__/dedupe",
                                .file_path = "server.c",
                                .start_line = 3,
                                .end_line = 3};
-    cbm_node_t handler = {.project = target_project,
+    ani_node_t handler = {.project = target_project,
                           .label = "Function",
                           .name = "handle_once",
                           .qualified_name = "cross.target.handle_once",
                           .file_path = "server.c",
                           .start_line = 1,
                           .end_line = 2};
-    int64_t target_route_id = ok ? cbm_store_upsert_node(target, &target_route) : 0;
-    int64_t handler_id = ok ? cbm_store_upsert_node(target, &handler) : 0;
-    cbm_edge_t handles = {.project = target_project,
+    int64_t target_route_id = ok ? ani_store_upsert_node(target, &target_route) : 0;
+    int64_t handler_id = ok ? ani_store_upsert_node(target, &handler) : 0;
+    ani_edge_t handles = {.project = target_project,
                           .source_id = handler_id,
                           .target_id = target_route_id,
                           .type = "HANDLES"};
-    ok = ok && target_route_id > 0 && handler_id > 0 && cbm_store_insert_edge(target, &handles) > 0;
+    ok = ok && target_route_id > 0 && handler_id > 0 && ani_store_insert_edge(target, &handles) > 0;
 
-    cbm_store_close(source);
-    cbm_store_close(target);
+    ani_store_close(source);
+    ani_store_close(target);
     return ok;
 }
 
 TEST(tool_cross_repo_mutation_guard_sorts_dedupes_and_unwinds) {
     char repo[256];
-    snprintf(repo, sizeof(repo), "/tmp/cbm-mcp-cross-guard-XXXXXX");
-    if (!cbm_mkdtemp(repo)) {
+    snprintf(repo, sizeof(repo), "/tmp/ani-mcp-cross-guard-XXXXXX");
+    if (!ani_mkdtemp(repo)) {
         PASS();
     }
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    ASSERT_TRUE(cbm_mcp_server_set_session_context(srv, repo, NULL));
+    ASSERT_TRUE(ani_mcp_server_set_session_context(srv, repo, NULL));
 
     mcp_mutation_guard_probe_t probe = {.deny_begin_call = 3};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
 
-    char args[CBM_SZ_2K];
+    char args[ANI_SZ_2K];
     snprintf(args, sizeof(args),
              "{\"repo_path\":\"%s\",\"mode\":\"cross-repo-intelligence\","
              "\"target_projects\":[\"zzz-target\",\"000-target\",\"zzz-target\"]}",
              repo);
-    char *resp = cbm_mcp_handle_tool(srv, "index_repository", args);
+    char *resp = ani_mcp_handle_tool(srv, "index_repository", args);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "blocked"));
 
@@ -7175,8 +7175,8 @@ TEST(tool_cross_repo_mutation_guard_sorts_dedupes_and_unwinds) {
     ASSERT_STR_EQ(probe.end_projects[1], probe.begin_projects[0]);
     free(resp);
 
-    cbm_mcp_server_free(srv);
-    cbm_rmdir(repo);
+    ani_mcp_server_free(srv);
+    ani_rmdir(repo);
     PASS();
 }
 
@@ -7205,38 +7205,38 @@ static bool mcp_test_project_keys_equivalent(const char *left, const char *right
  * original spellings: folding is only the comparison key, not a lookup value. */
 TEST(tool_cross_repo_mutation_guard_casefolds_aliases_and_order) {
     char repo[256];
-    snprintf(repo, sizeof(repo), "/tmp/cbm-mcp-cross-case-guard-XXXXXX");
-    if (!cbm_mkdtemp(repo)) {
+    snprintf(repo, sizeof(repo), "/tmp/ani-mcp-cross-case-guard-XXXXXX");
+    if (!ani_mkdtemp(repo)) {
         PASS();
     }
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    ASSERT_TRUE(cbm_mcp_server_set_session_context(srv, repo, NULL));
+    ASSERT_TRUE(ani_mcp_server_set_session_context(srv, repo, NULL));
 
     mcp_mutation_guard_probe_t first = {0};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &first);
-    char first_args[CBM_SZ_2K];
+    char first_args[ANI_SZ_2K];
     snprintf(first_args, sizeof(first_args),
              "{\"repo_path\":\"%s\",\"name\":\"Zulu\","
              "\"mode\":\"cross-repo-intelligence\","
              "\"target_projects\":[\"Foo\",\"foo\",\"Alpha\"]}",
              repo);
-    char *first_resp = cbm_mcp_handle_tool(srv, "index_repository", first_args);
+    char *first_resp = ani_mcp_handle_tool(srv, "index_repository", first_args);
     ASSERT_NOT_NULL(first_resp);
     free(first_resp);
 
     mcp_mutation_guard_probe_t second = {0};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &second);
-    char second_args[CBM_SZ_2K];
+    char second_args[ANI_SZ_2K];
     snprintf(second_args, sizeof(second_args),
              "{\"repo_path\":\"%s\",\"name\":\"zULU\","
              "\"mode\":\"cross-repo-intelligence\","
              "\"target_projects\":[\"foo\",\"ALPHA\",\"FOO\"]}",
              repo);
-    char *second_resp = cbm_mcp_handle_tool(srv, "index_repository", second_args);
+    char *second_resp = ani_mcp_handle_tool(srv, "index_repository", second_args);
     ASSERT_NOT_NULL(second_resp);
     free(second_resp);
 
@@ -7259,8 +7259,8 @@ TEST(tool_cross_repo_mutation_guard_casefolds_aliases_and_order) {
     ASSERT_STR_EQ(second.begin_projects[1], "FOO");
     ASSERT_STR_EQ(second.begin_projects[2], "zULU");
 
-    cbm_mcp_server_free(srv);
-    cbm_rmdir(repo);
+    ani_mcp_server_free(srv);
+    ani_rmdir(repo);
     PASS();
 }
 
@@ -7270,29 +7270,29 @@ TEST(tool_cross_repo_mutation_guard_casefolds_aliases_and_order) {
  * must happen before any project mutation lease is acquired. */
 TEST(tool_cross_repo_rejects_wildcard_mixed_with_named_targets) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "%s/cbm-mcp-cross-wildcard-XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(cache));
+    snprintf(cache, sizeof(cache), "%s/ani-mcp-cross-wildcard-XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(cache));
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
-    char *project = cbm_project_name_from_path(cache);
+    char *project = ani_project_name_from_path(cache);
     ASSERT_NOT_NULL(project);
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    ASSERT_TRUE(cbm_mcp_server_set_session_context(srv, cache, NULL));
+    ASSERT_TRUE(ani_mcp_server_set_session_context(srv, cache, NULL));
 
     mcp_mutation_guard_probe_t probe = {0};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
 
-    char args[CBM_SZ_2K];
+    char args[ANI_SZ_2K];
     snprintf(args, sizeof(args),
              "{\"repo_path\":\"%s\",\"mode\":\"cross-repo-intelligence\","
              "\"target_projects\":[\"*\",\"named-target\"]}",
              cache);
-    char *resp = cbm_mcp_handle_tool(srv, "index_repository", args);
+    char *resp = ani_mcp_handle_tool(srv, "index_repository", args);
     bool rejected = resp && strstr(resp, "\"isError\":true") != NULL;
     bool explained = resp && strstr(resp, "target_projects") && strstr(resp, "*") &&
                      (strstr(resp, "only") || strstr(resp, "combin"));
@@ -7300,14 +7300,14 @@ TEST(tool_cross_repo_rejects_wildcard_mixed_with_named_targets) {
     int end_count = probe.end_count;
 
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_project_db(cache, project);
     cleanup_project_db(cache, "*");
     cleanup_project_db(cache, "named-target");
     free(project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
 
     ASSERT_TRUE(rejected);
     ASSERT_TRUE(explained);
@@ -7322,32 +7322,32 @@ TEST(tool_cross_repo_rejects_wildcard_mixed_with_named_targets) {
  * unwind every lease it acquired. */
 TEST(tool_cross_repo_checks_cancellation_after_acquiring_leases) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "%s/cbm-mcp-cross-cancel-XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(cache));
+    snprintf(cache, sizeof(cache), "%s/ani-mcp-cross-cancel-XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(cache));
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
-    char *project = cbm_project_name_from_path(cache);
+    char *project = ani_project_name_from_path(cache);
     ASSERT_NOT_NULL(project);
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    ASSERT_TRUE(cbm_mcp_server_set_session_context(srv, cache, NULL));
+    ASSERT_TRUE(ani_mcp_server_set_session_context(srv, cache, NULL));
 
     mcp_mutation_guard_probe_t probe = {
         .cancel_on_begin_call = 3,
         .cancel_server = srv,
     };
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
 
-    char args[CBM_SZ_2K];
+    char args[ANI_SZ_2K];
     snprintf(args, sizeof(args),
              "{\"repo_path\":\"%s\",\"mode\":\"cross-repo-intelligence\","
              "\"target_projects\":[\"000-cancel-target\",\"zzz-cancel-target\"]}",
              cache);
-    char *resp = cbm_mcp_handle_tool(srv, "index_repository", args);
+    char *resp = ani_mcp_handle_tool(srv, "index_repository", args);
     bool response_cancelled = resp && strstr(resp, "cancelled") != NULL;
     bool cancel_attempted = probe.cancel_attempted;
     bool cancel_accepted = probe.cancel_accepted;
@@ -7359,14 +7359,14 @@ TEST(tool_cross_repo_checks_cancellation_after_acquiring_leases) {
                           strcmp(probe.end_projects[2], probe.begin_projects[0]) == 0;
 
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_project_db(cache, project);
     cleanup_project_db(cache, "000-cancel-target");
     cleanup_project_db(cache, "zzz-cancel-target");
     free(project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
 
     ASSERT_TRUE(cancel_attempted);
     ASSERT_TRUE(cancel_accepted);
@@ -7377,72 +7377,72 @@ TEST(tool_cross_repo_checks_cancellation_after_acquiring_leases) {
     PASS();
 }
 
-/* cbm_store_open_path() creates its path. Cross-repo validation must therefore
+/* ani_store_open_path() creates its path. Cross-repo validation must therefore
  * reject an absent source or named target before the matcher opens either one;
  * otherwise a typo silently becomes a valid-looking empty project database. */
 TEST(tool_cross_repo_missing_inputs_fail_without_creating_ghost_databases) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "%s/cbm-mcp-cross-missing-XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(cache));
+    snprintf(cache, sizeof(cache), "%s/ani-mcp-cross-missing-XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(cache));
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
-    char *source_project = cbm_project_name_from_path(cache);
+    char *source_project = ani_project_name_from_path(cache);
     ASSERT_NOT_NULL(source_project);
     const char *existing_target = "existing-cross-target";
     const char *missing_target = "missing-cross-target";
     ASSERT_TRUE(mcp_cross_repo_create_project_store(cache, existing_target, cache));
 
-    char source_db_path[CBM_SZ_1K];
-    char missing_target_db_path[CBM_SZ_1K];
+    char source_db_path[ANI_SZ_1K];
+    char missing_target_db_path[ANI_SZ_1K];
     snprintf(source_db_path, sizeof(source_db_path), "%s/%s.db", cache, source_project);
     snprintf(missing_target_db_path, sizeof(missing_target_db_path), "%s/%s.db", cache,
              missing_target);
-    ASSERT_FALSE(cbm_file_exists(source_db_path));
+    ASSERT_FALSE(ani_file_exists(source_db_path));
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    ASSERT_TRUE(cbm_mcp_server_set_session_context(srv, cache, NULL));
+    ASSERT_TRUE(ani_mcp_server_set_session_context(srv, cache, NULL));
 
-    char args[CBM_SZ_2K];
+    char args[ANI_SZ_2K];
     snprintf(args, sizeof(args),
              "{\"repo_path\":\"%s\",\"mode\":\"cross-repo-intelligence\","
              "\"target_projects\":[\"%s\"]}",
              cache, existing_target);
-    char *source_resp = cbm_mcp_handle_tool(srv, "index_repository", args);
+    char *source_resp = ani_mcp_handle_tool(srv, "index_repository", args);
     bool source_failed = source_resp && strstr(source_resp, "\"isError\":true");
     bool source_reported =
         source_resp && (strstr(source_resp, "not indexed") || strstr(source_resp, "not found") ||
                         strstr(source_resp, "missing"));
-    bool source_ghost_created = cbm_file_exists(source_db_path);
+    bool source_ghost_created = ani_file_exists(source_db_path);
     free(source_resp);
 
     cleanup_project_db(cache, source_project);
     ASSERT_TRUE(mcp_cross_repo_create_project_store(cache, source_project, cache));
-    ASSERT_FALSE(cbm_file_exists(missing_target_db_path));
+    ASSERT_FALSE(ani_file_exists(missing_target_db_path));
 
     snprintf(args, sizeof(args),
              "{\"repo_path\":\"%s\",\"mode\":\"cross-repo-intelligence\","
              "\"target_projects\":[\"%s\"]}",
              cache, missing_target);
-    char *target_resp = cbm_mcp_handle_tool(srv, "index_repository", args);
+    char *target_resp = ani_mcp_handle_tool(srv, "index_repository", args);
     bool target_failed = target_resp && strstr(target_resp, "\"isError\":true");
     bool target_reported =
         target_resp && (strstr(target_resp, "not indexed") || strstr(target_resp, "not found") ||
                         strstr(target_resp, "missing"));
-    bool target_ghost_created = cbm_file_exists(missing_target_db_path);
+    bool target_ghost_created = ani_file_exists(missing_target_db_path);
     free(target_resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_project_db(cache, source_project);
     cleanup_project_db(cache, existing_target);
     cleanup_project_db(cache, missing_target);
     free(source_project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
 
     ASSERT_TRUE(source_failed);
     ASSERT_TRUE(source_reported);
@@ -7458,54 +7458,54 @@ TEST(tool_cross_repo_missing_inputs_fail_without_creating_ghost_databases) {
  * counters cannot pass vacuously at zero. */
 TEST(tool_cross_repo_dedupes_targets_before_scanning_and_counting) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "%s/cbm-mcp-cross-dedupe-XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(cache));
+    snprintf(cache, sizeof(cache), "%s/ani-mcp-cross-dedupe-XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(cache));
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
-    char *source_project = cbm_project_name_from_path(cache);
+    char *source_project = ani_project_name_from_path(cache);
     ASSERT_NOT_NULL(source_project);
     const char *target_project = "cross-dedupe-target";
     ASSERT_TRUE(mcp_cross_repo_seed_http_match(cache, source_project, target_project, cache));
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    ASSERT_TRUE(cbm_mcp_server_set_session_context(srv, cache, NULL));
+    ASSERT_TRUE(ani_mcp_server_set_session_context(srv, cache, NULL));
 
-    char args[CBM_SZ_2K];
+    char args[ANI_SZ_2K];
     snprintf(args, sizeof(args),
              "{\"repo_path\":\"%s\",\"mode\":\"cross-repo-intelligence\","
              "\"target_projects\":[\"%s\",\"%s\"]}",
              cache, target_project, target_project);
-    char *resp = cbm_mcp_handle_tool(srv, "index_repository", args);
+    char *resp = ani_mcp_handle_tool(srv, "index_repository", args);
     bool succeeded = resp && strstr(resp, "\"isError\":true") == NULL;
     bool scanned_once = response_contains_json_fragment(resp, "\"projects_scanned\":1");
     bool counted_once = response_contains_json_fragment(resp, "\"cross_http_calls\":1") &&
                         response_contains_json_fragment(resp, "\"total_cross_edges\":1");
 
-    char source_db_path[CBM_SZ_1K];
-    char target_db_path[CBM_SZ_1K];
+    char source_db_path[ANI_SZ_1K];
+    char target_db_path[ANI_SZ_1K];
     snprintf(source_db_path, sizeof(source_db_path), "%s/%s.db", cache, source_project);
     snprintf(target_db_path, sizeof(target_db_path), "%s/%s.db", cache, target_project);
-    cbm_store_t *source = cbm_store_open_path_query(source_db_path);
-    cbm_store_t *target = cbm_store_open_path_query(target_db_path);
+    ani_store_t *source = ani_store_open_path_query(source_db_path);
+    ani_store_t *target = ani_store_open_path_query(target_db_path);
     int source_cross_edges =
-        source ? cbm_store_count_edges_by_type(source, source_project, "CROSS_HTTP_CALLS") : -1;
+        source ? ani_store_count_edges_by_type(source, source_project, "CROSS_HTTP_CALLS") : -1;
     int target_cross_edges =
-        target ? cbm_store_count_edges_by_type(target, target_project, "CROSS_HTTP_CALLS") : -1;
-    cbm_store_close(source);
-    cbm_store_close(target);
+        target ? ani_store_count_edges_by_type(target, target_project, "CROSS_HTTP_CALLS") : -1;
+    ani_store_close(source);
+    ani_store_close(target);
 
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_project_db(cache, source_project);
     cleanup_project_db(cache, target_project);
     free(source_project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
 
     ASSERT_TRUE(succeeded);
     ASSERT_TRUE(scanned_once);
@@ -7520,37 +7520,37 @@ TEST(tool_cross_repo_dedupes_targets_before_scanning_and_counting) {
  * projects impossible to rescan even though ordinary indexing created them. */
 TEST(tool_cross_repo_honors_source_name_override) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "%s/cbm-mcp-cross-name-XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(cache));
+    snprintf(cache, sizeof(cache), "%s/ani-mcp-cross-name-XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(cache));
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     const char *source_project = "cross-custom-source";
     const char *target_project = "cross-custom-target";
     ASSERT_TRUE(mcp_cross_repo_seed_http_match(cache, source_project, target_project, cache));
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    ASSERT_TRUE(cbm_mcp_server_set_session_context(srv, cache, NULL));
-    char args[CBM_SZ_2K];
+    ASSERT_TRUE(ani_mcp_server_set_session_context(srv, cache, NULL));
+    char args[ANI_SZ_2K];
     snprintf(args, sizeof(args),
              "{\"repo_path\":\"%s\",\"name\":\"%s\","
              "\"mode\":\"cross-repo-intelligence\","
              "\"target_projects\":[\"%s\"]}",
              cache, source_project, target_project);
-    char *resp = cbm_mcp_handle_tool(srv, "index_repository", args);
+    char *resp = ani_mcp_handle_tool(srv, "index_repository", args);
     bool succeeded = resp && !response_contains_json_fragment(resp, "\"isError\":true") &&
                      response_contains_json_fragment(resp, "\"cross_http_calls\":1");
 
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_project_db(cache, source_project);
     cleanup_project_db(cache, target_project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
 
     ASSERT_TRUE(succeeded);
     PASS();
@@ -7564,70 +7564,70 @@ TEST(tool_cross_repo_honors_source_name_override) {
  * acquisition and never nest a blocking lease. */
 TEST(tool_corrupt_store_cleanup_guard_is_balanced_and_not_nested) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "%s/cbm-mcp-corrupt-guard-XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(cache));
+    snprintf(cache, sizeof(cache), "%s/ani-mcp-corrupt-guard-XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(cache));
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     const char *project = "guard-corrupt-project";
-    char db_path[CBM_SZ_1K];
+    char db_path[ANI_SZ_1K];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", cache, project);
 
     ASSERT_TRUE(mcp_make_corrupt_project_store(cache, project));
-    cbm_mcp_server_t *query_srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *query_srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(query_srv);
     mcp_mutation_guard_probe_t query_probe = {
         .observed_db_path = db_path,
     };
-    cbm_mcp_server_set_project_mutation_guard(query_srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(query_srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &query_probe);
 
     char *resp =
-        cbm_mcp_handle_tool(query_srv, "search_graph",
+        ani_mcp_handle_tool(query_srv, "search_graph",
                             "{\"project\":\"guard-corrupt-project\",\"name_pattern\":\".*\"}");
     bool query_reports_corruption = resp && strstr(resp, "corrupt") != NULL;
     free(resp);
-    cbm_mcp_server_free(query_srv);
-    char query_backup_path[CBM_SZ_1K];
+    ani_mcp_server_free(query_srv);
+    char query_backup_path[ANI_SZ_1K];
     int query_backup_count =
         mcp_find_corrupt_backups(cache, project, query_backup_path, sizeof(query_backup_path));
     bool query_quarantined =
-        !cbm_file_exists(db_path) && query_backup_count == 1 && query_backup_path[0] != '\0';
+        !ani_file_exists(db_path) && query_backup_count == 1 && query_backup_path[0] != '\0';
     /* Snapshot the on-disk state HERE: the manage_adr branch below replants
      * and then quarantines this same path, and the suite's cleanup unlinks
-     * it before the assertions run — a later cbm_file_exists() would observe
+     * it before the assertions run — a later ani_file_exists() would observe
      * that teardown, not the query-only resolve this check pins. */
-    bool query_db_left_in_place = cbm_file_exists(db_path);
+    bool query_db_left_in_place = ani_file_exists(db_path);
 
     /* Replant the same deterministic corruption to exercise manage_adr's
      * already-held lease independently from the query server above. */
     mcp_cleanup_corrupt_backups(cache, project);
     ASSERT_TRUE(mcp_make_corrupt_project_store(cache, project));
-    cbm_mcp_server_t *adr_srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *adr_srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(adr_srv);
     mcp_mutation_guard_probe_t adr_probe = {
         .observed_db_path = db_path,
     };
-    cbm_mcp_server_set_project_mutation_guard(adr_srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(adr_srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &adr_probe);
-    cbm_mcp_server_set_project_mutation_try_guard(adr_srv, mcp_mutation_guard_probe_try_begin);
-    resp = cbm_mcp_handle_tool(adr_srv, "manage_adr",
+    ani_mcp_server_set_project_mutation_try_guard(adr_srv, mcp_mutation_guard_probe_try_begin);
+    resp = ani_mcp_handle_tool(adr_srv, "manage_adr",
                                "{\"project\":\"guard-corrupt-project\",\"mode\":\"get\"}");
     free(resp);
-    cbm_mcp_server_free(adr_srv);
-    char adr_backup_path[CBM_SZ_1K];
+    ani_mcp_server_free(adr_srv);
+    char adr_backup_path[ANI_SZ_1K];
     int adr_backup_count =
         mcp_find_corrupt_backups(cache, project, adr_backup_path, sizeof(adr_backup_path));
     bool adr_quarantined =
-        !cbm_file_exists(db_path) && adr_backup_count == 1 && adr_backup_path[0] != '\0';
+        !ani_file_exists(db_path) && adr_backup_count == 1 && adr_backup_path[0] != '\0';
 
     mcp_cleanup_corrupt_backups(cache, project);
     cleanup_project_db(cache, project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
 
     /* A query-only resolve never repairs: no lease is taken, the corrupt DB
      * and its sidecars stay in place, and the reply names the corruption
@@ -7654,22 +7654,22 @@ TEST(tool_corrupt_store_cleanup_guard_is_balanced_and_not_nested) {
  * leaves both a recoverable DB generation and its committed WAL untouched. */
 TEST(tool_corrupt_store_cleanup_guard_denial_preserves_db_and_wal) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "%s/cbm-mcp-corrupt-denied-XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(cache));
+    snprintf(cache, sizeof(cache), "%s/ani-mcp-corrupt-denied-XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(cache));
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     const char *project = "guard-corrupt-denied";
-    char db_path[CBM_SZ_1K];
-    char wal_path[CBM_SZ_1K];
+    char db_path[ANI_SZ_1K];
+    char wal_path[ANI_SZ_1K];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", cache, project);
     snprintf(wal_path, sizeof(wal_path), "%s-wal", db_path);
-    cbm_store_t *writer = mcp_open_corrupt_project_store_with_wal(cache, project);
+    ani_store_t *writer = mcp_open_corrupt_project_store_with_wal(cache, project);
     ASSERT_NOT_NULL(writer);
-    ASSERT_TRUE(cbm_file_exists(db_path));
-    ASSERT_TRUE(cbm_file_exists(wal_path));
+    ASSERT_TRUE(ani_file_exists(db_path));
+    ASSERT_TRUE(ani_file_exists(wal_path));
 
     long db_len = 0;
     long wal_len = 0;
@@ -7680,17 +7680,17 @@ TEST(tool_corrupt_store_cleanup_guard_denial_preserves_db_and_wal) {
     ASSERT_TRUE(db_len > 0);
     ASSERT_TRUE(wal_len > 0);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
     mcp_mutation_guard_probe_t probe = {.deny_begin_call = 1};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
-    char *resp = cbm_mcp_handle_tool(
+    char *resp = ani_mcp_handle_tool(
         srv, "search_graph", "{\"project\":\"guard-corrupt-denied\",\"name_pattern\":\".*\"}");
 
     bool db_unchanged = mcp_file_matches_snapshot(db_path, db_before, db_len);
     bool wal_unchanged = mcp_file_matches_snapshot(wal_path, wal_before, wal_len);
-    char unexpected_backup[CBM_SZ_1K];
+    char unexpected_backup[ANI_SZ_1K];
     int backup_count =
         mcp_find_corrupt_backups(cache, project, unexpected_backup, sizeof(unexpected_backup));
     int artifact_count = mcp_count_corrupt_artifacts(cache, project);
@@ -7699,15 +7699,15 @@ TEST(tool_corrupt_store_cleanup_guard_denial_preserves_db_and_wal) {
     bool guarded_project = begin_count == 1 && strcmp(probe.begin_projects[0], project) == 0;
 
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     free(db_before);
     free(wal_before);
-    cbm_store_close(writer);
+    ani_store_close(writer);
     mcp_cleanup_corrupt_backups(cache, project);
     cleanup_project_db(cache, project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
 
     ASSERT_EQ(begin_count, 0);
     ASSERT_EQ(end_count, 0);
@@ -7723,41 +7723,41 @@ TEST(tool_corrupt_store_cleanup_guard_denial_preserves_db_and_wal) {
  * that lease, distinguish the retryable busy state from an absent project. */
 TEST(tool_manage_adr_corrupt_store_busy_is_retryable) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "%s/cbm-mcp-adr-corrupt-busy-XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(cache));
+    snprintf(cache, sizeof(cache), "%s/ani-mcp-adr-corrupt-busy-XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(cache));
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     const char *project = "guard-adr-corrupt-busy";
-    char db_path[CBM_SZ_1K];
+    char db_path[ANI_SZ_1K];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", cache, project);
     ASSERT_TRUE(mcp_make_corrupt_project_store(cache, project));
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
     mcp_mutation_guard_probe_t probe = {.deny_try_begin_call = 1};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
-    cbm_mcp_server_set_project_mutation_try_guard(srv, mcp_mutation_guard_probe_try_begin);
+    ani_mcp_server_set_project_mutation_try_guard(srv, mcp_mutation_guard_probe_try_begin);
 
-    char *resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    char *resp = ani_mcp_handle_tool(srv, "manage_adr",
                                      "{\"project\":\"guard-adr-corrupt-busy\",\"mode\":\"get\"}");
     bool retryable_busy = resp && strstr(resp, "project is busy; retry after indexing") &&
                           response_contains_json_fragment(resp, "\"isError\":true");
-    bool db_preserved = cbm_file_exists(db_path);
-    char unexpected_backup[CBM_SZ_1K];
+    bool db_preserved = ani_file_exists(db_path);
+    char unexpected_backup[ANI_SZ_1K];
     int backup_count =
         mcp_find_corrupt_backups(cache, project, unexpected_backup, sizeof(unexpected_backup));
 
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     mcp_cleanup_corrupt_backups(cache, project);
     cleanup_project_db(cache, project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
 
     ASSERT_TRUE(retryable_busy);
     ASSERT_EQ(probe.begin_count, 0);
@@ -7770,41 +7770,41 @@ TEST(tool_manage_adr_corrupt_store_busy_is_retryable) {
 
 TEST(tool_manage_adr_corrupt_store_missing_try_guard_reports_configuration) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "%s/cbm-mcp-adr-corrupt-config-XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(cache));
+    snprintf(cache, sizeof(cache), "%s/ani-mcp-adr-corrupt-config-XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(cache));
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     const char *project = "guard-adr-corrupt-config";
-    char db_path[CBM_SZ_1K];
+    char db_path[ANI_SZ_1K];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", cache, project);
     ASSERT_TRUE(mcp_make_corrupt_project_store(cache, project));
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
     mcp_mutation_guard_probe_t probe = {0};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
 
-    char *resp = cbm_mcp_handle_tool(srv, "manage_adr",
+    char *resp = ani_mcp_handle_tool(srv, "manage_adr",
                                      "{\"project\":\"guard-adr-corrupt-config\",\"mode\":\"get\"}");
     bool missing_try_guard =
         resp && strstr(resp, "project recovery requires a nonblocking mutation guard") &&
         response_contains_json_fragment(resp, "\"isError\":true");
-    bool db_preserved = cbm_file_exists(db_path);
-    char unexpected_backup[CBM_SZ_1K];
+    bool db_preserved = ani_file_exists(db_path);
+    char unexpected_backup[ANI_SZ_1K];
     int backup_count =
         mcp_find_corrupt_backups(cache, project, unexpected_backup, sizeof(unexpected_backup));
 
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     mcp_cleanup_corrupt_backups(cache, project);
     cleanup_project_db(cache, project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
 
     ASSERT_TRUE(missing_try_guard);
     ASSERT_EQ(probe.begin_count, 0);
@@ -7822,51 +7822,51 @@ TEST(tool_manage_adr_corrupt_store_missing_try_guard_reports_configuration) {
  * "not indexed" result. */
 TEST(tool_corrupt_store_cleanup_rechecks_generation_after_guard_wait) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "%s/cbm-mcp-corrupt-recheck-XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(cache));
+    snprintf(cache, sizeof(cache), "%s/ani-mcp-corrupt-recheck-XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(cache));
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     const char *project = "guard-corrupt-recheck";
     const char *replacement_root = "/tmp/guard-corrupt-replacement";
-    char db_path[CBM_SZ_1K];
-    char replacement_path[CBM_SZ_1K];
+    char db_path[ANI_SZ_1K];
+    char replacement_path[ANI_SZ_1K];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", cache, project);
     snprintf(replacement_path, sizeof(replacement_path), "%s/%s.replacement.db", cache, project);
     ASSERT_TRUE(mcp_make_corrupt_project_store(cache, project));
     ASSERT_TRUE(mcp_make_valid_project_store_at(replacement_path, project, replacement_root));
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
     mcp_replacing_mutation_guard_t replacement = {
         .replacement_path = replacement_path,
         .live_path = db_path,
     };
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_replacing_mutation_guard_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_replacing_mutation_guard_begin,
                                               mcp_replacing_mutation_guard_end, &replacement);
-    char *resp = cbm_mcp_handle_tool(
+    char *resp = ani_mcp_handle_tool(
         srv, "manage_adr",
         "{\"project\":\"guard-corrupt-recheck\",\"mode\":\"update\",\"content\":\"# ADR\\n\\nPending replacement.\"}");
     bool response_used_replacement =
         resp && !response_contains_json_fragment(resp, "\"isError\":true");
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
 
-    cbm_store_t *check = cbm_store_open_path_query(db_path);
-    bool valid_generation = check && cbm_store_check_integrity(check);
-    cbm_project_t stored_project = {0};
+    ani_store_t *check = ani_store_open_path_query(db_path);
+    bool valid_generation = check && ani_store_check_integrity(check);
+    ani_project_t stored_project = {0};
     bool replacement_root_visible =
-        check && cbm_store_get_project(check, project, &stored_project) == CBM_STORE_OK &&
+        check && ani_store_get_project(check, project, &stored_project) == ANI_STORE_OK &&
         stored_project.root_path && strcmp(stored_project.root_path, replacement_root) == 0;
-    cbm_project_free_fields(&stored_project);
-    cbm_store_close(check);
-    char unexpected_backup[CBM_SZ_1K];
+    ani_project_free_fields(&stored_project);
+    ani_store_close(check);
+    char unexpected_backup[ANI_SZ_1K];
     int backup_count =
         mcp_find_corrupt_backups(cache, project, unexpected_backup, sizeof(unexpected_backup));
-    bool live_exists = cbm_file_exists(db_path);
-    bool replacement_consumed = !cbm_file_exists(replacement_path);
+    bool live_exists = ani_file_exists(db_path);
+    bool replacement_consumed = !ani_file_exists(replacement_path);
     int begin_count = replacement.guard.begin_count;
     int end_count = replacement.guard.end_count;
     bool guarded_project = begin_count == 1 && end_count == 1 &&
@@ -7877,10 +7877,10 @@ TEST(tool_corrupt_store_cleanup_rechecks_generation_after_guard_wait) {
 
     mcp_cleanup_corrupt_backups(cache, project);
     cleanup_project_db(cache, project);
-    cbm_unlink(replacement_path);
+    ani_unlink(replacement_path);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
 
     ASSERT_TRUE(replacement_attempted);
     ASSERT_TRUE(replacement_succeeded);
@@ -7899,16 +7899,16 @@ TEST(tool_corrupt_store_cleanup_rechecks_generation_after_guard_wait) {
  * rather than unlinking the previous incident before rename. */
 TEST(tool_corrupt_store_cleanup_preserves_existing_backup_and_uses_unique_name) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "%s/cbm-mcp-corrupt-unique-XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(cache));
+    snprintf(cache, sizeof(cache), "%s/ani-mcp-corrupt-unique-XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(cache));
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     const char *project = "guard-corrupt-unique";
-    char db_path[CBM_SZ_1K];
-    char existing_backup_path[CBM_SZ_1K];
+    char db_path[ANI_SZ_1K];
+    char existing_backup_path[ANI_SZ_1K];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", cache, project);
     snprintf(existing_backup_path, sizeof(existing_backup_path), "%s.corrupt", db_path);
     ASSERT_TRUE(mcp_make_corrupt_project_store(cache, project));
@@ -7918,28 +7918,28 @@ TEST(tool_corrupt_store_cleanup_preserves_existing_backup_and_uses_unique_name) 
     unsigned char *existing_before = mcp_read_file_bytes(existing_backup_path, &existing_len);
     ASSERT_NOT_NULL(existing_before);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
     mcp_mutation_guard_probe_t probe = {0};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &probe);
-    char *resp = cbm_mcp_handle_tool(
+    char *resp = ani_mcp_handle_tool(
         srv, "manage_adr",
         "{\"project\":\"guard-corrupt-unique\",\"mode\":\"update\",\"content\":\"# ADR\\n\\nPending quarantine.\"}");
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
 
     bool existing_unchanged =
         mcp_file_matches_snapshot(existing_backup_path, existing_before, existing_len);
     free(existing_before);
-    char unique_backup_path[CBM_SZ_1K];
+    char unique_backup_path[ANI_SZ_1K];
     int backup_count =
         mcp_find_corrupt_backups(cache, project, unique_backup_path, sizeof(unique_backup_path));
-    cbm_store_t *quarantined =
-        unique_backup_path[0] ? cbm_store_open_path_query(unique_backup_path) : NULL;
-    bool unique_backup_is_corrupt = quarantined && !cbm_store_check_integrity(quarantined);
-    cbm_store_close(quarantined);
-    bool live_removed = !cbm_file_exists(db_path);
+    ani_store_t *quarantined =
+        unique_backup_path[0] ? ani_store_open_path_query(unique_backup_path) : NULL;
+    bool unique_backup_is_corrupt = quarantined && !ani_store_check_integrity(quarantined);
+    ani_store_close(quarantined);
+    bool live_removed = !ani_file_exists(db_path);
     int begin_count = probe.begin_count;
     int end_count = probe.end_count;
     bool guarded_project = begin_count == 1 && end_count == 1 &&
@@ -7950,7 +7950,7 @@ TEST(tool_corrupt_store_cleanup_preserves_existing_backup_and_uses_unique_name) 
     cleanup_project_db(cache, project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
 
     ASSERT_TRUE(guarded_project);
     ASSERT_TRUE(existing_unchanged);
@@ -7966,21 +7966,21 @@ TEST(tool_corrupt_store_cleanup_preserves_existing_backup_and_uses_unique_name) 
  * DB and its committed WAL remain byte-for-byte untouched. */
 TEST(tool_corrupt_store_cleanup_publish_failure_preserves_db_and_wal) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "%s/cbm-mcp-corrupt-publish-fail-XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(cache));
+    snprintf(cache, sizeof(cache), "%s/ani-mcp-corrupt-publish-fail-XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(cache));
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     const char *project = "guard-corrupt-publish-fail";
-    char db_path[CBM_SZ_1K];
-    char wal_path[CBM_SZ_1K];
+    char db_path[ANI_SZ_1K];
+    char wal_path[ANI_SZ_1K];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", cache, project);
     snprintf(wal_path, sizeof(wal_path), "%s-wal", db_path);
-    cbm_store_t *writer = mcp_open_corrupt_project_store_with_wal(cache, project);
+    ani_store_t *writer = mcp_open_corrupt_project_store_with_wal(cache, project);
     ASSERT_NOT_NULL(writer);
-    ASSERT_TRUE(cbm_file_exists(wal_path));
+    ASSERT_TRUE(ani_file_exists(wal_path));
 
     long db_len = 0;
     long wal_len = 0;
@@ -7991,20 +7991,20 @@ TEST(tool_corrupt_store_cleanup_publish_failure_preserves_db_and_wal) {
     ASSERT_TRUE(db_len > 0);
     ASSERT_TRUE(wal_len > 0);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
     mcp_mutation_guard_probe_t guard = {0};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &guard);
     mcp_quarantine_hook_probe_t hook = {.deny_step = "before_snapshot_publish"};
-    cbm_mcp_server_set_quarantine_test_hook(srv, mcp_quarantine_hook_probe, &hook);
-    char *resp = cbm_mcp_handle_tool(
+    ani_mcp_server_set_quarantine_test_hook(srv, mcp_quarantine_hook_probe, &hook);
+    char *resp = ani_mcp_handle_tool(
         srv, "manage_adr",
         "{\"project\":\"guard-corrupt-publish-fail\",\"mode\":\"update\",\"content\":\"# ADR\\n\\nPending publish.\"}");
 
     bool db_unchanged = mcp_file_matches_snapshot(db_path, db_before, db_len);
     bool wal_unchanged = mcp_file_matches_snapshot(wal_path, wal_before, wal_len);
-    char unexpected_backup[CBM_SZ_1K];
+    char unexpected_backup[ANI_SZ_1K];
     int backup_count =
         mcp_find_corrupt_backups(cache, project, unexpected_backup, sizeof(unexpected_backup));
     int artifact_count = mcp_count_corrupt_artifacts(cache, project);
@@ -8017,15 +8017,15 @@ TEST(tool_corrupt_store_cleanup_publish_failure_preserves_db_and_wal) {
         hook.call_count == 1 && strcmp(hook.steps[0], "before_snapshot_publish") == 0;
 
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     free(db_before);
     free(wal_before);
-    cbm_store_close(writer);
+    ani_store_close(writer);
     mcp_cleanup_corrupt_backups(cache, project);
     cleanup_project_db(cache, project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
 
     ASSERT_TRUE(failed_at_publish);
     ASSERT_TRUE(guarded_project);
@@ -8042,21 +8042,21 @@ TEST(tool_corrupt_store_cleanup_publish_failure_preserves_db_and_wal) {
  * as one self-contained SQLite database. */
 TEST(tool_corrupt_store_cleanup_publishes_complete_wal_snapshot_before_delete) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "%s/cbm-mcp-corrupt-after-publish-XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(cache));
+    snprintf(cache, sizeof(cache), "%s/ani-mcp-corrupt-after-publish-XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(cache));
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     const char *project = "guard-corrupt-after-publish";
-    char db_path[CBM_SZ_1K];
-    char wal_path[CBM_SZ_1K];
+    char db_path[ANI_SZ_1K];
+    char wal_path[ANI_SZ_1K];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", cache, project);
     snprintf(wal_path, sizeof(wal_path), "%s-wal", db_path);
-    cbm_store_t *writer = mcp_open_corrupt_project_store_with_wal(cache, project);
+    ani_store_t *writer = mcp_open_corrupt_project_store_with_wal(cache, project);
     ASSERT_NOT_NULL(writer);
-    ASSERT_TRUE(cbm_file_exists(wal_path));
+    ASSERT_TRUE(ani_file_exists(wal_path));
 
     long db_len = 0;
     long wal_len = 0;
@@ -8065,34 +8065,34 @@ TEST(tool_corrupt_store_cleanup_publishes_complete_wal_snapshot_before_delete) {
     ASSERT_NOT_NULL(db_before);
     ASSERT_NOT_NULL(wal_before);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
     mcp_mutation_guard_probe_t guard = {0};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &guard);
     mcp_quarantine_hook_probe_t hook = {.deny_step = "after_snapshot_publish"};
-    cbm_mcp_server_set_quarantine_test_hook(srv, mcp_quarantine_hook_probe, &hook);
-    char *resp = cbm_mcp_handle_tool(
+    ani_mcp_server_set_quarantine_test_hook(srv, mcp_quarantine_hook_probe, &hook);
+    char *resp = ani_mcp_handle_tool(
         srv, "manage_adr",
         "{\"project\":\"guard-corrupt-after-publish\",\"mode\":\"update\",\"content\":\"# ADR\\n\\nPending publish.\"}");
 
     bool db_unchanged = mcp_file_matches_snapshot(db_path, db_before, db_len);
     bool wal_unchanged = mcp_file_matches_snapshot(wal_path, wal_before, wal_len);
-    char backup_path[CBM_SZ_1K];
+    char backup_path[ANI_SZ_1K];
     int backup_count = mcp_find_corrupt_backups(cache, project, backup_path, sizeof(backup_path));
     int artifact_count = mcp_count_corrupt_artifacts(cache, project);
-    cbm_store_t *snapshot = backup_path[0] ? cbm_store_open_path_query(backup_path) : NULL;
-    cbm_project_t recovered = {0};
+    ani_store_t *snapshot = backup_path[0] ? ani_store_open_path_query(backup_path) : NULL;
+    ani_project_t recovered = {0};
     bool recovered_wal_project =
-        snapshot && cbm_store_get_project(snapshot, project, &recovered) == CBM_STORE_OK &&
+        snapshot && ani_store_get_project(snapshot, project, &recovered) == ANI_STORE_OK &&
         recovered.root_path && strcmp(recovered.root_path, "826") == 0;
-    cbm_project_free_fields(&recovered);
-    cbm_store_close(snapshot);
-    char backup_wal[CBM_SZ_2K];
-    char backup_shm[CBM_SZ_2K];
+    ani_project_free_fields(&recovered);
+    ani_store_close(snapshot);
+    char backup_wal[ANI_SZ_2K];
+    char backup_shm[ANI_SZ_2K];
     snprintf(backup_wal, sizeof(backup_wal), "%s-wal", backup_path);
     snprintf(backup_shm, sizeof(backup_shm), "%s-shm", backup_path);
-    bool snapshot_self_contained = !cbm_file_exists(backup_wal) && !cbm_file_exists(backup_shm);
+    bool snapshot_self_contained = !ani_file_exists(backup_wal) && !ani_file_exists(backup_shm);
     bool hook_order = hook.call_count == 2 &&
                       strcmp(hook.steps[0], "before_snapshot_publish") == 0 &&
                       strcmp(hook.steps[1], "after_snapshot_publish") == 0;
@@ -8101,15 +8101,15 @@ TEST(tool_corrupt_store_cleanup_publishes_complete_wal_snapshot_before_delete) {
                           strcmp(guard.end_projects[0], project) == 0;
 
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     free(db_before);
     free(wal_before);
-    cbm_store_close(writer);
+    ani_store_close(writer);
     mcp_cleanup_corrupt_backups(cache, project);
     cleanup_project_db(cache, project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
 
     ASSERT_TRUE(hook_order);
     ASSERT_TRUE(guard_balanced);
@@ -8124,20 +8124,20 @@ TEST(tool_corrupt_store_cleanup_publishes_complete_wal_snapshot_before_delete) {
 
 TEST(tool_index_repository_reports_store_backed_adr) {
     char tmp_dir[256];
-    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/cbm-index-adr-test-XXXXXX");
-    if (!cbm_mkdtemp(tmp_dir)) {
+    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/ani-index-adr-test-XXXXXX");
+    if (!ani_mkdtemp(tmp_dir)) {
         PASS();
     }
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-index-adr-cache-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
-        cbm_rmdir(tmp_dir);
+    snprintf(cache, sizeof(cache), "/tmp/ani-index-adr-cache-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
+        ani_rmdir(tmp_dir);
         PASS();
     }
 
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     char src_path[512];
     snprintf(src_path, sizeof(src_path), "%s/main.py", tmp_dir);
@@ -8146,15 +8146,15 @@ TEST(tool_index_repository_reports_store_backed_adr) {
     fputs("def main():\n    return 'ok'\n", fp);
     fclose(fp);
 
-    char *project = cbm_project_name_from_path(tmp_dir);
+    char *project = ani_project_name_from_path(tmp_dir);
     ASSERT_NOT_NULL(project);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
     char args[1024];
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\",\"mode\":\"fast\"}", tmp_dir);
-    char *resp = cbm_mcp_handle_tool(srv, "index_repository", args);
+    char *resp = ani_mcp_handle_tool(srv, "index_repository", args);
     ASSERT_NOT_NULL(resp);
     ASSERT(response_contains_json_fragment(resp, "\"status\":\"indexed\""));
     free(resp);
@@ -8164,12 +8164,12 @@ TEST(tool_index_repository_reports_store_backed_adr) {
              "{\"project\":\"%s\",\"mode\":\"update\",\"content\":\"## PURPOSE\\n"
              "Store-backed ADR metadata.\\n\"}",
              project);
-    resp = cbm_mcp_handle_tool(srv, "manage_adr", update_args);
+    resp = ani_mcp_handle_tool(srv, "manage_adr", update_args);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "updated"));
     free(resp);
 
-    resp = cbm_mcp_handle_tool(srv, "index_repository", args);
+    resp = ani_mcp_handle_tool(srv, "index_repository", args);
     ASSERT_NOT_NULL(resp);
     ASSERT(response_contains_json_fragment(resp, "\"status\":\"indexed\""));
     ASSERT(response_contains_json_fragment(resp, "\"adr_present\":true"));
@@ -8178,20 +8178,20 @@ TEST(tool_index_repository_reports_store_backed_adr) {
 
     char get_args[512];
     snprintf(get_args, sizeof(get_args), "{\"project\":\"%s\",\"mode\":\"get\"}", project);
-    resp = cbm_mcp_handle_tool(srv, "manage_adr", get_args);
+    resp = ani_mcp_handle_tool(srv, "manage_adr", get_args);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "Store-backed ADR metadata."));
     ASSERT_NULL(strstr(resp, "no_adr"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_project_db(cache, project);
     restore_cache_dir(saved_copy);
     free(saved_copy);
     free(project);
     remove(src_path);
-    cbm_rmdir(cache);
-    cbm_rmdir(tmp_dir);
+    ani_rmdir(cache);
+    ani_rmdir(tmp_dir);
     PASS();
 }
 
@@ -8202,20 +8202,20 @@ TEST(tool_index_repository_reports_store_backed_adr) {
  * by project name alone and confirm it actually indexes instead of erroring. */
 TEST(tool_index_repository_resolves_root_path_from_project_name_issue1211) {
     char tmp_dir[256];
-    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/cbm-index-byname-test-XXXXXX");
-    if (!cbm_mkdtemp(tmp_dir)) {
+    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/ani-index-byname-test-XXXXXX");
+    if (!ani_mkdtemp(tmp_dir)) {
         PASS();
     }
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-index-byname-cache-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
-        cbm_rmdir(tmp_dir);
+    snprintf(cache, sizeof(cache), "/tmp/ani-index-byname-cache-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
+        ani_rmdir(tmp_dir);
         PASS();
     }
 
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     char src_path[512];
     snprintf(src_path, sizeof(src_path), "%s/main.py", tmp_dir);
@@ -8224,35 +8224,35 @@ TEST(tool_index_repository_resolves_root_path_from_project_name_issue1211) {
     fputs("def main():\n    return 'ok'\n", fp);
     fclose(fp);
 
-    char *project = cbm_project_name_from_path(tmp_dir);
+    char *project = ani_project_name_from_path(tmp_dir);
     ASSERT_NOT_NULL(project);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
     char index_args[1024];
     snprintf(index_args, sizeof(index_args), "{\"repo_path\":\"%s\",\"mode\":\"fast\"}", tmp_dir);
-    char *resp = cbm_mcp_handle_tool(srv, "index_repository", index_args);
+    char *resp = ani_mcp_handle_tool(srv, "index_repository", index_args);
     ASSERT_NOT_NULL(resp);
     ASSERT(response_contains_json_fragment(resp, "\"status\":\"indexed\""));
     free(resp);
 
     char by_name_args[512];
     snprintf(by_name_args, sizeof(by_name_args), "{\"project\":\"%s\",\"mode\":\"fast\"}", project);
-    resp = cbm_mcp_handle_tool(srv, "index_repository", by_name_args);
+    resp = ani_mcp_handle_tool(srv, "index_repository", by_name_args);
     ASSERT_NOT_NULL(resp);
     ASSERT_NULL(strstr(resp, "repo_path is required"));
     ASSERT(response_contains_json_fragment(resp, "\"status\":\"indexed\""));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_project_db(cache, project);
     restore_cache_dir(saved_copy);
     free(saved_copy);
     free(project);
     remove(src_path);
-    cbm_rmdir(cache);
-    cbm_rmdir(tmp_dir);
+    ani_rmdir(cache);
+    ani_rmdir(tmp_dir);
     PASS();
 }
 
@@ -8262,46 +8262,46 @@ TEST(tool_index_repository_resolves_root_path_from_project_name_issue1211) {
  * no-op. Guards the fallback path the fix above added. */
 TEST(tool_index_repository_unknown_project_name_still_requires_repo_path) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-index-byname-unknown-cache-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
+    snprintf(cache, sizeof(cache), "/tmp/ani-index-byname-unknown-cache-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
         PASS();
     }
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
     char *resp =
-        cbm_mcp_handle_tool(srv, "index_repository", "{\"project\":\"never-indexed-project\"}");
+        ani_mcp_handle_tool(srv, "index_repository", "{\"project\":\"never-indexed-project\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "repo_path is required"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     restore_cache_dir(saved_copy);
     free(saved_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
     PASS();
 }
 
 TEST(tool_index_repository_dot_uses_absolute_project_key_and_preserves_adr) {
     char tmp_dir[256];
-    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/cbm-index-dot-adr-test-XXXXXX");
-    if (!cbm_mkdtemp(tmp_dir)) {
+    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/ani-index-dot-adr-test-XXXXXX");
+    if (!ani_mkdtemp(tmp_dir)) {
         PASS();
     }
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-index-dot-cache-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
-        cbm_rmdir(tmp_dir);
+    snprintf(cache, sizeof(cache), "/tmp/ani-index-dot-cache-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
+        ani_rmdir(tmp_dir);
         PASS();
     }
 
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     char src_path[512];
     snprintf(src_path, sizeof(src_path), "%s/main.py", tmp_dir);
@@ -8310,30 +8310,30 @@ TEST(tool_index_repository_dot_uses_absolute_project_key_and_preserves_adr) {
     fputs("def main():\n    return helper()\n\ndef helper():\n    return 1\n", fp);
     fclose(fp);
 
-    char old_cwd[CBM_SZ_4K];
-    ASSERT_NOT_NULL(cbm_getcwd(old_cwd, sizeof(old_cwd)));
+    char old_cwd[ANI_SZ_4K];
+    ASSERT_NOT_NULL(ani_getcwd(old_cwd, sizeof(old_cwd)));
 
-    char *project = cbm_project_name_from_path(tmp_dir);
+    char *project = ani_project_name_from_path(tmp_dir);
     ASSERT_NOT_NULL(project);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
-    ASSERT_EQ(cbm_chdir(tmp_dir), 0);
+    ASSERT_EQ(ani_chdir(tmp_dir), 0);
     char *resp =
-        cbm_mcp_handle_tool(srv, "index_repository", "{\"repo_path\":\".\",\"mode\":\"fast\"}");
-    ASSERT_EQ(cbm_chdir(old_cwd), 0);
+        ani_mcp_handle_tool(srv, "index_repository", "{\"repo_path\":\".\",\"mode\":\"fast\"}");
+    ASSERT_EQ(ani_chdir(old_cwd), 0);
     ASSERT_NOT_NULL(resp);
     if (!response_contains_json_fragment(resp, "\"status\":\"indexed\"")) {
         free(resp);
-        cbm_mcp_server_free(srv);
+        ani_mcp_server_free(srv);
         cleanup_project_db(cache, project);
         restore_cache_dir(saved_copy);
         free(saved_copy);
         free(project);
         remove(src_path);
-        cbm_rmdir(cache);
-        cbm_rmdir(tmp_dir);
+        ani_rmdir(cache);
+        ani_rmdir(tmp_dir);
         PASS();
     }
     ASSERT_NOT_NULL(strstr(resp, project));
@@ -8345,14 +8345,14 @@ TEST(tool_index_repository_dot_uses_absolute_project_key_and_preserves_adr) {
              "{\"project\":\"%s\",\"mode\":\"update\",\"content\":\"## PURPOSE\\n"
              "Dot-path ADR marker.\\n\"}",
              project);
-    resp = cbm_mcp_handle_tool(srv, "manage_adr", update_args);
+    resp = ani_mcp_handle_tool(srv, "manage_adr", update_args);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "updated"));
     free(resp);
 
-    ASSERT_EQ(cbm_chdir(tmp_dir), 0);
-    resp = cbm_mcp_handle_tool(srv, "index_repository", "{\"repo_path\":\".\",\"mode\":\"fast\"}");
-    ASSERT_EQ(cbm_chdir(old_cwd), 0);
+    ASSERT_EQ(ani_chdir(tmp_dir), 0);
+    resp = ani_mcp_handle_tool(srv, "index_repository", "{\"repo_path\":\".\",\"mode\":\"fast\"}");
+    ASSERT_EQ(ani_chdir(old_cwd), 0);
     ASSERT_NOT_NULL(resp);
     ASSERT(response_contains_json_fragment(resp, "\"status\":\"indexed\""));
     ASSERT_NOT_NULL(strstr(resp, project));
@@ -8362,67 +8362,67 @@ TEST(tool_index_repository_dot_uses_absolute_project_key_and_preserves_adr) {
 
     char get_args[512];
     snprintf(get_args, sizeof(get_args), "{\"project\":\"%s\",\"mode\":\"get\"}", project);
-    resp = cbm_mcp_handle_tool(srv, "manage_adr", get_args);
+    resp = ani_mcp_handle_tool(srv, "manage_adr", get_args);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "Dot-path ADR marker."));
     ASSERT_NULL(strstr(resp, "no_adr"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_project_db(cache, project);
     restore_cache_dir(saved_copy);
     free(saved_copy);
     free(project);
     remove(src_path);
-    cbm_rmdir(cache);
-    cbm_rmdir(tmp_dir);
+    ani_rmdir(cache);
+    ani_rmdir(tmp_dir);
     PASS();
 }
 
 TEST(tool_manage_adr_not_found_rich_error) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-adr-missing-cache-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
+    snprintf(cache, sizeof(cache), "/tmp/ani-adr-missing-cache-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
         PASS();
     }
 
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
-    char *resp = cbm_mcp_handle_tool(srv, "manage_adr",
-                                     "{\"project\":\"cbm-no-such-project-zzz\",\"mode\":\"get\"}");
+    char *resp = ani_mcp_handle_tool(srv, "manage_adr",
+                                     "{\"project\":\"ani-no-such-project-zzz\",\"mode\":\"get\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "or not indexed"));
     ASSERT_NOT_NULL(strstr(resp, "hint"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     restore_cache_dir(saved_copy);
     free(saved_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
     PASS();
 }
 
 TEST(tool_manage_adr_get_accepts_abs_path) {
     char tmp_dir[256];
-    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/cbm-adr-abspath-XXXXXX");
-    if (!cbm_mkdtemp(tmp_dir)) {
+    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/ani-adr-abspath-XXXXXX");
+    if (!ani_mkdtemp(tmp_dir)) {
         PASS();
     }
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-adr-abspath-cache-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
-        cbm_rmdir(tmp_dir);
+    snprintf(cache, sizeof(cache), "/tmp/ani-adr-abspath-cache-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
+        ani_rmdir(tmp_dir);
         PASS();
     }
 
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     char src_path[512];
     snprintf(src_path, sizeof(src_path), "%s/main.py", tmp_dir);
@@ -8431,15 +8431,15 @@ TEST(tool_manage_adr_get_accepts_abs_path) {
     fputs("def main():\n    return 'ok'\n", fp);
     fclose(fp);
 
-    char *project = cbm_project_name_from_path(tmp_dir);
+    char *project = ani_project_name_from_path(tmp_dir);
     ASSERT_NOT_NULL(project);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
     char args[1024];
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\",\"mode\":\"fast\"}", tmp_dir);
-    char *resp = cbm_mcp_handle_tool(srv, "index_repository", args);
+    char *resp = ani_mcp_handle_tool(srv, "index_repository", args);
     ASSERT_NOT_NULL(resp);
     ASSERT(response_contains_json_fragment(resp, "\"status\":\"indexed\""));
     free(resp);
@@ -8449,27 +8449,27 @@ TEST(tool_manage_adr_get_accepts_abs_path) {
              "{\"project\":\"%s\",\"mode\":\"update\",\"content\":\"## PURPOSE\\n"
              "Abs-path normalization test.\\n\"}",
              project);
-    resp = cbm_mcp_handle_tool(srv, "manage_adr", update_args);
+    resp = ani_mcp_handle_tool(srv, "manage_adr", update_args);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "updated"));
     free(resp);
 
     char get_args[512];
     snprintf(get_args, sizeof(get_args), "{\"project\":\"%s\",\"mode\":\"get\"}", tmp_dir);
-    resp = cbm_mcp_handle_tool(srv, "manage_adr", get_args);
+    resp = ani_mcp_handle_tool(srv, "manage_adr", get_args);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "Abs-path normalization test."));
     ASSERT_NULL(strstr(resp, "or not indexed"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_project_db(cache, project);
     restore_cache_dir(saved_copy);
     free(saved_copy);
     free(project);
     remove(src_path);
-    cbm_rmdir(cache);
-    cbm_rmdir(tmp_dir);
+    ani_rmdir(cache);
+    ani_rmdir(tmp_dir);
     PASS();
 }
 
@@ -8478,14 +8478,14 @@ TEST(tool_manage_adr_get_accepts_symlink_path) {
     PASS();
 #else
     char tmp_dir[256];
-    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/cbm-adr-realpath-XXXXXX");
-    if (!cbm_mkdtemp(tmp_dir)) {
+    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/ani-adr-realpath-XXXXXX");
+    if (!ani_mkdtemp(tmp_dir)) {
         PASS();
     }
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-adr-realpath-cache-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
-        cbm_rmdir(tmp_dir);
+    snprintf(cache, sizeof(cache), "/tmp/ani-adr-realpath-cache-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
+        ani_rmdir(tmp_dir);
         PASS();
     }
 
@@ -8493,14 +8493,14 @@ TEST(tool_manage_adr_get_accepts_symlink_path) {
     snprintf(link_path, sizeof(link_path), "%s-link", tmp_dir);
     (void)unlink(link_path);
     if (symlink(tmp_dir, link_path) != 0) {
-        cbm_rmdir(cache);
-        cbm_rmdir(tmp_dir);
+        ani_rmdir(cache);
+        ani_rmdir(tmp_dir);
         PASS();
     }
 
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     char src_path[512];
     snprintf(src_path, sizeof(src_path), "%s/main.py", tmp_dir);
@@ -8509,15 +8509,15 @@ TEST(tool_manage_adr_get_accepts_symlink_path) {
     fputs("def main():\n    return 'ok'\n", fp);
     fclose(fp);
 
-    char *project = cbm_project_name_from_path(tmp_dir);
+    char *project = ani_project_name_from_path(tmp_dir);
     ASSERT_NOT_NULL(project);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
     char args[1024];
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\",\"mode\":\"fast\"}", link_path);
-    char *resp = cbm_mcp_handle_tool(srv, "index_repository", args);
+    char *resp = ani_mcp_handle_tool(srv, "index_repository", args);
     ASSERT_NOT_NULL(resp);
     ASSERT(response_contains_json_fragment(resp, "\"status\":\"indexed\""));
     ASSERT_NOT_NULL(strstr(resp, project));
@@ -8528,58 +8528,58 @@ TEST(tool_manage_adr_get_accepts_symlink_path) {
              "{\"project\":\"%s\",\"mode\":\"update\",\"content\":\"## PURPOSE\\n"
              "Symlink-path normalization test.\\n\"}",
              project);
-    resp = cbm_mcp_handle_tool(srv, "manage_adr", update_args);
+    resp = ani_mcp_handle_tool(srv, "manage_adr", update_args);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "updated"));
     free(resp);
 
     char get_args[512];
     snprintf(get_args, sizeof(get_args), "{\"project\":\"%s\",\"mode\":\"get\"}", link_path);
-    resp = cbm_mcp_handle_tool(srv, "manage_adr", get_args);
+    resp = ani_mcp_handle_tool(srv, "manage_adr", get_args);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "Symlink-path normalization test."));
     ASSERT_NULL(strstr(resp, "or not indexed"));
     ASSERT_NULL(strstr(resp, "no_adr"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_project_db(cache, project);
     restore_cache_dir(saved_copy);
     free(saved_copy);
     free(project);
     remove(src_path);
     unlink(link_path);
-    cbm_rmdir(cache);
-    cbm_rmdir(tmp_dir);
+    ani_rmdir(cache);
+    ani_rmdir(tmp_dir);
     PASS();
 #endif
 }
 
 TEST(tool_detect_changes_not_found_rich_error) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-detect-missing-cache-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
+    snprintf(cache, sizeof(cache), "/tmp/ani-detect-missing-cache-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
         PASS();
     }
 
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
     char *resp =
-        cbm_mcp_handle_tool(srv, "detect_changes", "{\"project\":\"cbm-no-such-project-zzz\"}");
+        ani_mcp_handle_tool(srv, "detect_changes", "{\"project\":\"ani-no-such-project-zzz\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "or not indexed"));
     ASSERT_NOT_NULL(strstr(resp, "hint"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     restore_cache_dir(saved_copy);
     free(saved_copy);
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
     PASS();
 }
 
@@ -8589,44 +8589,44 @@ TEST(tool_detect_changes_not_found_rich_error) {
  * a raw popen regression bypasses the hook and fails this test. */
 TEST(tool_detect_changes_contained_commands_clean_up_error_and_success) {
     char cache[512];
-    (void)snprintf(cache, sizeof(cache), "%s/cbm-detect-contained-XXXXXX", cbm_tmpdir());
-    bool cache_created = cbm_mkdtemp(cache) != NULL;
-    char repo[CBM_SZ_4K];
-    (void)snprintf(repo, sizeof(repo), "%s/cbm-detect-repo-XXXXXX", cbm_tmpdir());
-    bool repo_created = cbm_mkdtemp(repo) != NULL;
-    char empty_template[CBM_SZ_4K];
-    char empty_hooks[CBM_SZ_4K];
-    char template_argument[CBM_SZ_4K];
-    char hooks_config[CBM_SZ_4K];
-    char hostile_template[CBM_SZ_4K];
-    char hostile_template_hooks[CBM_SZ_4K];
-    char hostile_hooks[CBM_SZ_4K];
-    char hostile_hook[CBM_SZ_4K];
-    char hostile_config[CBM_SZ_4K];
+    (void)snprintf(cache, sizeof(cache), "%s/ani-detect-contained-XXXXXX", ani_tmpdir());
+    bool cache_created = ani_mkdtemp(cache) != NULL;
+    char repo[ANI_SZ_4K];
+    (void)snprintf(repo, sizeof(repo), "%s/ani-detect-repo-XXXXXX", ani_tmpdir());
+    bool repo_created = ani_mkdtemp(repo) != NULL;
+    char empty_template[ANI_SZ_4K];
+    char empty_hooks[ANI_SZ_4K];
+    char template_argument[ANI_SZ_4K];
+    char hooks_config[ANI_SZ_4K];
+    char hostile_template[ANI_SZ_4K];
+    char hostile_template_hooks[ANI_SZ_4K];
+    char hostile_hooks[ANI_SZ_4K];
+    char hostile_hook[ANI_SZ_4K];
+    char hostile_config[ANI_SZ_4K];
     int template_length =
-        snprintf(empty_template, sizeof(empty_template), "%s/.cbm-empty-template", repo);
-    int hooks_length = snprintf(empty_hooks, sizeof(empty_hooks), "%s/.cbm-empty-hooks", repo);
+        snprintf(empty_template, sizeof(empty_template), "%s/.ani-empty-template", repo);
+    int hooks_length = snprintf(empty_hooks, sizeof(empty_hooks), "%s/.ani-empty-hooks", repo);
     int template_argument_length =
         snprintf(template_argument, sizeof(template_argument), "--template=%s", empty_template);
     int hooks_config_length =
         snprintf(hooks_config, sizeof(hooks_config), "core.hooksPath=%s", empty_hooks);
     int hostile_template_length =
-        snprintf(hostile_template, sizeof(hostile_template), "%s/.cbm-hostile-template", repo);
+        snprintf(hostile_template, sizeof(hostile_template), "%s/.ani-hostile-template", repo);
     int hostile_template_hooks_length = snprintf(
         hostile_template_hooks, sizeof(hostile_template_hooks), "%s/hooks", hostile_template);
     int hostile_hooks_length =
-        snprintf(hostile_hooks, sizeof(hostile_hooks), "%s/.cbm-hostile-hooks", repo);
+        snprintf(hostile_hooks, sizeof(hostile_hooks), "%s/.ani-hostile-hooks", repo);
     int hostile_hook_length =
         snprintf(hostile_hook, sizeof(hostile_hook), "%s/pre-commit", hostile_hooks);
     int hostile_config_length =
-        snprintf(hostile_config, sizeof(hostile_config), "%s/.cbm-hostile-gitconfig", repo);
+        snprintf(hostile_config, sizeof(hostile_config), "%s/.ani-hostile-gitconfig", repo);
     bool git_isolation_ready =
         repo_created && template_length > 0 && (size_t)template_length < sizeof(empty_template) &&
         hooks_length > 0 && (size_t)hooks_length < sizeof(empty_hooks) &&
         template_argument_length > 0 &&
         (size_t)template_argument_length < sizeof(template_argument) && hooks_config_length > 0 &&
-        (size_t)hooks_config_length < sizeof(hooks_config) && cbm_mkdir(empty_template) == 0 &&
-        cbm_mkdir(empty_hooks) == 0;
+        (size_t)hooks_config_length < sizeof(hooks_config) && ani_mkdir(empty_template) == 0 &&
+        ani_mkdir(empty_hooks) == 0;
     bool hostile_paths_ready =
         git_isolation_ready && hostile_template_length > 0 &&
         (size_t)hostile_template_length < sizeof(hostile_template) &&
@@ -8635,16 +8635,16 @@ TEST(tool_detect_changes_contained_commands_clean_up_error_and_success) {
         hostile_hooks_length > 0 && (size_t)hostile_hooks_length < sizeof(hostile_hooks) &&
         hostile_hook_length > 0 && (size_t)hostile_hook_length < sizeof(hostile_hook) &&
         hostile_config_length > 0 && (size_t)hostile_config_length < sizeof(hostile_config) &&
-        cbm_mkdir(hostile_template) == 0 && cbm_mkdir(hostile_template_hooks) == 0 &&
-        cbm_mkdir(hostile_hooks) == 0;
-    FILE *hostile_hook_file = hostile_paths_ready ? cbm_fopen(hostile_hook, "wb") : NULL;
+        ani_mkdir(hostile_template) == 0 && ani_mkdir(hostile_template_hooks) == 0 &&
+        ani_mkdir(hostile_hooks) == 0;
+    FILE *hostile_hook_file = hostile_paths_ready ? ani_fopen(hostile_hook, "wb") : NULL;
     bool hostile_hook_ready = false;
     if (hostile_hook_file) {
         bool hook_written = fputs("#!/bin/sh\nexit 91\n", hostile_hook_file) >= 0;
         bool hook_closed = fclose(hostile_hook_file) == 0;
         hostile_hook_ready = hook_written && hook_closed && chmod(hostile_hook, 0700) == 0;
     }
-    FILE *hostile_config_file = hostile_hook_ready ? cbm_fopen(hostile_config, "wb") : NULL;
+    FILE *hostile_config_file = hostile_hook_ready ? ani_fopen(hostile_config, "wb") : NULL;
     bool hostile_config_ready = false;
     if (hostile_config_file) {
         bool config_written =
@@ -8659,11 +8659,11 @@ TEST(tool_detect_changes_contained_commands_clean_up_error_and_success) {
     ambient_git.value = ambient_git_value ? strdup(ambient_git_value) : NULL;
     bool ambient_git_saved = !ambient_git_value || ambient_git.value;
     bool hostile_environment_ready = hostile_config_ready && ambient_git_saved &&
-                                     cbm_setenv("GIT_CONFIG_GLOBAL", hostile_config, 1) == 0;
+                                     ani_setenv("GIT_CONFIG_GLOBAL", hostile_config, 1) == 0;
     const char *const init_args[] = {"init", "-q", template_argument, NULL};
     const char *const commit_args[] = {
-        "-c",      "user.name=cbm-test",
-        "-c",      "user.email=cbm-test@example.invalid",
+        "-c",      "user.name=ani-test",
+        "-c",      "user.email=ani-test@example.invalid",
         "-c",      "commit.gpgsign=false",
         "-c",      hooks_config,
         "commit",  "--allow-empty",
@@ -8675,23 +8675,23 @@ TEST(tool_detect_changes_contained_commands_clean_up_error_and_success) {
     if (ambient_git_saved) {
         mcp_test_restore_env(&ambient_git, 1U);
     }
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    bool environment_ready = cache_created && cbm_setenv("CBM_CACHE_DIR", cache, 1) == 0;
+    bool environment_ready = cache_created && ani_setenv("ANI_CACHE_DIR", cache, 1) == 0;
 
     const char *project = "detect-contained-project";
-    cbm_mcp_server_t *srv = environment_ready && repo_ready ? cbm_mcp_server_new(NULL) : NULL;
+    ani_mcp_server_t *srv = environment_ready && repo_ready ? ani_mcp_server_new(NULL) : NULL;
     bool server_ready = srv != NULL;
-    cbm_store_t *store = srv ? cbm_mcp_server_store(srv) : NULL;
-    bool project_ready = store && cbm_store_upsert_project(store, project, repo) == CBM_STORE_OK;
+    ani_store_t *store = srv ? ani_mcp_server_store(srv) : NULL;
+    bool project_ready = store && ani_store_upsert_project(store, project, repo) == ANI_STORE_OK;
     mcp_command_hook_probe_t command_probe = {.reject_merge_base = true};
     if (project_ready) {
-        cbm_mcp_server_set_project(srv, project);
-        cbm_mcp_server_set_command_test_hook(srv, mcp_command_hook_probe, &command_probe);
+        ani_mcp_server_set_project(srv, project);
+        ani_mcp_server_set_command_test_hook(srv, mcp_command_hook_probe, &command_probe);
     }
 
     char *invalid_response =
-        project_ready ? cbm_mcp_handle_tool(srv, "detect_changes",
+        project_ready ? ani_mcp_handle_tool(srv, "detect_changes",
                                             "{\"project\":\"detect-contained-project\","
                                             "\"base_branch\":\"HEAD\",\"scope\":\"files\","
                                             "\"direction\":\"sideways\"}")
@@ -8703,7 +8703,7 @@ TEST(tool_detect_changes_contained_commands_clean_up_error_and_success) {
         invalid_response ? mcp_count_directory_entries_with_prefix(logs, ".mcp-command-") : -1;
 
     char *rejected_response =
-        project_ready ? cbm_mcp_handle_tool(srv, "detect_changes",
+        project_ready ? ani_mcp_handle_tool(srv, "detect_changes",
                                             "{\"project\":\"detect-contained-project\","
                                             "\"base_branch\":\"HEAD\",\"scope\":\"files\"}")
                       : NULL;
@@ -8714,7 +8714,7 @@ TEST(tool_detect_changes_contained_commands_clean_up_error_and_success) {
 
     command_probe.reject_merge_base = false;
     char *success_response =
-        project_ready ? cbm_mcp_handle_tool(srv, "detect_changes",
+        project_ready ? ani_mcp_handle_tool(srv, "detect_changes",
                                             "{\"project\":\"detect-contained-project\","
                                             "\"base_branch\":\"HEAD\",\"scope\":\"files\"}")
                       : NULL;
@@ -8725,7 +8725,7 @@ TEST(tool_detect_changes_contained_commands_clean_up_error_and_success) {
     free(invalid_response);
     free(rejected_response);
     free(success_response);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
     bool cleaned = !cache_created || th_rmtree(cache) == 0;
@@ -8754,32 +8754,32 @@ TEST(tool_detect_changes_contained_commands_clean_up_error_and_success) {
 
 /* Regression test for issue #1363: detect_changes seeded every definition in
  * a changed file instead of just the ones whose line range overlaps the diff
- * hunk. cbm_detect_node_in_hunks is the overlap primitive; this exercises it
+ * hunk. ani_detect_node_in_hunks is the overlap primitive; this exercises it
  * directly, independent of the git/subprocess/index plumbing around it. */
 TEST(detect_changes_node_in_hunks_overlap_issue1363) {
-    cbm_changed_hunk_t hunks[2] = {
+    ani_changed_hunk_t hunks[2] = {
         {.path = "pkg/mod.py", .start_line = 10, .end_line = 12},
         {.path = "pkg/other.py", .start_line = 1, .end_line = 1},
     };
 
-    cbm_node_t inside = {.start_line = 8, .end_line = 15};
-    ASSERT(cbm_detect_node_in_hunks(&inside, hunks, 2, "pkg/mod.py"));
+    ani_node_t inside = {.start_line = 8, .end_line = 15};
+    ASSERT(ani_detect_node_in_hunks(&inside, hunks, 2, "pkg/mod.py"));
 
-    cbm_node_t exact = {.start_line = 10, .end_line = 12};
-    ASSERT(cbm_detect_node_in_hunks(&exact, hunks, 2, "pkg/mod.py"));
+    ani_node_t exact = {.start_line = 10, .end_line = 12};
+    ASSERT(ani_detect_node_in_hunks(&exact, hunks, 2, "pkg/mod.py"));
 
-    cbm_node_t touches_edge = {.start_line = 12, .end_line = 20};
-    ASSERT(cbm_detect_node_in_hunks(&touches_edge, hunks, 2, "pkg/mod.py"));
+    ani_node_t touches_edge = {.start_line = 12, .end_line = 20};
+    ASSERT(ani_detect_node_in_hunks(&touches_edge, hunks, 2, "pkg/mod.py"));
 
-    cbm_node_t before = {.start_line = 1, .end_line = 9};
-    ASSERT(!cbm_detect_node_in_hunks(&before, hunks, 2, "pkg/mod.py"));
+    ani_node_t before = {.start_line = 1, .end_line = 9};
+    ASSERT(!ani_detect_node_in_hunks(&before, hunks, 2, "pkg/mod.py"));
 
-    cbm_node_t after = {.start_line = 13, .end_line = 20};
-    ASSERT(!cbm_detect_node_in_hunks(&after, hunks, 2, "pkg/mod.py"));
+    ani_node_t after = {.start_line = 13, .end_line = 20};
+    ASSERT(!ani_detect_node_in_hunks(&after, hunks, 2, "pkg/mod.py"));
 
     /* Same line range, different file — must not match. */
-    cbm_node_t wrong_file = {.start_line = 10, .end_line = 12};
-    ASSERT(!cbm_detect_node_in_hunks(&wrong_file, hunks, 2, "pkg/unrelated.py"));
+    ani_node_t wrong_file = {.start_line = 10, .end_line = 12};
+    ASSERT(!ani_detect_node_in_hunks(&wrong_file, hunks, 2, "pkg/unrelated.py"));
 
     PASS();
 }
@@ -8791,9 +8791,9 @@ TEST(detect_changes_node_in_hunks_overlap_issue1363) {
  * bar() because seeding was scoped to the whole changed file. */
 TEST(detect_changes_seeds_only_touched_symbol_issue1363) {
     char repo[512];
-    snprintf(repo, sizeof(repo), "%s/cbm-detect-seed-scope-XXXXXX", cbm_tmpdir());
-    if (!cbm_mkdtemp(repo)) {
-        FAIL("cbm_mkdtemp failed");
+    snprintf(repo, sizeof(repo), "%s/ani-detect-seed-scope-XXXXXX", ani_tmpdir());
+    if (!ani_mkdtemp(repo)) {
+        FAIL("ani_mkdtemp failed");
     }
 
     char src[600];
@@ -8825,10 +8825,10 @@ TEST(detect_changes_seeds_only_touched_symbol_issue1363) {
     }
 #undef DC1363_GITCFG
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     char idx_args[700];
     snprintf(idx_args, sizeof(idx_args), "{\"repo_path\":\"%s\",\"mode\":\"full\"}", repo);
-    char *idx_resp = cbm_mcp_handle_tool(srv, "index_repository", idx_args);
+    char *idx_resp = ani_mcp_handle_tool(srv, "index_repository", idx_args);
     ASSERT_NOT_NULL(idx_resp);
     free(idx_resp);
 
@@ -8843,13 +8843,13 @@ TEST(detect_changes_seeds_only_touched_symbol_issue1363) {
                                  "    return y\n"),
               0);
 
-    char *project = cbm_project_name_from_path(repo);
+    char *project = ani_project_name_from_path(repo);
     ASSERT_NOT_NULL(project);
     char dc_args[700];
     snprintf(dc_args, sizeof(dc_args), "{\"project\":\"%s\",\"depth\":1}", project);
-    char *dc_resp = cbm_mcp_handle_tool(srv, "detect_changes", dc_args);
+    char *dc_resp = ani_mcp_handle_tool(srv, "detect_changes", dc_args);
     ASSERT_NOT_NULL(dc_resp);
-    /* cbm_mcp_handle_tool wraps the tree text in a JSON string, so a literal
+    /* ani_mcp_handle_tool wraps the tree text in a JSON string, so a literal
      * newline in the source becomes the two-character `\n` escape sequence
      * in dc_resp's actual bytes — match that, not a real newline. */
     ASSERT_NOT_NULL(strstr(dc_resp, "seed_symbols: 1\\n"));
@@ -8857,7 +8857,7 @@ TEST(detect_changes_seeds_only_touched_symbol_issue1363) {
 
     free(dc_resp);
     free(project);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     th_rmtree(repo);
     PASS();
 }
@@ -8869,9 +8869,9 @@ TEST(detect_changes_seeds_only_touched_symbol_issue1363) {
  * when a changed file has hunks but no definition overlapping any of them. */
 TEST(detect_changes_zero_overlap_falls_back_issue1363) {
     char repo[512];
-    snprintf(repo, sizeof(repo), "%s/cbm-detect-zero-overlap-XXXXXX", cbm_tmpdir());
-    if (!cbm_mkdtemp(repo)) {
-        FAIL("cbm_mkdtemp failed");
+    snprintf(repo, sizeof(repo), "%s/ani-detect-zero-overlap-XXXXXX", ani_tmpdir());
+    if (!ani_mkdtemp(repo)) {
+        FAIL("ani_mkdtemp failed");
     }
 
     char src[600];
@@ -8901,10 +8901,10 @@ TEST(detect_changes_zero_overlap_falls_back_issue1363) {
     }
 #undef DC1363B_GITCFG
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     char idx_args[700];
     snprintf(idx_args, sizeof(idx_args), "{\"repo_path\":\"%s\",\"mode\":\"full\"}", repo);
-    char *idx_resp = cbm_mcp_handle_tool(srv, "index_repository", idx_args);
+    char *idx_resp = ani_mcp_handle_tool(srv, "index_repository", idx_args);
     ASSERT_NOT_NULL(idx_resp);
     free(idx_resp);
 
@@ -8920,11 +8920,11 @@ TEST(detect_changes_zero_overlap_falls_back_issue1363) {
                                  "    return 2\n"),
               0);
 
-    char *project = cbm_project_name_from_path(repo);
+    char *project = ani_project_name_from_path(repo);
     ASSERT_NOT_NULL(project);
     char dc_args[700];
     snprintf(dc_args, sizeof(dc_args), "{\"project\":\"%s\",\"depth\":1}", project);
-    char *dc_resp = cbm_mcp_handle_tool(srv, "detect_changes", dc_args);
+    char *dc_resp = ani_mcp_handle_tool(srv, "detect_changes", dc_args);
     ASSERT_NOT_NULL(dc_resp);
     /* Both definitions must survive: zero overlaps means no scoping for this
      * file, not an empty seed set. */
@@ -8932,15 +8932,15 @@ TEST(detect_changes_zero_overlap_falls_back_issue1363) {
 
     free(dc_resp);
     free(project);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     th_rmtree(repo);
     PASS();
 }
 
 TEST(tool_ingest_traces_basic) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":37,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"ingest_traces\","
              "\"arguments\":{\"traces\":[{\"caller\":\"a\",\"callee\":\"b\"}]}}}");
@@ -8949,22 +8949,22 @@ TEST(tool_ingest_traces_basic) {
     ASSERT_NOT_NULL(strstr(resp, "traces_received"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(tool_ingest_traces_empty) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":38,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":38,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"ingest_traces\","
                                    "\"arguments\":{\"traces\":[]}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "accepted"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -8973,78 +8973,78 @@ TEST(tool_ingest_traces_empty) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(store_idle_eviction) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    cbm_mcp_server_set_project(srv, "test-evict");
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    ani_mcp_server_set_project(srv, "test-evict");
 
     /* Trigger resolve_store via a tool call to set store_last_used */
-    char *resp = cbm_mcp_handle_tool(srv, "get_graph_schema", "{\"project\":\"test-evict\"}");
+    char *resp = ani_mcp_handle_tool(srv, "get_graph_schema", "{\"project\":\"test-evict\"}");
     free(resp);
 
-    ASSERT_TRUE(cbm_mcp_server_has_cached_store(srv));
+    ASSERT_TRUE(ani_mcp_server_has_cached_store(srv));
 
     /* Evict with 0s timeout → should evict immediately */
-    cbm_mcp_server_evict_idle(srv, 0);
-    ASSERT_FALSE(cbm_mcp_server_has_cached_store(srv));
+    ani_mcp_server_evict_idle(srv, 0);
+    ASSERT_FALSE(ani_mcp_server_has_cached_store(srv));
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(store_idle_no_eviction_within_timeout) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    cbm_mcp_server_set_project(srv, "test-evict");
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    ani_mcp_server_set_project(srv, "test-evict");
 
-    char *resp = cbm_mcp_handle_tool(srv, "get_graph_schema", "{\"project\":\"test-evict\"}");
+    char *resp = ani_mcp_handle_tool(srv, "get_graph_schema", "{\"project\":\"test-evict\"}");
     free(resp);
 
-    ASSERT_TRUE(cbm_mcp_server_has_cached_store(srv));
+    ASSERT_TRUE(ani_mcp_server_has_cached_store(srv));
 
     /* Evict with large timeout → should NOT evict */
-    cbm_mcp_server_evict_idle(srv, 99999);
-    ASSERT_TRUE(cbm_mcp_server_has_cached_store(srv));
+    ani_mcp_server_evict_idle(srv, 99999);
+    ASSERT_TRUE(ani_mcp_server_has_cached_store(srv));
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(store_idle_evict_protects_initial_store) {
     /* Evicting with NULL server should not crash */
-    cbm_mcp_server_evict_idle(NULL, 0);
+    ani_mcp_server_evict_idle(NULL, 0);
 
     /* Evicting server whose store was never accessed via a named project
      * should NOT evict the initial in-memory store (store_last_used == 0). */
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    ASSERT_TRUE(cbm_mcp_server_has_cached_store(srv));
-    cbm_mcp_server_evict_idle(srv, 0);
-    ASSERT_TRUE(cbm_mcp_server_has_cached_store(srv));
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    ASSERT_TRUE(ani_mcp_server_has_cached_store(srv));
+    ani_mcp_server_evict_idle(srv, 0);
+    ASSERT_TRUE(ani_mcp_server_has_cached_store(srv));
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(store_idle_evict_access_resets_timer) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    cbm_mcp_server_set_project(srv, "test-evict");
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    ani_mcp_server_set_project(srv, "test-evict");
 
     /* First access */
-    char *resp = cbm_mcp_handle_tool(srv, "get_graph_schema", "{\"project\":\"test-evict\"}");
+    char *resp = ani_mcp_handle_tool(srv, "get_graph_schema", "{\"project\":\"test-evict\"}");
     free(resp);
 
     /* Second access (resets timer) */
-    resp = cbm_mcp_handle_tool(srv, "get_graph_schema", "{\"project\":\"test-evict\"}");
+    resp = ani_mcp_handle_tool(srv, "get_graph_schema", "{\"project\":\"test-evict\"}");
     free(resp);
 
-    ASSERT_TRUE(cbm_mcp_server_has_cached_store(srv));
+    ASSERT_TRUE(ani_mcp_server_has_cached_store(srv));
 
     /* With large timeout, store should survive */
-    cbm_mcp_server_evict_idle(srv, 99999);
-    ASSERT_TRUE(cbm_mcp_server_has_cached_store(srv));
+    ani_mcp_server_evict_idle(srv, 99999);
+    ASSERT_TRUE(ani_mcp_server_has_cached_store(srv));
 
     /* With 0 timeout, store should be evicted */
-    cbm_mcp_server_evict_idle(srv, 0);
-    ASSERT_FALSE(cbm_mcp_server_has_cached_store(srv));
+    ani_mcp_server_evict_idle(srv, 0);
+    ASSERT_FALSE(ani_mcp_server_has_cached_store(srv));
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -9054,13 +9054,13 @@ TEST(store_idle_evict_access_resets_timer) {
 
 TEST(parse_file_uri_unix) {
     char path[256];
-    ASSERT_TRUE(cbm_parse_file_uri("file:///home/user/project", path, sizeof(path)));
+    ASSERT_TRUE(ani_parse_file_uri("file:///home/user/project", path, sizeof(path)));
     ASSERT_STR_EQ(path, "/home/user/project");
 
-    ASSERT_TRUE(cbm_parse_file_uri("file:///tmp/test", path, sizeof(path)));
+    ASSERT_TRUE(ani_parse_file_uri("file:///tmp/test", path, sizeof(path)));
     ASSERT_STR_EQ(path, "/tmp/test");
 
-    ASSERT_TRUE(cbm_parse_file_uri("file:///", path, sizeof(path)));
+    ASSERT_TRUE(ani_parse_file_uri("file:///", path, sizeof(path)));
     ASSERT_STR_EQ(path, "/");
     PASS();
 }
@@ -9068,10 +9068,10 @@ TEST(parse_file_uri_unix) {
 TEST(parse_file_uri_windows) {
     char path[256];
     /* Windows drive letter — leading / stripped */
-    ASSERT_TRUE(cbm_parse_file_uri("file:///C:/Users/project", path, sizeof(path)));
+    ASSERT_TRUE(ani_parse_file_uri("file:///C:/Users/project", path, sizeof(path)));
     ASSERT_STR_EQ(path, "C:/Users/project");
 
-    ASSERT_TRUE(cbm_parse_file_uri("file:///D:/Projects/myapp", path, sizeof(path)));
+    ASSERT_TRUE(ani_parse_file_uri("file:///D:/Projects/myapp", path, sizeof(path)));
     ASSERT_STR_EQ(path, "D:/Projects/myapp");
     PASS();
 }
@@ -9079,15 +9079,15 @@ TEST(parse_file_uri_windows) {
 TEST(parse_file_uri_invalid) {
     char path[256];
     /* Non-file URI */
-    ASSERT_FALSE(cbm_parse_file_uri("https://example.com", path, sizeof(path)));
+    ASSERT_FALSE(ani_parse_file_uri("https://example.com", path, sizeof(path)));
     ASSERT_STR_EQ(path, "");
 
     /* Empty string */
-    ASSERT_FALSE(cbm_parse_file_uri("", path, sizeof(path)));
+    ASSERT_FALSE(ani_parse_file_uri("", path, sizeof(path)));
     ASSERT_STR_EQ(path, "");
 
     /* NULL */
-    ASSERT_FALSE(cbm_parse_file_uri(NULL, path, sizeof(path)));
+    ASSERT_FALSE(ani_parse_file_uri(NULL, path, sizeof(path)));
     PASS();
 }
 
@@ -9101,17 +9101,17 @@ TEST(parse_file_uri_invalid) {
 
 /* Create an MCP server pre-populated with nodes/edges matching Go testSnippetServer.
  * Writes a source file to tmp_dir/project/main.go.
- * Caller must free the server with cbm_mcp_server_free and
+ * Caller must free the server with ani_mcp_server_free and
  * unlink the source file + rmdir manually. */
-static cbm_mcp_server_t *setup_snippet_server(char *tmp_dir, size_t tmp_sz) {
+static ani_mcp_server_t *setup_snippet_server(char *tmp_dir, size_t tmp_sz) {
     /* Create temp dir */
-    snprintf(tmp_dir, tmp_sz, "/tmp/cbm_snippet_test_XXXXXX");
-    if (!cbm_mkdtemp(tmp_dir))
+    snprintf(tmp_dir, tmp_sz, "/tmp/ani_snippet_test_XXXXXX");
+    if (!ani_mkdtemp(tmp_dir))
         return NULL;
 
     char proj_dir[512];
     snprintf(proj_dir, sizeof(proj_dir), "%s/project", tmp_dir);
-    cbm_mkdir(proj_dir);
+    ani_mkdir(proj_dir);
 
     /* Write sample source file */
     char src_path[512];
@@ -9135,22 +9135,22 @@ static cbm_mcp_server_t *setup_snippet_server(char *tmp_dir, size_t tmp_sz) {
     fclose(fp);
 
     /* Create server with in-memory store */
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     if (!srv)
         return NULL;
 
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     if (!st) {
-        cbm_mcp_server_free(srv);
+        ani_mcp_server_free(srv);
         return NULL;
     }
 
     const char *proj_name = "test-project";
-    cbm_mcp_server_set_project(srv, proj_name);
-    cbm_store_upsert_project(st, proj_name, proj_dir);
+    ani_mcp_server_set_project(srv, proj_name);
+    ani_store_upsert_project(st, proj_name, proj_dir);
 
     /* Create nodes */
-    cbm_node_t n_hr = {0};
+    ani_node_t n_hr = {0};
     n_hr.project = proj_name;
     n_hr.label = "Function";
     n_hr.name = "HandleRequest";
@@ -9162,9 +9162,9 @@ static cbm_mcp_server_t *setup_snippet_server(char *tmp_dir, size_t tmp_sz) {
                            "\"return_type\":\"error\","
                            "\"is_exported\":true,"
                            "\"base_classes\":[\"HandlerBase\",\"Audited\"]}";
-    int64_t id_hr = cbm_store_upsert_node(st, &n_hr);
+    int64_t id_hr = ani_store_upsert_node(st, &n_hr);
 
-    cbm_node_t n_po = {0};
+    ani_node_t n_po = {0};
     n_po.project = proj_name;
     n_po.label = "Function";
     n_po.name = "ProcessOrder";
@@ -9173,9 +9173,9 @@ static cbm_mcp_server_t *setup_snippet_server(char *tmp_dir, size_t tmp_sz) {
     n_po.start_line = 7;
     n_po.end_line = 9;
     n_po.properties_json = "{\"signature\":\"func ProcessOrder(id int)\"}";
-    int64_t id_po = cbm_store_upsert_node(st, &n_po);
+    int64_t id_po = ani_store_upsert_node(st, &n_po);
 
-    cbm_node_t n_run1 = {0};
+    ani_node_t n_run1 = {0};
     n_run1.project = proj_name;
     n_run1.label = "Function";
     n_run1.name = "Run";
@@ -9183,9 +9183,9 @@ static cbm_mcp_server_t *setup_snippet_server(char *tmp_dir, size_t tmp_sz) {
     n_run1.file_path = "main.go";
     n_run1.start_line = 11;
     n_run1.end_line = 13;
-    int64_t id_run1 = cbm_store_upsert_node(st, &n_run1);
+    int64_t id_run1 = ani_store_upsert_node(st, &n_run1);
 
-    cbm_node_t n_run2 = {0};
+    ani_node_t n_run2 = {0};
     n_run2.project = proj_name;
     n_run2.label = "Function";
     n_run2.name = "Run";
@@ -9193,15 +9193,15 @@ static cbm_mcp_server_t *setup_snippet_server(char *tmp_dir, size_t tmp_sz) {
     n_run2.file_path = "main.go";
     n_run2.start_line = 11;
     n_run2.end_line = 13;
-    cbm_store_upsert_node(st, &n_run2);
+    ani_store_upsert_node(st, &n_run2);
 
     /* Create edges: HandleRequest -> ProcessOrder, HandleRequest -> Run1 */
-    cbm_edge_t e1 = {.project = proj_name, .source_id = id_hr, .target_id = id_po, .type = "CALLS"};
-    cbm_store_insert_edge(st, &e1);
+    ani_edge_t e1 = {.project = proj_name, .source_id = id_hr, .target_id = id_po, .type = "CALLS"};
+    ani_store_insert_edge(st, &e1);
 
-    cbm_edge_t e2 = {
+    ani_edge_t e2 = {
         .project = proj_name, .source_id = id_hr, .target_id = id_run1, .type = "CALLS"};
-    cbm_store_insert_edge(st, &e2);
+    ani_store_insert_edge(st, &e2);
     (void)id_run1; /* run1 used for edge above */
 
     return srv;
@@ -9264,9 +9264,9 @@ typedef struct {
     const char *file_path;
 } compare_node_spec_t;
 
-static bool compare_write_coverage_mode(cbm_store_t *store, const char *project,
+static bool compare_write_coverage_mode(ani_store_t *store, const char *project,
                                         const char *generation, const char *index_mode) {
-    cbm_coverage_meta_t meta = {
+    ani_coverage_meta_t meta = {
         .generation = generation,
         .index_mode = index_mode,
         .recorded_at = "2026-08-28T00:00:00Z",
@@ -9276,10 +9276,10 @@ static bool compare_write_coverage_mode(cbm_store_t *store, const char *project,
         .coverage_version = 1,
         .hash_records_complete = true,
     };
-    return cbm_store_coverage_replace_ex(store, project, NULL, 0, &meta) == CBM_STORE_OK;
+    return ani_store_coverage_replace_ex(store, project, NULL, 0, &meta) == ANI_STORE_OK;
 }
 
-static bool compare_write_coverage(cbm_store_t *store, const char *project,
+static bool compare_write_coverage(ani_store_t *store, const char *project,
                                    const char *generation) {
     return compare_write_coverage_mode(store, project, generation, "full");
 }
@@ -9300,17 +9300,17 @@ static bool compare_write_fixture_store(const char *path, const char *project, b
     const compare_node_spec_t *nodes = target ? target_nodes : base_nodes;
     const int *order = target ? target_order : base_order;
 
-    cbm_store_t *store = cbm_store_open_path(path);
+    ani_store_t *store = ani_store_open_path(path);
     if (!store ||
-        cbm_store_upsert_project(store, project, "/tmp/compare-graphs-525") != CBM_STORE_OK) {
-        cbm_store_close(store);
+        ani_store_upsert_project(store, project, "/tmp/compare-graphs-525") != ANI_STORE_OK) {
+        ani_store_close(store);
         return false;
     }
     int64_t ids[5] = {0};
     bool ok = true;
     for (size_t position = 0; position < 5; position++) {
         int index = order[position];
-        cbm_node_t node = {
+        ani_node_t node = {
             .project = project,
             .label = nodes[index].label,
             .name = nodes[index].qualified_name,
@@ -9318,32 +9318,32 @@ static bool compare_write_fixture_store(const char *path, const char *project, b
             .file_path = nodes[index].file_path,
             .properties_json = "{}",
         };
-        ids[index] = cbm_store_upsert_node(store, &node);
+        ids[index] = ani_store_upsert_node(store, &node);
         ok = ok && ids[index] > 0;
     }
 
-    cbm_edge_t common_call = {
+    ani_edge_t common_call = {
         .project = project,
         .source_id = ids[3],
         .target_id = ids[4],
         .type = "CALLS",
         .properties_json = "{}",
     };
-    cbm_edge_t common_import = {
+    ani_edge_t common_import = {
         .project = project,
         .source_id = ids[3],
         .target_id = ids[4],
         .type = "IMPORTS",
         .properties_json = "{\"local_name\":\"Alpha\"}",
     };
-    cbm_edge_t changed_import = {
+    ani_edge_t changed_import = {
         .project = project,
         .source_id = ids[3],
         .target_id = ids[4],
         .type = "IMPORTS",
         .properties_json = target ? "{\"local_name\":\"Gamma\"}" : "{\"local_name\":\"Beta\"}",
     };
-    cbm_edge_t side_edge = {
+    ani_edge_t side_edge = {
         .project = project,
         .source_id = ids[1],
         .target_id = ids[0],
@@ -9351,33 +9351,33 @@ static bool compare_write_fixture_store(const char *path, const char *project, b
         .properties_json = "{}",
     };
     if (target) {
-        ok = ok && cbm_store_insert_edge(store, &side_edge) > 0 &&
-             cbm_store_insert_edge(store, &changed_import) > 0 &&
-             cbm_store_insert_edge(store, &common_call) > 0 &&
-             cbm_store_insert_edge(store, &common_import) > 0;
+        ok = ok && ani_store_insert_edge(store, &side_edge) > 0 &&
+             ani_store_insert_edge(store, &changed_import) > 0 &&
+             ani_store_insert_edge(store, &common_call) > 0 &&
+             ani_store_insert_edge(store, &common_import) > 0;
     } else {
-        ok = ok && cbm_store_insert_edge(store, &common_import) > 0 &&
-             cbm_store_insert_edge(store, &common_call) > 0 &&
-             cbm_store_insert_edge(store, &side_edge) > 0 &&
-             cbm_store_insert_edge(store, &changed_import) > 0;
+        ok = ok && ani_store_insert_edge(store, &common_import) > 0 &&
+             ani_store_insert_edge(store, &common_call) > 0 &&
+             ani_store_insert_edge(store, &side_edge) > 0 &&
+             ani_store_insert_edge(store, &changed_import) > 0;
     }
     ok = ok &&
          compare_write_coverage(store, project,
                                 target ? "target-generation-525" : "base-generation-525") &&
-         cbm_store_prepare_for_publish(store) == CBM_STORE_OK;
-    cbm_store_close(store);
+         ani_store_prepare_for_publish(store) == ANI_STORE_OK;
+    ani_store_close(store);
     return ok;
 }
 
 static bool compare_graphs_fixture_open(compare_graphs_fixture_t *fixture) {
     memset(fixture, 0, sizeof(*fixture));
-    snprintf(fixture->cache, sizeof(fixture->cache), "%s/cbm-compare-525-XXXXXX", cbm_tmpdir());
-    if (!cbm_mkdtemp(fixture->cache)) {
+    snprintf(fixture->cache, sizeof(fixture->cache), "%s/ani-compare-525-XXXXXX", ani_tmpdir());
+    if (!ani_mkdtemp(fixture->cache)) {
         return false;
     }
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     fixture->saved_cache = saved ? strdup(saved) : NULL;
-    if ((saved && !fixture->saved_cache) || cbm_setenv("CBM_CACHE_DIR", fixture->cache, 1) != 0) {
+    if ((saved && !fixture->saved_cache) || ani_setenv("ANI_CACHE_DIR", fixture->cache, 1) != 0) {
         free(fixture->saved_cache);
         fixture->saved_cache = NULL;
         (void)th_rmtree(fixture->cache);
@@ -9403,12 +9403,12 @@ static bool compare_graphs_fixture_close(compare_graphs_fixture_t *fixture) {
     return th_rmtree(fixture->cache) == 0;
 }
 
-static char *compare_graphs_call(cbm_mcp_server_t *server, const char *extra_arguments) {
+static char *compare_graphs_call(ani_mcp_server_t *server, const char *extra_arguments) {
     char arguments[1024];
     snprintf(arguments, sizeof(arguments),
              "{\"base_project\":\"base525\",\"target_project\":\"target525\"%s}",
              extra_arguments ? extra_arguments : "");
-    return cbm_mcp_handle_tool(server, "compare_graphs", arguments);
+    return ani_mcp_handle_tool(server, "compare_graphs", arguments);
 }
 
 static bool compare_set_has(const yyjson_val *set, uint64_t total, uint64_t returned,
@@ -9430,9 +9430,9 @@ static bool compare_set_has(const yyjson_val *set, uint64_t total, uint64_t retu
 TEST(tool_compare_graphs_streams_stable_deltas_issue525) {
     compare_graphs_fixture_t fixture;
     ASSERT_TRUE(compare_graphs_fixture_open(&fixture));
-    cbm_mcp_server_t *server = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *server = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(server);
-    cbm_mcp_server_set_tool_profile(server, CBM_MCP_TOOL_PROFILE_ANALYSIS);
+    ani_mcp_server_set_tool_profile(server, ANI_MCP_TOOL_PROFILE_ANALYSIS);
 
     char *first = compare_graphs_call(server, NULL);
     char *second = compare_graphs_call(server, NULL);
@@ -9529,22 +9529,22 @@ TEST(tool_compare_graphs_streams_stable_deltas_issue525) {
     free(inner);
     free(limited);
 
-    cbm_mcp_server_free(server);
+    ani_mcp_server_free(server);
     ASSERT_TRUE(compare_graphs_fixture_close(&fixture));
     PASS();
 }
 
 static bool compare_write_single_node_store(const char *path, const char *project,
                                             const char *generation, const char *qualified_name) {
-    cbm_store_t *store = cbm_store_open_path(path);
+    ani_store_t *store = ani_store_open_path(path);
     if (!store ||
-        cbm_store_upsert_project(store, project, "/tmp/compare-budget-525") != CBM_STORE_OK) {
-        cbm_store_close(store);
+        ani_store_upsert_project(store, project, "/tmp/compare-budget-525") != ANI_STORE_OK) {
+        ani_store_close(store);
         return false;
     }
     bool ok = true;
     if (qualified_name) {
-        cbm_node_t node = {
+        ani_node_t node = {
             .project = project,
             .label = "Function",
             .name = "large",
@@ -9552,11 +9552,11 @@ static bool compare_write_single_node_store(const char *path, const char *projec
             .file_path = "src/large.c",
             .properties_json = "{}",
         };
-        ok = cbm_store_upsert_node(store, &node) > 0;
+        ok = ani_store_upsert_node(store, &node) > 0;
     }
     ok = ok && compare_write_coverage(store, project, generation) &&
-         cbm_store_prepare_for_publish(store) == CBM_STORE_OK;
-    cbm_store_close(store);
+         ani_store_prepare_for_publish(store) == ANI_STORE_OK;
+    ani_store_close(store);
     return ok;
 }
 
@@ -9566,10 +9566,10 @@ static bool compare_write_identity_store(const char *path, const char *project,
                                          const char *source_file, const char *target_qn,
                                          const char *target_label, const char *target_file,
                                          const char *edge_type) {
-    cbm_store_t *store = cbm_store_open_path(path);
+    ani_store_t *store = ani_store_open_path(path);
     if (!store ||
-        cbm_store_upsert_project(store, project, "/tmp/compare-identity-525") != CBM_STORE_OK) {
-        cbm_store_close(store);
+        ani_store_upsert_project(store, project, "/tmp/compare-identity-525") != ANI_STORE_OK) {
+        ani_store_close(store);
         return false;
     }
 
@@ -9577,7 +9577,7 @@ static bool compare_write_identity_store(const char *path, const char *project,
     int64_t source_id = 0;
     int64_t target_id = 0;
     if (source_qn) {
-        cbm_node_t source = {
+        ani_node_t source = {
             .project = project,
             .label = source_label,
             .name = source_qn,
@@ -9585,11 +9585,11 @@ static bool compare_write_identity_store(const char *path, const char *project,
             .file_path = source_file,
             .properties_json = "{}",
         };
-        source_id = cbm_store_upsert_node(store, &source);
+        source_id = ani_store_upsert_node(store, &source);
         ok = source_id > 0;
     }
     if (ok && target_qn) {
-        cbm_node_t target = {
+        ani_node_t target = {
             .project = project,
             .label = target_label,
             .name = target_qn,
@@ -9597,22 +9597,22 @@ static bool compare_write_identity_store(const char *path, const char *project,
             .file_path = target_file,
             .properties_json = "{}",
         };
-        target_id = cbm_store_upsert_node(store, &target);
+        target_id = ani_store_upsert_node(store, &target);
         ok = target_id > 0;
     }
     if (ok && edge_type) {
-        cbm_edge_t edge = {
+        ani_edge_t edge = {
             .project = project,
             .source_id = source_id,
             .target_id = target_id,
             .type = edge_type,
             .properties_json = "{}",
         };
-        ok = cbm_store_insert_edge(store, &edge) > 0;
+        ok = ani_store_insert_edge(store, &edge) > 0;
     }
     ok = ok && compare_write_coverage_mode(store, project, generation, index_mode) &&
-         cbm_store_prepare_for_publish(store) == CBM_STORE_OK;
-    cbm_store_close(store);
+         ani_store_prepare_for_publish(store) == ANI_STORE_OK;
+    ani_store_close(store);
     return ok;
 }
 
@@ -9630,9 +9630,9 @@ TEST(tool_compare_graphs_normalizes_legacy_path_separators_issue525) {
                                              "pkg.source", "Function", "src/same.c", "pkg.target",
                                              "Function", "src/target.c", "CALLS"));
 
-    cbm_mcp_server_t *server = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *server = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(server);
-    char *response = cbm_mcp_handle_tool(
+    char *response = ani_mcp_handle_tool(
         server, "compare_graphs",
         "{\"base_project\":\"sepbase525\",\"target_project\":\"septarget525\"}");
     ASSERT_NOT_NULL(response);
@@ -9649,7 +9649,7 @@ TEST(tool_compare_graphs_normalizes_legacy_path_separators_issue525) {
     yyjson_doc_free(doc);
     free(inner);
     free(response);
-    cbm_mcp_server_free(server);
+    ani_mcp_server_free(server);
     ASSERT_TRUE(compare_graphs_fixture_close(&fixture));
     PASS();
 }
@@ -9693,9 +9693,9 @@ TEST(tool_compare_graphs_sanitizes_legacy_invalid_utf8_issue525) {
         target_path, "utftarget525", invalid_generation, invalid_index_mode, invalid_qn,
         invalid_label, invalid_file, safe_qn, "Function", "src/sink.c", invalid_type));
 
-    cbm_mcp_server_t *server = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *server = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(server);
-    char *response = cbm_mcp_handle_tool(
+    char *response = ani_mcp_handle_tool(
         server, "compare_graphs",
         "{\"base_project\":\"utfbase525\",\"target_project\":\"utftarget525\"}");
     ASSERT_NOT_NULL(response);
@@ -9731,7 +9731,7 @@ TEST(tool_compare_graphs_sanitizes_legacy_invalid_utf8_issue525) {
     yyjson_doc_free(doc);
     free(inner);
     free(response);
-    cbm_mcp_server_free(server);
+    ani_mcp_server_free(server);
     ASSERT_TRUE(compare_graphs_fixture_close(&fixture));
     PASS();
 }
@@ -9739,11 +9739,11 @@ TEST(tool_compare_graphs_sanitizes_legacy_invalid_utf8_issue525) {
 TEST(tool_compare_graphs_bind_failures_are_atomic_issue525) {
     compare_graphs_fixture_t fixture;
     ASSERT_TRUE(compare_graphs_fixture_open(&fixture));
-    cbm_mcp_server_t *server = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *server = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(server);
     static const int fail_after[] = {0, 4, 6};
     for (size_t index = 0; index < sizeof(fail_after) / sizeof(fail_after[0]); index++) {
-        cbm_store_compare_test_fail_bind_after(fail_after[index]);
+        ani_store_compare_test_fail_bind_after(fail_after[index]);
         char *response = compare_graphs_call(server, NULL);
         ASSERT_NOT_NULL(response);
         ASSERT_NOT_NULL(strstr(response, "\"isError\":true"));
@@ -9754,8 +9754,8 @@ TEST(tool_compare_graphs_bind_failures_are_atomic_issue525) {
         free(inner);
         free(response);
     }
-    cbm_store_compare_test_fail_bind_after(CBM_NOT_FOUND);
-    cbm_mcp_server_free(server);
+    ani_store_compare_test_fail_bind_after(ANI_NOT_FOUND);
+    ani_mcp_server_free(server);
     ASSERT_TRUE(compare_graphs_fixture_close(&fixture));
     PASS();
 }
@@ -9763,10 +9763,10 @@ TEST(tool_compare_graphs_bind_failures_are_atomic_issue525) {
 TEST(tool_compare_graphs_midscan_cancel_restores_store_state_issue525) {
     compare_graphs_fixture_t fixture;
     ASSERT_TRUE(compare_graphs_fixture_open(&fixture));
-    cbm_mcp_server_t *server = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *server = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(server);
 
-    cbm_store_compare_test_cancel_after(1);
+    ani_store_compare_test_cancel_after(1);
     char *cancelled = compare_graphs_call(server, NULL);
     ASSERT_NOT_NULL(cancelled);
     ASSERT_NOT_NULL(strstr(cancelled, "\"isError\":true"));
@@ -9776,37 +9776,37 @@ TEST(tool_compare_graphs_midscan_cancel_restores_store_state_issue525) {
     ASSERT_NULL(strstr(inner, "\"nodes\""));
     free(inner);
     free(cancelled);
-    cbm_store_compare_test_cancel_after(CBM_NOT_FOUND);
+    ani_store_compare_test_cancel_after(ANI_NOT_FOUND);
 
-    cbm_store_t *base_store = cbm_store_open_path_query(fixture.base_path);
-    cbm_store_t *target_store = cbm_store_open_path_query(fixture.target_path);
+    ani_store_t *base_store = ani_store_open_path_query(fixture.base_path);
+    ani_store_t *target_store = ani_store_open_path_query(fixture.target_path);
     ASSERT_NOT_NULL(base_store);
     ASSERT_NOT_NULL(target_store);
-    cbm_graph_compare_result_t result = {0};
-    cbm_store_compare_test_cancel_after(1);
-    ASSERT_EQ(cbm_store_compare_graphs(base_store, "base525", target_store, "target525", 100, NULL,
+    ani_graph_compare_result_t result = {0};
+    ani_store_compare_test_cancel_after(1);
+    ASSERT_EQ(ani_store_compare_graphs(base_store, "base525", target_store, "target525", 100, NULL,
                                        NULL, NULL, NULL, &result),
-              CBM_STORE_CANCELLED);
+              ANI_STORE_CANCELLED);
     ASSERT_EQ(result.nodes_added_total, 0);
     ASSERT_EQ(result.nodes_removed_total, 0);
     ASSERT_EQ(result.edges_added_total, 0);
     ASSERT_EQ(result.edges_removed_total, 0);
-    cbm_store_compare_test_cancel_after(CBM_NOT_FOUND);
-    ASSERT_EQ(cbm_store_compare_graphs(base_store, "base525", target_store, "target525", 100, NULL,
+    ani_store_compare_test_cancel_after(ANI_NOT_FOUND);
+    ASSERT_EQ(ani_store_compare_graphs(base_store, "base525", target_store, "target525", 100, NULL,
                                        NULL, NULL, NULL, &result),
-              CBM_STORE_OK);
+              ANI_STORE_OK);
     ASSERT_EQ(result.nodes_added_total, 2);
     ASSERT_EQ(result.nodes_removed_total, 2);
     ASSERT_EQ(result.edges_added_total, 2);
     ASSERT_EQ(result.edges_removed_total, 2);
-    cbm_store_close(target_store);
-    cbm_store_close(base_store);
+    ani_store_close(target_store);
+    ani_store_close(base_store);
 
     char *success = compare_graphs_call(server, NULL);
     ASSERT_NOT_NULL(success);
     ASSERT_NOT_NULL(strstr(success, "\"isError\":false"));
     free(success);
-    cbm_mcp_server_free(server);
+    ani_mcp_server_free(server);
     ASSERT_TRUE(compare_graphs_fixture_close(&fixture));
     PASS();
 }
@@ -9814,10 +9814,10 @@ TEST(tool_compare_graphs_midscan_cancel_restores_store_state_issue525) {
 TEST(tool_compare_graphs_progress_cancel_clears_handler_issue525) {
     compare_graphs_fixture_t fixture;
     ASSERT_TRUE(compare_graphs_fixture_open(&fixture));
-    cbm_mcp_server_t *server = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *server = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(server);
 
-    cbm_store_compare_test_cancel_from_progress(true);
+    ani_store_compare_test_cancel_from_progress(true);
     char *cancelled = compare_graphs_call(server, NULL);
     ASSERT_NOT_NULL(cancelled);
     ASSERT_NOT_NULL(strstr(cancelled, "\"isError\":true"));
@@ -9828,14 +9828,14 @@ TEST(tool_compare_graphs_progress_cancel_clears_handler_issue525) {
     free(inner);
     free(cancelled);
 
-    cbm_store_t *base_store = cbm_store_open_path_query(fixture.base_path);
-    cbm_store_t *target_store = cbm_store_open_path_query(fixture.target_path);
+    ani_store_t *base_store = ani_store_open_path_query(fixture.base_path);
+    ani_store_t *target_store = ani_store_open_path_query(fixture.target_path);
     ASSERT_NOT_NULL(base_store);
     ASSERT_NOT_NULL(target_store);
-    cbm_graph_compare_result_t result = {0};
-    ASSERT_EQ(cbm_store_compare_graphs(base_store, "base525", target_store, "target525", 100, NULL,
+    ani_graph_compare_result_t result = {0};
+    ASSERT_EQ(ani_store_compare_graphs(base_store, "base525", target_store, "target525", 100, NULL,
                                        NULL, NULL, NULL, &result),
-              CBM_STORE_CANCELLED);
+              ANI_STORE_CANCELLED);
     ASSERT_EQ(result.nodes_added_total, 0);
     ASSERT_EQ(result.nodes_removed_total, 0);
     ASSERT_EQ(result.edges_added_total, 0);
@@ -9844,15 +9844,15 @@ TEST(tool_compare_graphs_progress_cancel_clears_handler_issue525) {
     static const char expensive_query[] =
         "WITH RECURSIVE sequence(value) AS (VALUES(0) UNION ALL "
         "SELECT value+1 FROM sequence WHERE value<5000) SELECT sum(value) FROM sequence;";
-    int base_query_rc = cbm_store_exec(base_store, expensive_query);
-    int target_query_rc = cbm_store_exec(target_store, expensive_query);
-    cbm_store_compare_test_cancel_from_progress(false);
-    cbm_store_close(target_store);
-    cbm_store_close(base_store);
-    ASSERT_EQ(base_query_rc, CBM_STORE_OK);
-    ASSERT_EQ(target_query_rc, CBM_STORE_OK);
+    int base_query_rc = ani_store_exec(base_store, expensive_query);
+    int target_query_rc = ani_store_exec(target_store, expensive_query);
+    ani_store_compare_test_cancel_from_progress(false);
+    ani_store_close(target_store);
+    ani_store_close(base_store);
+    ASSERT_EQ(base_query_rc, ANI_STORE_OK);
+    ASSERT_EQ(target_query_rc, ANI_STORE_OK);
 
-    cbm_mcp_server_free(server);
+    ani_mcp_server_free(server);
     ASSERT_TRUE(compare_graphs_fixture_close(&fixture));
     PASS();
 }
@@ -9875,9 +9875,9 @@ TEST(tool_compare_graphs_enforces_encoded_budget_issue525) {
                                                 large_name));
     free(large_name);
 
-    cbm_mcp_server_t *server = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *server = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(server);
-    char *response = cbm_mcp_handle_tool(
+    char *response = ani_mcp_handle_tool(
         server, "compare_graphs",
         "{\"base_project\":\"budgetbase525\",\"target_project\":\"budgettarget525\","
         "\"limit\":1000}");
@@ -9891,7 +9891,7 @@ TEST(tool_compare_graphs_enforces_encoded_budget_issue525) {
     yyjson_doc_free(doc);
     free(inner);
     free(response);
-    cbm_mcp_server_free(server);
+    ani_mcp_server_free(server);
     ASSERT_TRUE(compare_graphs_fixture_close(&fixture));
     PASS();
 }
@@ -9899,7 +9899,7 @@ TEST(tool_compare_graphs_enforces_encoded_budget_issue525) {
 TEST(tool_compare_graphs_validation_and_scan_cap_are_atomic_issue525) {
     compare_graphs_fixture_t fixture;
     ASSERT_TRUE(compare_graphs_fixture_open(&fixture));
-    cbm_mcp_server_t *server = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *server = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(server);
 
     char equal_path[768];
@@ -9908,7 +9908,7 @@ TEST(tool_compare_graphs_validation_and_scan_cap_are_atomic_issue525) {
     snprintf(equal_path, sizeof(equal_path), "%s/same525.db", fixture.cache);
     snprintf(equal_wal, sizeof(equal_wal), "%s-wal", equal_path);
     snprintf(equal_shm, sizeof(equal_shm), "%s-shm", equal_path);
-    ASSERT_FALSE(cbm_file_exists(equal_path));
+    ASSERT_FALSE(ani_file_exists(equal_path));
 
     static const char *const invalid_arguments[] = {
         "{}",
@@ -9923,7 +9923,7 @@ TEST(tool_compare_graphs_validation_and_scan_cap_are_atomic_issue525) {
     };
     for (size_t index = 0; index < sizeof(invalid_arguments) / sizeof(invalid_arguments[0]);
          index++) {
-        char *response = cbm_mcp_handle_tool(server, "compare_graphs", invalid_arguments[index]);
+        char *response = ani_mcp_handle_tool(server, "compare_graphs", invalid_arguments[index]);
         ASSERT_NOT_NULL(response);
         ASSERT_NOT_NULL(strstr(response, "\"isError\":true"));
         char *inner = extract_text_content(response);
@@ -9932,9 +9932,9 @@ TEST(tool_compare_graphs_validation_and_scan_cap_are_atomic_issue525) {
         free(inner);
         free(response);
     }
-    ASSERT_FALSE(cbm_file_exists(equal_path));
-    ASSERT_FALSE(cbm_file_exists(equal_wal));
-    ASSERT_FALSE(cbm_file_exists(equal_shm));
+    ASSERT_FALSE(ani_file_exists(equal_path));
+    ASSERT_FALSE(ani_file_exists(equal_wal));
+    ASSERT_FALSE(ani_file_exists(equal_shm));
 
     char ghost_path[768];
     char ghost_wal[800];
@@ -9942,14 +9942,14 @@ TEST(tool_compare_graphs_validation_and_scan_cap_are_atomic_issue525) {
     snprintf(ghost_path, sizeof(ghost_path), "%s/ghost525.db", fixture.cache);
     snprintf(ghost_wal, sizeof(ghost_wal), "%s-wal", ghost_path);
     snprintf(ghost_shm, sizeof(ghost_shm), "%s-shm", ghost_path);
-    ASSERT_FALSE(cbm_file_exists(ghost_path));
-    char *missing = cbm_mcp_handle_tool(
+    ASSERT_FALSE(ani_file_exists(ghost_path));
+    char *missing = ani_mcp_handle_tool(
         server, "compare_graphs", "{\"base_project\":\"base525\",\"target_project\":\"ghost525\"}");
     ASSERT_NOT_NULL(missing);
     ASSERT_NOT_NULL(strstr(missing, "project_not_indexed"));
-    ASSERT_FALSE(cbm_file_exists(ghost_path));
-    ASSERT_FALSE(cbm_file_exists(ghost_wal));
-    ASSERT_FALSE(cbm_file_exists(ghost_shm));
+    ASSERT_FALSE(ani_file_exists(ghost_path));
+    ASSERT_FALSE(ani_file_exists(ghost_wal));
+    ASSERT_FALSE(ani_file_exists(ghost_shm));
     free(missing);
 
     char *scan_limited = compare_graphs_call(server, ",\"scan_limit\":1");
@@ -9961,11 +9961,11 @@ TEST(tool_compare_graphs_validation_and_scan_cap_are_atomic_issue525) {
     free(scan_inner);
     free(scan_limited);
 
-    char *malformed_rpc = cbm_mcp_server_handle(server, "{");
+    char *malformed_rpc = ani_mcp_server_handle(server, "{");
     ASSERT_NOT_NULL(malformed_rpc);
     ASSERT_NOT_NULL(strstr(malformed_rpc, "-32700"));
     free(malformed_rpc);
-    cbm_mcp_server_free(server);
+    ani_mcp_server_free(server);
     ASSERT_TRUE(compare_graphs_fixture_close(&fixture));
     PASS();
 }
@@ -9987,15 +9987,15 @@ TEST(tool_compare_graphs_cancel_and_readonly_handles_release_issue525) {
     snprintf(base_shm, sizeof(base_shm), "%s-shm", fixture.base_path);
     snprintf(target_wal, sizeof(target_wal), "%s-wal", fixture.target_path);
     snprintf(target_shm, sizeof(target_shm), "%s-shm", fixture.target_path);
-    ASSERT_FALSE(cbm_file_exists(base_wal));
-    ASSERT_FALSE(cbm_file_exists(base_shm));
-    ASSERT_FALSE(cbm_file_exists(target_wal));
-    ASSERT_FALSE(cbm_file_exists(target_shm));
+    ASSERT_FALSE(ani_file_exists(base_wal));
+    ASSERT_FALSE(ani_file_exists(base_shm));
+    ASSERT_FALSE(ani_file_exists(target_wal));
+    ASSERT_FALSE(ani_file_exists(target_shm));
 
-    cbm_mcp_server_t *server = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *server = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(server);
-    ASSERT_TRUE(cbm_mcp_server_request_scope_begin(server));
-    ASSERT_TRUE(cbm_mcp_server_cancel_active(server));
+    ASSERT_TRUE(ani_mcp_server_request_scope_begin(server));
+    ASSERT_TRUE(ani_mcp_server_cancel_active(server));
     char *cancelled = compare_graphs_call(server, NULL);
     ASSERT_NOT_NULL(cancelled);
     ASSERT_NOT_NULL(strstr(cancelled, "\"isError\":true"));
@@ -10005,7 +10005,7 @@ TEST(tool_compare_graphs_cancel_and_readonly_handles_release_issue525) {
     ASSERT_NULL(strstr(cancelled_inner, "\"nodes\""));
     free(cancelled_inner);
     free(cancelled);
-    cbm_mcp_server_request_scope_end(server);
+    ani_mcp_server_request_scope_end(server);
 
     char moved_path[800];
     snprintf(moved_path, sizeof(moved_path), "%s/base525.moved", fixture.cache);
@@ -10020,22 +10020,22 @@ TEST(tool_compare_graphs_cancel_and_readonly_handles_release_issue525) {
     ASSERT_EQ(rename(moved_path, fixture.base_path), 0);
     ASSERT_TRUE(mcp_file_matches_snapshot(fixture.base_path, base_before, base_length));
     ASSERT_TRUE(mcp_file_matches_snapshot(fixture.target_path, target_before, target_length));
-    ASSERT_FALSE(cbm_file_exists(base_wal));
-    ASSERT_FALSE(cbm_file_exists(base_shm));
-    ASSERT_FALSE(cbm_file_exists(target_wal));
-    ASSERT_FALSE(cbm_file_exists(target_shm));
+    ASSERT_FALSE(ani_file_exists(base_wal));
+    ASSERT_FALSE(ani_file_exists(base_shm));
+    ASSERT_FALSE(ani_file_exists(target_wal));
+    ASSERT_FALSE(ani_file_exists(target_shm));
 
     free(base_before);
     free(target_before);
-    cbm_mcp_server_free(server);
+    ani_mcp_server_free(server);
     ASSERT_TRUE(compare_graphs_fixture_close(&fixture));
     PASS();
 }
 
 /* Call get_code_snippet and extract inner text content.
  * Caller must free returned string. */
-static char *call_snippet(cbm_mcp_server_t *srv, const char *args_json) {
-    char *raw = cbm_mcp_handle_tool(srv, "get_code_snippet", args_json);
+static char *call_snippet(ani_mcp_server_t *srv, const char *args_json) {
+    char *raw = ani_mcp_handle_tool(srv, "get_code_snippet", args_json);
     char *text = extract_text_content(raw);
     free(raw);
     return text;
@@ -10070,7 +10070,7 @@ static bool snippet_source_has_replacement(const char *json) {
 
 TEST(snippet_exact_qn) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     char *resp =
@@ -10091,7 +10091,7 @@ TEST(snippet_exact_qn) {
     ASSERT_NOT_NULL(strstr(resp, "\"callees\":2"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -10100,7 +10100,7 @@ TEST(snippet_exact_qn) {
 
 TEST(snippet_qn_suffix) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     char *resp = call_snippet(srv, "{\"qualified_name\":\"main.HandleRequest\","
@@ -10111,7 +10111,7 @@ TEST(snippet_qn_suffix) {
     ASSERT_NOT_NULL(strstr(resp, "\"source\""));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -10120,7 +10120,7 @@ TEST(snippet_qn_suffix) {
 
 TEST(snippet_unique_short_name) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* "ProcessOrder" is unique — suffix tier matches (QN ends with .ProcessOrder) */
@@ -10132,7 +10132,7 @@ TEST(snippet_unique_short_name) {
     ASSERT_NOT_NULL(strstr(resp, "\"source\""));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -10141,7 +10141,7 @@ TEST(snippet_unique_short_name) {
 
 TEST(snippet_name_tier) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* "HandleRequest" — suffix tier finds it (QN ends with .HandleRequest) */
@@ -10152,7 +10152,7 @@ TEST(snippet_name_tier) {
     ASSERT_NOT_NULL(strstr(resp, "\"match_method\":\"suffix\""));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -10161,7 +10161,7 @@ TEST(snippet_name_tier) {
 
 TEST(snippet_ambiguous_short_name) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* "Run" matches 2 nodes — should return suggestions */
@@ -10180,7 +10180,7 @@ TEST(snippet_ambiguous_short_name) {
     ASSERT_NOT_NULL(strstr(resp, "test-project.cmd.worker.Run"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -10189,7 +10189,7 @@ TEST(snippet_ambiguous_short_name) {
 
 TEST(snippet_not_found) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     char *resp = call_snippet(srv, "{\"qualified_name\":\"CompletelyNonexistentFunctionXYZ123\","
@@ -10199,7 +10199,7 @@ TEST(snippet_not_found) {
     ASSERT_TRUE(strstr(resp, "not found") || strstr(resp, "suggestions"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -10208,7 +10208,7 @@ TEST(snippet_not_found) {
 
 TEST(snippet_fuzzy_suggestions) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* "Handle" is not an exact QN or suffix — should get not-found guidance */
@@ -10219,7 +10219,7 @@ TEST(snippet_fuzzy_suggestions) {
     ASSERT_NOT_NULL(strstr(resp, "search_graph"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -10233,7 +10233,7 @@ TEST(snippet_enriched_properties) {
      * is_exported duplication, and never the fp/sp/bt similarity internals
      * (41% of the legacy response). */
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     char *resp =
@@ -10248,7 +10248,7 @@ TEST(snippet_enriched_properties) {
     ASSERT_NULL(strstr(resp, "\"bt\""));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -10257,7 +10257,7 @@ TEST(snippet_enriched_properties) {
 
 TEST(snippet_fuzzy_last_segment) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* "auth.handlers.HandleRequest" — suffix match should find HandleRequest */
@@ -10268,7 +10268,7 @@ TEST(snippet_fuzzy_last_segment) {
     ASSERT_TRUE(strstr(resp, "HandleRequest") != NULL || strstr(resp, "search_graph") != NULL);
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -10277,7 +10277,7 @@ TEST(snippet_fuzzy_last_segment) {
 
 TEST(snippet_auto_resolve_default) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* "Run" is ambiguous (2 candidates). Without auto_resolve → suggestions */
@@ -10288,7 +10288,7 @@ TEST(snippet_auto_resolve_default) {
     ASSERT_NULL(strstr(resp, "\"source\""));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -10297,7 +10297,7 @@ TEST(snippet_auto_resolve_default) {
 
 TEST(snippet_auto_resolve_enabled) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* "Run" — suffix match should find candidates or guide to search */
@@ -10308,7 +10308,7 @@ TEST(snippet_auto_resolve_enabled) {
     ASSERT_TRUE(strstr(resp, "Run") != NULL);
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -10317,7 +10317,7 @@ TEST(snippet_auto_resolve_enabled) {
 
 TEST(snippet_include_neighbors_default) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     char *resp =
@@ -10332,7 +10332,7 @@ TEST(snippet_include_neighbors_default) {
     ASSERT_NOT_NULL(strstr(resp, "\"callees\""));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -10341,7 +10341,7 @@ TEST(snippet_include_neighbors_default) {
 
 TEST(snippet_include_neighbors_enabled) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     char *resp =
@@ -10357,7 +10357,7 @@ TEST(snippet_include_neighbors_enabled) {
     ASSERT_NOT_NULL(strstr(resp, "Run"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -10366,7 +10366,7 @@ TEST(snippet_include_neighbors_enabled) {
 
 TEST(snippet_source_invalid_utf8) {
     char tmp[256];
-    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
+    ani_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     char src_path[512];
@@ -10383,7 +10383,7 @@ TEST(snippet_source_invalid_utf8) {
     ASSERT_EQ(fclose(fp), 0);
 
     char *raw =
-        cbm_mcp_handle_tool(srv, "get_code_snippet",
+        ani_mcp_handle_tool(srv, "get_code_snippet",
                             "{\"qualified_name\":\"test-project.cmd.server.main.HandleRequest\","
                             "\"project\":\"test-project\"}");
     ASSERT_TRUE(is_valid_json_response(raw));
@@ -10397,7 +10397,7 @@ TEST(snippet_source_invalid_utf8) {
 
     free(resp);
     free(raw);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_snippet_dir(tmp);
     PASS();
 }
@@ -10407,33 +10407,33 @@ TEST(snippet_source_invalid_utf8) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(jsonrpc_parse_empty_string) {
-    cbm_jsonrpc_request_t req = {0};
-    int rc = cbm_jsonrpc_parse("", &req);
+    ani_jsonrpc_request_t req = {0};
+    int rc = ani_jsonrpc_parse("", &req);
     ASSERT_EQ(rc, -1);
-    cbm_jsonrpc_request_free(&req);
+    ani_jsonrpc_request_free(&req);
     PASS();
 }
 
 TEST(jsonrpc_parse_missing_jsonrpc_field) {
     /* jsonrpc field absent — parser defaults to "2.0" if method present */
     const char *line = "{\"id\":1,\"method\":\"initialize\",\"params\":{}}";
-    cbm_jsonrpc_request_t req = {0};
-    int rc = cbm_jsonrpc_parse(line, &req);
+    ani_jsonrpc_request_t req = {0};
+    int rc = ani_jsonrpc_parse(line, &req);
     ASSERT_EQ(rc, 0);
     ASSERT_STR_EQ(req.jsonrpc, "2.0");
     ASSERT_STR_EQ(req.method, "initialize");
     ASSERT_TRUE(req.has_id);
-    cbm_jsonrpc_request_free(&req);
+    ani_jsonrpc_request_free(&req);
     PASS();
 }
 
 TEST(jsonrpc_parse_missing_method) {
     /* method is required — should fail */
     const char *line = "{\"jsonrpc\":\"2.0\",\"id\":1,\"params\":{}}";
-    cbm_jsonrpc_request_t req = {0};
-    int rc = cbm_jsonrpc_parse(line, &req);
+    ani_jsonrpc_request_t req = {0};
+    int rc = ani_jsonrpc_parse(line, &req);
     ASSERT_EQ(rc, -1);
-    cbm_jsonrpc_request_free(&req);
+    ani_jsonrpc_request_free(&req);
     PASS();
 }
 
@@ -10441,47 +10441,47 @@ TEST(jsonrpc_parse_string_id) {
     /* JSON-RPC §4: string and numeric ids are distinct. A string id is
      * preserved verbatim (issue #253), never coerced to a number. */
     const char *line = "{\"jsonrpc\":\"2.0\",\"id\":\"99\",\"method\":\"tools/list\"}";
-    cbm_jsonrpc_request_t req = {0};
-    int rc = cbm_jsonrpc_parse(line, &req);
+    ani_jsonrpc_request_t req = {0};
+    int rc = ani_jsonrpc_parse(line, &req);
     ASSERT_EQ(rc, 0);
     ASSERT_TRUE(req.has_id);
     ASSERT_NOT_NULL(req.id_str);
     ASSERT_STR_EQ(req.id_str, "99");
     ASSERT_STR_EQ(req.method, "tools/list");
-    cbm_jsonrpc_request_free(&req);
+    ani_jsonrpc_request_free(&req);
     PASS();
 }
 
 TEST(jsonrpc_parse_no_params) {
     /* Request with no params field — params_raw should be NULL */
     const char *line = "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/list\"}";
-    cbm_jsonrpc_request_t req = {0};
-    int rc = cbm_jsonrpc_parse(line, &req);
+    ani_jsonrpc_request_t req = {0};
+    int rc = ani_jsonrpc_parse(line, &req);
     ASSERT_EQ(rc, 0);
     ASSERT_NULL(req.params_raw);
     ASSERT_EQ(req.id, 5);
-    cbm_jsonrpc_request_free(&req);
+    ani_jsonrpc_request_free(&req);
     PASS();
 }
 
 TEST(jsonrpc_parse_extra_whitespace) {
     /* Leading/trailing whitespace and internal spacing in JSON */
     const char *line = "  { \"jsonrpc\" : \"2.0\" , \"id\" : 7 , \"method\" : \"ping\" }  ";
-    cbm_jsonrpc_request_t req = {0};
-    int rc = cbm_jsonrpc_parse(line, &req);
+    ani_jsonrpc_request_t req = {0};
+    int rc = ani_jsonrpc_parse(line, &req);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(req.id, 7);
     ASSERT_STR_EQ(req.method, "ping");
-    cbm_jsonrpc_request_free(&req);
+    ani_jsonrpc_request_free(&req);
     PASS();
 }
 
 TEST(jsonrpc_parse_array_not_object) {
     /* JSON array at root — not a valid JSON-RPC request */
-    cbm_jsonrpc_request_t req = {0};
-    int rc = cbm_jsonrpc_parse("[1,2,3]", &req);
+    ani_jsonrpc_request_t req = {0};
+    int rc = ani_jsonrpc_parse("[1,2,3]", &req);
     ASSERT_EQ(rc, -1);
-    cbm_jsonrpc_request_free(&req);
+    ani_jsonrpc_request_free(&req);
     PASS();
 }
 
@@ -10491,14 +10491,14 @@ TEST(jsonrpc_parse_array_not_object) {
 
 TEST(mcp_get_string_arg_empty_json) {
     /* Empty JSON string — yyjson_read fails → NULL */
-    char *val = cbm_mcp_get_string_arg("", "key");
+    char *val = ani_mcp_get_string_arg("", "key");
     ASSERT_NULL(val);
     PASS();
 }
 
 TEST(mcp_get_string_arg_empty_object) {
     /* Valid JSON with no keys → NULL for any key */
-    char *val = cbm_mcp_get_string_arg("{}", "key");
+    char *val = ani_mcp_get_string_arg("{}", "key");
     ASSERT_NULL(val);
     PASS();
 }
@@ -10506,9 +10506,9 @@ TEST(mcp_get_string_arg_empty_object) {
 TEST(mcp_get_string_arg_nested_value) {
     /* Value is an object, not a string → should return NULL */
     const char *args = "{\"config\":{\"nested\":true},\"name\":\"hello\"}";
-    char *val = cbm_mcp_get_string_arg(args, "config");
+    char *val = ani_mcp_get_string_arg(args, "config");
     ASSERT_NULL(val); /* not a string type */
-    val = cbm_mcp_get_string_arg(args, "name");
+    val = ani_mcp_get_string_arg(args, "name");
     ASSERT_NOT_NULL(val);
     ASSERT_STR_EQ(val, "hello");
     free(val);
@@ -10517,65 +10517,65 @@ TEST(mcp_get_string_arg_nested_value) {
 
 TEST(mcp_get_string_arg_int_value) {
     /* Value is an integer, not a string → NULL */
-    char *val = cbm_mcp_get_string_arg("{\"count\":42}", "count");
+    char *val = ani_mcp_get_string_arg("{\"count\":42}", "count");
     ASSERT_NULL(val);
     PASS();
 }
 
 TEST(mcp_get_int_arg_empty_json) {
-    int val = cbm_mcp_get_int_arg("", "key", 99);
+    int val = ani_mcp_get_int_arg("", "key", 99);
     ASSERT_EQ(val, 99);
     PASS();
 }
 
 TEST(mcp_get_int_arg_string_value) {
     /* Value is a string, not int → should return default */
-    int val = cbm_mcp_get_int_arg("{\"limit\":\"ten\"}", "limit", 5);
+    int val = ani_mcp_get_int_arg("{\"limit\":\"ten\"}", "limit", 5);
     ASSERT_EQ(val, 5);
     PASS();
 }
 
 TEST(mcp_get_int_arg_bool_value) {
     /* Value is a bool, not int → default */
-    int val = cbm_mcp_get_int_arg("{\"flag\":true}", "flag", -1);
+    int val = ani_mcp_get_int_arg("{\"flag\":true}", "flag", -1);
     ASSERT_EQ(val, -1);
     PASS();
 }
 
 TEST(mcp_get_bool_arg_empty_json) {
-    bool val = cbm_mcp_get_bool_arg("", "key");
+    bool val = ani_mcp_get_bool_arg("", "key");
     ASSERT_FALSE(val);
     PASS();
 }
 
 TEST(mcp_get_bool_arg_int_value) {
     /* Value is int 1, not bool → should return false */
-    bool val = cbm_mcp_get_bool_arg("{\"flag\":1}", "flag");
+    bool val = ani_mcp_get_bool_arg("{\"flag\":1}", "flag");
     ASSERT_FALSE(val);
     PASS();
 }
 
 TEST(mcp_get_tool_name_empty_json) {
-    char *name = cbm_mcp_get_tool_name("");
+    char *name = ani_mcp_get_tool_name("");
     ASSERT_NULL(name);
     PASS();
 }
 
 TEST(mcp_get_tool_name_missing_name) {
-    char *name = cbm_mcp_get_tool_name("{\"arguments\":{}}");
+    char *name = ani_mcp_get_tool_name("{\"arguments\":{}}");
     ASSERT_NULL(name);
     PASS();
 }
 
 TEST(mcp_get_arguments_empty_json) {
-    char *args = cbm_mcp_get_arguments("");
+    char *args = ani_mcp_get_arguments("");
     ASSERT_NULL(args);
     PASS();
 }
 
 TEST(mcp_get_arguments_no_arguments_key) {
     /* No "arguments" key → returns "{}" */
-    char *args = cbm_mcp_get_arguments("{\"name\":\"tool\"}");
+    char *args = ani_mcp_get_arguments("{\"name\":\"tool\"}");
     ASSERT_NOT_NULL(args);
     ASSERT_STR_EQ(args, "{}");
     free(args);
@@ -10588,21 +10588,21 @@ TEST(mcp_get_arguments_no_arguments_key) {
 
 TEST(parse_file_uri_http_scheme) {
     char path[256];
-    ASSERT_FALSE(cbm_parse_file_uri("http://example.com/path", path, sizeof(path)));
+    ASSERT_FALSE(ani_parse_file_uri("http://example.com/path", path, sizeof(path)));
     ASSERT_STR_EQ(path, "");
     PASS();
 }
 
 TEST(parse_file_uri_ftp_scheme) {
     char path[256];
-    ASSERT_FALSE(cbm_parse_file_uri("ftp://server/file.txt", path, sizeof(path)));
+    ASSERT_FALSE(ani_parse_file_uri("ftp://server/file.txt", path, sizeof(path)));
     ASSERT_STR_EQ(path, "");
     PASS();
 }
 
 TEST(parse_file_uri_buffer_too_small) {
     char path[5]; /* only 5 bytes — path gets truncated */
-    ASSERT_TRUE(cbm_parse_file_uri("file:///usr/local/bin", path, sizeof(path)));
+    ASSERT_TRUE(ani_parse_file_uri("file:///usr/local/bin", path, sizeof(path)));
     /* snprintf truncates to 4 chars + NUL */
     ASSERT_EQ(strlen(path), 4);
     ASSERT_STR_EQ(path, "/usr");
@@ -10611,7 +10611,7 @@ TEST(parse_file_uri_buffer_too_small) {
 
 TEST(parse_file_uri_spaces_in_path) {
     char path[256];
-    ASSERT_TRUE(cbm_parse_file_uri("file:///home/user/my%20project", path, sizeof(path)));
+    ASSERT_TRUE(ani_parse_file_uri("file:///home/user/my%20project", path, sizeof(path)));
     /* Raw percent-encoding is preserved (not decoded) */
     ASSERT_STR_EQ(path, "/home/user/my%20project");
     PASS();
@@ -10619,14 +10619,14 @@ TEST(parse_file_uri_spaces_in_path) {
 
 TEST(parse_file_uri_null_out_path) {
     /* NULL out_path — should not crash */
-    ASSERT_FALSE(cbm_parse_file_uri("file:///tmp", NULL, 256));
+    ASSERT_FALSE(ani_parse_file_uri("file:///tmp", NULL, 256));
     PASS();
 }
 
 TEST(parse_file_uri_zero_size) {
     char path[256] = "garbage";
     /* out_size=0 → should fail safely */
-    ASSERT_FALSE(cbm_parse_file_uri("file:///tmp", path, 0));
+    ASSERT_FALSE(ani_parse_file_uri("file:///tmp", path, 0));
     PASS();
 }
 
@@ -10635,37 +10635,37 @@ TEST(parse_file_uri_zero_size) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(server_handle_invalid_json) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
-    char *resp = cbm_mcp_server_handle(srv, "this is not json at all");
+    char *resp = ani_mcp_server_handle(srv, "this is not json at all");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"error\""));
     ASSERT_NOT_NULL(strstr(resp, "-32700")); /* Parse error */
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(server_handle_empty_object) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     /* Valid JSON but no method field → parse error */
-    char *resp = cbm_mcp_server_handle(srv, "{}");
+    char *resp = ani_mcp_server_handle(srv, "{}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"error\""));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(server_handle_tools_call_missing_name) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
 
     /* tools/call with no tool name in params */
     char *resp =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\","
                                    "\"params\":{\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     /* Should return error about unknown/missing tool */
@@ -10673,7 +10673,7 @@ TEST(server_handle_tools_call_missing_name) {
     ASSERT_TRUE(strstr(resp, "error") || strstr(resp, "isError") || strstr(resp, "unknown"));
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -10719,14 +10719,14 @@ TEST(mcp_server_run_rapid_messages) {
     FILE *out_fp = tmpfile();
     ASSERT_NOT_NULL(out_fp);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
-    /* Install alarm to fail the test if cbm_mcp_server_run blocks */
+    /* Install alarm to fail the test if ani_mcp_server_run blocks */
     signal(SIGALRM, alarm_handler);
     alarm(5);
 
-    int rc = cbm_mcp_server_run(srv, in_fp, out_fp);
+    int rc = ani_mcp_server_run(srv, in_fp, out_fp);
 
     alarm(0); /* cancel alarm */
     signal(SIGALRM, SIG_DFL);
@@ -10745,7 +10745,7 @@ TEST(mcp_server_run_rapid_messages) {
     ASSERT_NOT_NULL(strstr(buf, "\"id\":2"));
     ASSERT_NOT_NULL(strstr(buf, "tools"));
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     fclose(out_fp);
     /* in_fp already EOF; fclose cleans up */
     fclose(in_fp);
@@ -10755,7 +10755,7 @@ TEST(mcp_server_run_rapid_messages) {
 
 /* Issue #235: passing an unrecognised project name to a tool crashed the
  * binary with a buffer overflow while building the "available_projects"
- * error list — collect_db_project_names overflowed projects[CBM_SZ_4K] via
+ * error list — collect_db_project_names overflowed projects[ANI_SZ_4K] via
  * an unsigned underflow on (out_sz - offset) once the listed names exceeded
  * the buffer. Fill a temp cache dir with enough long-named .db files to
  * exceed 4 KB, then hit the bad-project path. Under ASan a regression aborts
@@ -10767,14 +10767,14 @@ TEST(mcp_server_run_rapid_messages) {
              (dir), (i))
 TEST(tool_bad_project_name_no_overflow_issue235) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-badproj-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
+    snprintf(cache, sizeof(cache), "/tmp/ani-badproj-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
         PASS(); /* skip if mkdtemp fails */
     }
 
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     /* 40 * ~120-char names overflows the 4 KB available-projects buffer.
      * collect_db_project_names advertises each db's INTERNAL project name
@@ -10789,47 +10789,47 @@ TEST(tool_bad_project_name_no_overflow_issue235) {
                  "proj_%02d_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                  i);
-        cbm_store_t *st = cbm_store_open_path(name);
+        ani_store_t *st = ani_store_open_path(name);
         if (st) {
-            cbm_store_upsert_project(st, iname, cache);
-            cbm_store_close(st);
+            ani_store_upsert_project(st, iname, cache);
+            ani_store_close(st);
         }
     }
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":"
              "\"search_graph\",\"arguments\":{\"label\":\"Function\","
              "\"project\":\"definitely-not-a-real-project-xyz\"}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "not found"));
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
 
     if (saved_copy) {
-        cbm_setenv("CBM_CACHE_DIR", saved_copy, 1);
+        ani_setenv("ANI_CACHE_DIR", saved_copy, 1);
         free(saved_copy);
     } else {
-        cbm_unsetenv("CBM_CACHE_DIR");
+        ani_unsetenv("ANI_CACHE_DIR");
     }
     for (int i = 0; i < ISSUE235_N; i++) {
         char name[512];
         ISSUE235_DBNAME(name, cache, i);
-        cbm_unlink(name);
+        ani_unlink(name);
         char side[540];
         snprintf(side, sizeof(side), "%s-wal", name);
-        cbm_unlink(side);
+        ani_unlink(side);
         snprintf(side, sizeof(side), "%s-shm", name);
-        cbm_unlink(side);
+        ani_unlink(side);
     }
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
     PASS();
 }
 #undef ISSUE235_DBNAME
 
 /* Issue #235 (follow-up): with many long-named projects indexed,
- * collect_db_project_names overflowed projects[CBM_SZ_4K] and truncated the
+ * collect_db_project_names overflowed projects[ANI_SZ_4K] and truncated the
  * LAST name MID-TOKEN, then clamped offset to out_sz-1 — emitting malformed,
  * unterminated JSON like
  *   ...,"available_projects":["a",...,"vjson_49_bbb],"count":50}
@@ -10850,14 +10850,14 @@ TEST(tool_bad_project_name_no_overflow_issue235) {
              (dir), (i))
 TEST(tool_bad_project_error_valid_json_issue235) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-badproj-vjson-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
+    snprintf(cache, sizeof(cache), "/tmp/ani-badproj-vjson-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
         PASS(); /* skip if mkdtemp fails */
     }
 
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     /* 50 * ~120-char INTERNAL names >> 4 KB → the available_projects buffer
      * overflows and the last name is cut mid-token on the unfixed code. */
@@ -10870,16 +10870,16 @@ TEST(tool_bad_project_error_valid_json_issue235) {
                  "vjson_%02d_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                  i);
-        cbm_store_t *st = cbm_store_open_path(name);
+        ani_store_t *st = ani_store_open_path(name);
         if (st) {
-            cbm_store_upsert_project(st, iname, cache);
-            cbm_store_close(st);
+            ani_store_upsert_project(st, iname, cache);
+            ani_store_close(st);
         }
     }
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    char *resp = cbm_mcp_server_handle(
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":"
              "\"search_graph\",\"arguments\":{\"label\":\"Function\","
              "\"project\":\"definitely-not-a-real-project-xyz\"}}}");
@@ -10907,25 +10907,25 @@ TEST(tool_bad_project_error_valid_json_issue235) {
     }
     free(body);
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
 
     if (saved_copy) {
-        cbm_setenv("CBM_CACHE_DIR", saved_copy, 1);
+        ani_setenv("ANI_CACHE_DIR", saved_copy, 1);
         free(saved_copy);
     } else {
-        cbm_unsetenv("CBM_CACHE_DIR");
+        ani_unsetenv("ANI_CACHE_DIR");
     }
     for (int i = 0; i < BADPROJ_N; i++) {
         char name[512];
         BADPROJ_JSON_DBNAME(name, cache, i);
-        cbm_unlink(name);
+        ani_unlink(name);
         char side[540];
         snprintf(side, sizeof(side), "%s-wal", name);
-        cbm_unlink(side);
+        ani_unlink(side);
         snprintf(side, sizeof(side), "%s-shm", name);
-        cbm_unlink(side);
+        ani_unlink(side);
     }
-    cbm_rmdir(cache);
+    ani_rmdir(cache);
 
     /* RED on the unfixed code: mid-token truncation → invalid JSON body. */
     ASSERT_TRUE(body_valid);
@@ -10946,7 +10946,7 @@ TEST(tool_bad_project_error_valid_json_issue235) {
  * tagged with the INTERNAL name, so neither the filename nor the resolve
  * path lines up. The fix makes list + resolve both key on the INTERNAL name.
  *
- * Reproduce-first fixture in an isolated CBM_CACHE_DIR:
+ * Reproduce-first fixture in an isolated ANI_CACHE_DIR:
  *   - alpha704.db  : filename == internal name "alpha704"   (control / fast path)
  *   - gamma704.db  : internal name "beta704"                (DRIFT: built as
  *                    beta704.db then renamed → filename != internal name)
@@ -10970,15 +10970,15 @@ static bool issue704_make_db(const char *dir, const char *filename, const char *
                              const char *fn) {
     char path[700];
     snprintf(path, sizeof(path), "%s/%s", dir, filename);
-    cbm_store_t *st = cbm_store_open_path(path);
+    ani_store_t *st = ani_store_open_path(path);
     if (!st) {
         return false;
     }
-    bool ok = (cbm_store_upsert_project(st, internal, dir) == CBM_STORE_OK);
+    bool ok = (ani_store_upsert_project(st, internal, dir) == ANI_STORE_OK);
     if (ok) {
         char qn[256];
         snprintf(qn, sizeof(qn), "%s.%s", internal, fn);
-        cbm_node_t n = {0};
+        ani_node_t n = {0};
         n.project = internal;
         n.label = "Function";
         n.name = fn;
@@ -10986,22 +10986,22 @@ static bool issue704_make_db(const char *dir, const char *filename, const char *
         n.file_path = "main.go";
         n.start_line = 1;
         n.end_line = 2;
-        ok = (cbm_store_upsert_node(st, &n) > 0);
+        ok = (ani_store_upsert_node(st, &n) > 0);
     }
-    cbm_store_close(st);
+    ani_store_close(st);
     return ok;
 }
 
 TEST(tool_resolve_store_by_internal_name_issue704) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-issue704-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
+    snprintf(cache, sizeof(cache), "/tmp/ani-issue704-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
         PASS(); /* skip if mkdtemp fails — not a #704 signal */
     }
 
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     /* (1) control: filename == internal name */
     ASSERT_TRUE(issue704_make_db(cache, "alpha704.db", "alpha704", "alphaFunc704"));
@@ -11022,12 +11022,12 @@ TEST(tool_resolve_store_by_internal_name_issue704) {
     ASSERT_NOT_NULL(gp);
     fclose(gp);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
     /* ── A: list_projects reports INTERNAL names; filters the ghost ── */
     char *list =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"list_projects\",\"arguments\":{}}}");
     ASSERT_NOT_NULL(list);
     ASSERT_NOT_NULL(strstr(list, "alpha704")); /* control */
@@ -11037,7 +11037,7 @@ TEST(tool_resolve_store_by_internal_name_issue704) {
     free(list);
 
     char *page =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"list_projects\","
                                    "\"arguments\":{\"offset\":0,\"limit\":1}}}");
     ASSERT_NOT_NULL(page);
@@ -11050,7 +11050,7 @@ TEST(tool_resolve_store_by_internal_name_issue704) {
     ASSERT_NULL(strstr(page, "\\\"nodes\\\"")); /* details are opt-in */
     free(page);
 
-    char *next_page = cbm_mcp_server_handle(
+    char *next_page = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"list_projects\","
              "\"arguments\":{\"offset\":1,\"limit\":1,\"metadata_only\":true}}}");
@@ -11060,7 +11060,7 @@ TEST(tool_resolve_store_by_internal_name_issue704) {
     ASSERT_NULL(strstr(next_page, "\\\"nodes\\\"")); /* compatibility alias stays lean */
     free(next_page);
 
-    char *details = cbm_mcp_server_handle(
+    char *details = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"list_projects\","
              "\"arguments\":{\"offset\":0,\"limit\":1,\"include_details\":true}}}");
@@ -11069,7 +11069,7 @@ TEST(tool_resolve_store_by_internal_name_issue704) {
     free(details);
 
     /* ── B: the drifted project resolves by its INTERNAL name ──────── */
-    char *q_beta = cbm_mcp_server_handle(
+    char *q_beta = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_graph\",\"arguments\":{"
              "\"project\":\"beta704\",\"name_pattern\":\"betaFunc704\",\"limit\":5}}}");
@@ -11079,7 +11079,7 @@ TEST(tool_resolve_store_by_internal_name_issue704) {
     free(q_beta);
 
     /* ── C: control project still resolves on the fast path ────────── */
-    char *q_alpha = cbm_mcp_server_handle(
+    char *q_alpha = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_graph\",\"arguments\":{"
              "\"project\":\"alpha704\",\"name_pattern\":\"alphaFunc704\",\"limit\":5}}}");
@@ -11090,7 +11090,7 @@ TEST(tool_resolve_store_by_internal_name_issue704) {
     /* ── D: the 0-byte ghost is NOT resolvable ─────────────────────── */
     /* A query-only resolve reports the corrupt generation and leaves it in
      * place — the reply names the corruption instead of "not found". */
-    char *q_ghost = cbm_mcp_server_handle(
+    char *q_ghost = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_graph\",\"arguments\":{"
              "\"project\":\"ghost704\",\"name_pattern\":\".*\",\"limit\":5}}}");
@@ -11099,7 +11099,7 @@ TEST(tool_resolve_store_by_internal_name_issue704) {
     free(q_ghost);
 
     /* ── E: addressing the drifted db by its FILENAME stays not-found ── */
-    char *q_gamma = cbm_mcp_server_handle(
+    char *q_gamma = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_graph\",\"arguments\":{"
              "\"project\":\"gamma704\",\"name_pattern\":\".*\",\"limit\":5}}}");
@@ -11107,31 +11107,31 @@ TEST(tool_resolve_store_by_internal_name_issue704) {
     ASSERT_NOT_NULL(strstr(q_gamma, "not found"));
     free(q_gamma);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
 
     /* ── cleanup ───────────────────────────────────────────────────── */
     if (saved_copy) {
-        cbm_setenv("CBM_CACHE_DIR", saved_copy, 1);
+        ani_setenv("ANI_CACHE_DIR", saved_copy, 1);
         free(saved_copy);
     } else {
-        cbm_unsetenv("CBM_CACHE_DIR");
+        ani_unsetenv("ANI_CACHE_DIR");
     }
     char a_path[700];
     snprintf(a_path, sizeof(a_path), "%s/alpha704.db", cache);
-    cbm_unlink(a_path);
-    cbm_unlink(gamma_path);
-    cbm_unlink(ghost_path);
+    ani_unlink(a_path);
+    ani_unlink(gamma_path);
+    ani_unlink(ghost_path);
     mcp_cleanup_corrupt_backups(cache, "ghost704");
     char side[740];
     snprintf(side, sizeof(side), "%s-wal", a_path);
-    cbm_unlink(side);
+    ani_unlink(side);
     snprintf(side, sizeof(side), "%s-shm", a_path);
-    cbm_unlink(side);
+    ani_unlink(side);
     snprintf(side, sizeof(side), "%s-wal", gamma_path);
-    cbm_unlink(side);
+    ani_unlink(side);
     snprintf(side, sizeof(side), "%s-shm", gamma_path);
-    cbm_unlink(side);
-    cbm_rmdir(cache);
+    ani_unlink(side);
+    ani_rmdir(cache);
     PASS();
 }
 
@@ -11150,31 +11150,31 @@ TEST(tool_resolve_store_by_internal_name_issue704) {
  */
 TEST(tool_list_projects_ignores_missed_shadow_issue1044) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-issue1044-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
+    snprintf(cache, sizeof(cache), "/tmp/ani-issue1044-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
         PASS(); /* skip if mkdtemp fails — not a #1044 signal */
     }
 
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     ASSERT_TRUE(issue704_make_db(cache, "delta1044.db", "delta1044", "deltaFunc1044"));
 
     /* Add the shadow row exactly the way the miss-graph pass does. */
     char db_path[700];
     snprintf(db_path, sizeof(db_path), "%s/delta1044.db", cache);
-    cbm_store_t *st = cbm_store_open_path(db_path);
+    ani_store_t *st = ani_store_open_path(db_path);
     ASSERT_NOT_NULL(st);
-    ASSERT_EQ(cbm_store_upsert_project(st, "delta1044::missed", ""), CBM_STORE_OK);
-    cbm_store_close(st);
+    ASSERT_EQ(ani_store_upsert_project(st, "delta1044::missed", ""), ANI_STORE_OK);
+    ani_store_close(st);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
     /* ── A + B: primary advertised, shadow hidden ─────────────────── */
     char *list =
-        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
+        ani_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
                                    "\"params\":{\"name\":\"list_projects\",\"arguments\":{}}}");
     ASSERT_NOT_NULL(list);
     ASSERT_NOT_NULL(strstr(list, "delta1044")); /* RED before: db skipped as ghost */
@@ -11182,7 +11182,7 @@ TEST(tool_list_projects_ignores_missed_shadow_issue1044) {
     free(list);
 
     /* ── C: the project still resolves and returns its node ───────── */
-    char *q = cbm_mcp_server_handle(
+    char *q = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_graph\",\"arguments\":{"
              "\"project\":\"delta1044\",\"name_pattern\":\"deltaFunc1044\",\"limit\":5}}}");
@@ -11191,22 +11191,22 @@ TEST(tool_list_projects_ignores_missed_shadow_issue1044) {
     ASSERT_NULL(strstr(q, "not found"));
     free(q);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
 
     /* ── cleanup ───────────────────────────────────────────────────── */
     if (saved_copy) {
-        cbm_setenv("CBM_CACHE_DIR", saved_copy, 1);
+        ani_setenv("ANI_CACHE_DIR", saved_copy, 1);
         free(saved_copy);
     } else {
-        cbm_unsetenv("CBM_CACHE_DIR");
+        ani_unsetenv("ANI_CACHE_DIR");
     }
-    cbm_unlink(db_path);
+    ani_unlink(db_path);
     char side1044[740];
     snprintf(side1044, sizeof(side1044), "%s-wal", db_path);
-    cbm_unlink(side1044);
+    ani_unlink(side1044);
     snprintf(side1044, sizeof(side1044), "%s-shm", db_path);
-    cbm_unlink(side1044);
-    cbm_rmdir(cache);
+    ani_unlink(side1044);
+    ani_rmdir(cache);
     PASS();
 }
 
@@ -11214,7 +11214,7 @@ TEST(tool_list_projects_ignores_missed_shadow_issue1044) {
  *  QUERY STORE COHERENCE + READ-ONLY  (data-integrity reproductions)
  *
  *  Bug: query tools resolve the project store via resolve_store() ->
- *  cbm_store_open_path_query(), which opens the DB SQLITE_OPEN_READWRITE
+ *  ani_store_open_path_query(), which opens the DB SQLITE_OPEN_READWRITE
  *  and runs configure_pragmas() with the WRITE pragmas
  *  (journal_mode=WAL + wal_checkpoint + synchronous). Two consequences:
  *    (a) read-only query tools MUTATE the on-disk DB (write pragmas), and
@@ -11232,28 +11232,28 @@ TEST(tool_list_projects_ignores_missed_shadow_issue1044) {
  * resolve_store() keys its cache only by project name, the next query can reuse
  * stale generation A. It must instead return generation B. */
 TEST(query_store_reopens_after_database_replacement) {
-    static const char project[] = "cbm-store-generation-refresh";
-    static const char active_filename[] = "cbm-store-generation-refresh.db";
-    static const char staged_filename[] = "cbm-store-generation-next.db";
+    static const char project[] = "ani-store-generation-refresh";
+    static const char active_filename[] = "ani-store-generation-refresh.db";
+    static const char staged_filename[] = "ani-store-generation-next.db";
 
     char cache[512];
-    snprintf(cache, sizeof(cache), "%s/cbm-store-generation-XXXXXX", cbm_tmpdir());
-    bool cache_ready = cbm_mkdtemp(cache) != NULL;
-    const char *saved = getenv("CBM_CACHE_DIR");
+    snprintf(cache, sizeof(cache), "%s/ani-store-generation-XXXXXX", ani_tmpdir());
+    bool cache_ready = ani_mkdtemp(cache) != NULL;
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
     if (cache_ready) {
-        cbm_setenv("CBM_CACHE_DIR", cache, 1);
+        ani_setenv("ANI_CACHE_DIR", cache, 1);
     }
 
     bool generation_a_ready =
         cache_ready && issue704_make_db(cache, active_filename, project, "GenerationA");
-    cbm_mcp_server_t *srv = generation_a_ready ? cbm_mcp_server_new(NULL) : NULL;
+    ani_mcp_server_t *srv = generation_a_ready ? ani_mcp_server_new(NULL) : NULL;
     bool server_ready = srv != NULL;
 
     char args[512];
     snprintf(args, sizeof(args),
              "{\"project\":\"%s\",\"name_pattern\":\".*Generation.*\",\"limit\":10}", project);
-    char *before = srv ? cbm_mcp_handle_tool(srv, "search_graph", args) : NULL;
+    char *before = srv ? ani_mcp_handle_tool(srv, "search_graph", args) : NULL;
     bool saw_generation_a = before && strstr(before, "GenerationA") != NULL;
 
     bool generation_b_ready =
@@ -11262,21 +11262,21 @@ TEST(query_store_reopens_after_database_replacement) {
     char staged_path[700];
     snprintf(active_path, sizeof(active_path), "%s/%s", cache, active_filename);
     snprintf(staged_path, sizeof(staged_path), "%s/%s", cache, staged_filename);
-    bool replaced = generation_b_ready && cbm_rename_replace(staged_path, active_path) == 0;
+    bool replaced = generation_b_ready && ani_rename_replace(staged_path, active_path) == 0;
 
-    char *after = (srv && replaced) ? cbm_mcp_handle_tool(srv, "search_graph", args) : NULL;
+    char *after = (srv && replaced) ? ani_mcp_handle_tool(srv, "search_graph", args) : NULL;
     bool saw_generation_b = after && strstr(after, "GenerationB") != NULL;
     bool retained_generation_a = after && strstr(after, "GenerationA") != NULL;
 
     free(before);
     free(after);
     if (srv) {
-        cbm_mcp_server_free(srv);
+        ani_mcp_server_free(srv);
     }
     if (cache_ready) {
         cleanup_project_db(cache, project);
-        cleanup_project_db(cache, "cbm-store-generation-next");
-        cbm_rmdir(cache);
+        cleanup_project_db(cache, "ani-store-generation-next");
+        ani_rmdir(cache);
     }
     restore_cache_dir(saved_copy);
     free(saved_copy);
@@ -11292,7 +11292,7 @@ TEST(query_store_reopens_after_database_replacement) {
     PASS();
 }
 
-#define ROQ_PROJECT "cbm-roq-test"
+#define ROQ_PROJECT "ani-roq-test"
 
 /* Whole-file byte snapshot. Returns malloc'd buffer (caller frees) and
  * writes the length to *out_len. Returns NULL on failure. */
@@ -11355,13 +11355,13 @@ static int roq_file_exists(const char *path) {
  * ─────────────────────────────────────────────────────────────────── */
 TEST(readonly_query_does_not_mutate_db) {
     char tmp_cache[512];
-    snprintf(tmp_cache, sizeof(tmp_cache), "%s/cbm_roq_a_XXXXXX", cbm_tmpdir());
-    if (!cbm_mkdtemp(tmp_cache)) {
+    snprintf(tmp_cache, sizeof(tmp_cache), "%s/ani_roq_a_XXXXXX", ani_tmpdir());
+    if (!ani_mkdtemp(tmp_cache)) {
         ASSERT_NOT_NULL(NULL); /* setup failure */
     }
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", tmp_cache, 1);
+    ani_setenv("ANI_CACHE_DIR", tmp_cache, 1);
 
     char db_path[700];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", tmp_cache, ROQ_PROJECT);
@@ -11371,17 +11371,17 @@ TEST(readonly_query_does_not_mutate_db) {
     snprintf(shm_path, sizeof(shm_path), "%s-shm", db_path);
 
     /* Build the DB and flip it to rollback journal mode on disk. */
-    cbm_store_t *setup = cbm_store_open_path(db_path);
+    ani_store_t *setup = ani_store_open_path(db_path);
     ASSERT_NOT_NULL(setup);
-    ASSERT_EQ(cbm_store_upsert_project(setup, ROQ_PROJECT, "/tmp/roq"), CBM_STORE_OK);
-    cbm_node_t node = {.project = ROQ_PROJECT,
+    ASSERT_EQ(ani_store_upsert_project(setup, ROQ_PROJECT, "/tmp/roq"), ANI_STORE_OK);
+    ani_node_t node = {.project = ROQ_PROJECT,
                        .label = "Function",
                        .name = "ReadOnlyProbe",
                        .qualified_name = "roq.mod.ReadOnlyProbe",
                        .file_path = "mod.c"};
-    ASSERT_TRUE(cbm_store_upsert_node(setup, &node) > 0);
-    ASSERT_EQ(cbm_store_exec(setup, "PRAGMA journal_mode=DELETE;"), 0);
-    cbm_store_close(setup);
+    ASSERT_TRUE(ani_store_upsert_node(setup, &node) > 0);
+    ASSERT_EQ(ani_store_exec(setup, "PRAGMA journal_mode=DELETE;"), 0);
+    ani_store_close(setup);
 
     /* Snapshot BEFORE any query. */
     long before_len = 0;
@@ -11389,12 +11389,12 @@ TEST(readonly_query_does_not_mutate_db) {
     ASSERT_NOT_NULL(before);
 
     /* Run a query tool through the server (the resolve_store path). */
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
     char args[512];
     snprintf(args, sizeof(args), "{\"project\":\"%s\",\"name_pattern\":\".*ReadOnlyProbe.*\"}",
              ROQ_PROJECT);
-    char *resp = cbm_mcp_handle_tool(srv, "search_graph", args);
+    char *resp = ani_mcp_handle_tool(srv, "search_graph", args);
 
     /* Capture sidecar state WHILE the cached store is still open (the buggy
      * RW+WAL open creates -wal here; on close it would be removed again). */
@@ -11402,7 +11402,7 @@ TEST(readonly_query_does_not_mutate_db) {
     int query_ok = (resp && strstr(resp, "ReadOnlyProbe") != NULL);
     int query_failed = (resp && (strstr(resp, "not found") || strstr(resp, "not indexed")));
 
-    cbm_mcp_server_free(srv); /* closes the store; header change is persisted */
+    ani_mcp_server_free(srv); /* closes the store; header change is persisted */
 
     long after_len = 0;
     unsigned char *after = roq_read_file_bytes(db_path, &after_len);
@@ -11415,15 +11415,15 @@ TEST(readonly_query_does_not_mutate_db) {
     }
     free(before);
     free(after);
-    cbm_unlink(db_path);
-    cbm_unlink(wal_path);
-    cbm_unlink(shm_path);
-    cbm_rmdir(tmp_cache);
+    ani_unlink(db_path);
+    ani_unlink(wal_path);
+    ani_unlink(shm_path);
+    ani_rmdir(tmp_cache);
     if (saved_copy) {
-        cbm_setenv("CBM_CACHE_DIR", saved_copy, 1);
+        ani_setenv("ANI_CACHE_DIR", saved_copy, 1);
         free(saved_copy);
     } else {
-        cbm_unsetenv("CBM_CACHE_DIR");
+        ani_unsetenv("ANI_CACHE_DIR");
     }
 
     ASSERT_TRUE(query_ok);        /* read path ran and returned the node */
@@ -11450,7 +11450,7 @@ TEST(readonly_query_does_not_mutate_db) {
  * read-only directory.
  *
  * WHY RED on unfixed code:
- *   cbm_store_open_path_query() runs configure_pragmas(.., false) which
+ *   ani_store_open_path_query() runs configure_pragmas(.., false) which
  *   executes `PRAGMA journal_mode = WAL`. In a read-only directory the WAL
  *   wal-index (-shm) cannot be created, so the pragma errors ->
  *   configure_pragmas fails -> the open returns NULL -> resolve_store()
@@ -11465,13 +11465,13 @@ TEST(readonly_query_does_not_mutate_db) {
  * ─────────────────────────────────────────────────────────────────── */
 TEST(readonly_query_succeeds_on_readonly_fs) {
     char tmp_cache[512];
-    snprintf(tmp_cache, sizeof(tmp_cache), "%s/cbm_roq_b_XXXXXX", cbm_tmpdir());
-    if (!cbm_mkdtemp(tmp_cache)) {
+    snprintf(tmp_cache, sizeof(tmp_cache), "%s/ani_roq_b_XXXXXX", ani_tmpdir());
+    if (!ani_mkdtemp(tmp_cache)) {
         ASSERT_NOT_NULL(NULL); /* setup failure */
     }
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", tmp_cache, 1);
+    ani_setenv("ANI_CACHE_DIR", tmp_cache, 1);
 
     char db_path[700];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", tmp_cache, ROQ_PROJECT);
@@ -11483,28 +11483,28 @@ TEST(readonly_query_succeeds_on_readonly_fs) {
     /* Build the DB in its natural WAL journal mode and ensure it is cleanly
      * checkpointed (no -wal frames) so the immutable fallback can read all
      * data from the main file. */
-    cbm_store_t *setup = cbm_store_open_path(db_path);
+    ani_store_t *setup = ani_store_open_path(db_path);
     ASSERT_NOT_NULL(setup);
-    ASSERT_EQ(cbm_store_upsert_project(setup, ROQ_PROJECT, "/tmp/roq"), CBM_STORE_OK);
-    cbm_node_t node = {.project = ROQ_PROJECT,
+    ASSERT_EQ(ani_store_upsert_project(setup, ROQ_PROJECT, "/tmp/roq"), ANI_STORE_OK);
+    ani_node_t node = {.project = ROQ_PROJECT,
                        .label = "Function",
                        .name = "ReadOnlyProbe",
                        .qualified_name = "roq.mod.ReadOnlyProbe",
                        .file_path = "mod.c"};
-    ASSERT_TRUE(cbm_store_upsert_node(setup, &node) > 0);
-    (void)cbm_store_checkpoint(setup); /* fold WAL frames into the main file */
-    cbm_store_close(setup);            /* clean close removes -wal/-shm */
+    ASSERT_TRUE(ani_store_upsert_node(setup, &node) > 0);
+    (void)ani_store_checkpoint(setup); /* fold WAL frames into the main file */
+    ani_store_close(setup);            /* clean close removes -wal/-shm */
 
     /* Make the containing directory read-only (simulate a read-only mount).
      * SQLite can still traverse + read files, but cannot create -shm/-wal. */
     ASSERT_EQ(chmod(tmp_cache, 0555), 0);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
     char args[512];
     snprintf(args, sizeof(args), "{\"project\":\"%s\",\"name_pattern\":\".*ReadOnlyProbe.*\"}",
              ROQ_PROJECT);
-    char *resp = cbm_mcp_handle_tool(srv, "search_graph", args);
+    char *resp = ani_mcp_handle_tool(srv, "search_graph", args);
 
     int query_ok = (resp && strstr(resp, "ReadOnlyProbe") != NULL);
     int query_failed = (resp && (strstr(resp, "not found") || strstr(resp, "not indexed")));
@@ -11512,20 +11512,20 @@ TEST(readonly_query_succeeds_on_readonly_fs) {
     if (resp) {
         free(resp);
     }
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
 
     /* Restore write permission on the dir BEFORE unlink (cannot remove dir
      * entries while the directory is read-only). */
     chmod(tmp_cache, 0755);
-    cbm_unlink(db_path);
-    cbm_unlink(wal_path);
-    cbm_unlink(shm_path);
-    cbm_rmdir(tmp_cache);
+    ani_unlink(db_path);
+    ani_unlink(wal_path);
+    ani_unlink(shm_path);
+    ani_rmdir(tmp_cache);
     if (saved_copy) {
-        cbm_setenv("CBM_CACHE_DIR", saved_copy, 1);
+        ani_setenv("ANI_CACHE_DIR", saved_copy, 1);
         free(saved_copy);
     } else {
-        cbm_unsetenv("CBM_CACHE_DIR");
+        ani_unsetenv("ANI_CACHE_DIR");
     }
 
     ASSERT_FALSE(query_failed); /* RED on buggy code: WAL pragma fails on RO dir */
@@ -11554,12 +11554,12 @@ enum {
 static int idx823_supervised_name_override_check(const char *repo_dir, const char *custom_name) {
     /* Match the real CLI/MCP server state: a marked host with the supervisor
      * enabled. The worker receives the same args JSON the CLI forwards. */
-    cbm_index_supervisor_mark_host();
-    cbm_unsetenv("CBM_INDEX_SUPERVISOR");
-    cbm_setenv("CBM_INDEX_MAX_RESTARTS", "1", 1);
-    cbm_setenv("CBM_INDEX_WORKER_TIMEOUT_S", "30", 1);
+    ani_index_supervisor_mark_host();
+    ani_unsetenv("ANI_INDEX_SUPERVISOR");
+    ani_setenv("ANI_INDEX_MAX_RESTARTS", "1", 1);
+    ani_setenv("ANI_INDEX_WORKER_TIMEOUT_S", "30", 1);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     if (!srv) {
         return IDX823_NO_SERVER;
     }
@@ -11568,13 +11568,13 @@ static int idx823_supervised_name_override_check(const char *repo_dir, const cha
      * not acquire a lease before spawning. RED on the former ordering, which
      * returned "blocked" without ever starting the worker. */
     mcp_mutation_guard_probe_t parent_guard = {.deny_begin_call = 1};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &parent_guard);
 
     char args[1024];
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\",\"mode\":\"fast\",\"name\":\"%s\"}",
              repo_dir, custom_name);
-    char *resp = cbm_mcp_handle_tool(srv, "index_repository", args);
+    char *resp = ani_mcp_handle_tool(srv, "index_repository", args);
     int code = IDX823_OK;
     if (parent_guard.begin_count != 0 || parent_guard.end_count != 0) {
         code = IDX823_PARENT_GUARD_USED;
@@ -11592,7 +11592,7 @@ static int idx823_supervised_name_override_check(const char *repo_dir, const cha
     free(resp);
 
     if (code == IDX823_OK) {
-        char *projects = cbm_mcp_handle_tool(srv, "list_projects", "{}");
+        char *projects = ani_mcp_handle_tool(srv, "list_projects", "{}");
         char expected[256];
         snprintf(expected, sizeof(expected), "\"name\":\"%s\"", custom_name);
         if (!projects || !response_contains_json_fragment(projects, expected)) {
@@ -11606,14 +11606,14 @@ static int idx823_supervised_name_override_check(const char *repo_dir, const cha
         snprintf(q, sizeof(q),
                  "{\"project\":\"%s\",\"name_pattern\":\"idx823_fn\",\"label\":\"Function\"}",
                  custom_name);
-        char *sr = cbm_mcp_handle_tool(srv, "search_graph", q);
+        char *sr = ani_mcp_handle_tool(srv, "search_graph", q);
         if (!sr || !strstr(sr, "idx823_fn")) {
             code = IDX823_SEARCH_FAILED;
         }
         free(sr);
     }
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     return code;
 }
 #endif
@@ -11623,20 +11623,20 @@ TEST(index_repository_cli_name_override_issue823) {
     SKIP_PLATFORM("POSIX fork harness required to isolate supervisor host mark");
 #else
     char tmp_dir[256];
-    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/cbm-idx823-repo-XXXXXX");
-    if (!cbm_mkdtemp(tmp_dir)) {
-        FAIL("cbm_mkdtemp repo failed");
+    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/ani-idx823-repo-XXXXXX");
+    if (!ani_mkdtemp(tmp_dir)) {
+        FAIL("ani_mkdtemp repo failed");
     }
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-idx823-cache-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
+    snprintf(cache, sizeof(cache), "/tmp/ani-idx823-cache-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
         th_rmtree(tmp_dir);
-        FAIL("cbm_mkdtemp cache failed");
+        FAIL("ani_mkdtemp cache failed");
     }
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     char src_path[512];
     snprintf(src_path, sizeof(src_path), "%s/main.py", tmp_dir);
@@ -11663,7 +11663,7 @@ TEST(index_repository_cli_name_override_issue823) {
         sig = WTERMSIG(status);
     }
 
-    char *path_project = cbm_project_name_from_path(tmp_dir);
+    char *path_project = ani_project_name_from_path(tmp_dir);
     cleanup_project_db(cache, custom_name);
     cleanup_project_db(cache, path_project);
     free(path_project);
@@ -11686,38 +11686,38 @@ TEST(index_repository_cli_name_override_issue823) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
- *  #845 — supervisor gate must not wrap embedders of cbm_mcp_handle_tool
+ *  #845 — supervisor gate must not wrap embedders of ani_mcp_handle_tool
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(index_supervisor_unsafe_clean_is_never_fallback_or_recovery) {
     char response[] = "{\"status\":\"indexed\"}";
-    cbm_index_worker_result_t result = {
-        .outcome = CBM_PROC_CLEAN,
+    ani_index_worker_result_t result = {
+        .outcome = ANI_PROC_CLEAN,
         .exit_code = 0,
         .tree_quiesced = true,
         .response = response,
     };
-    ASSERT_EQ(cbm_mcp_supervised_result_disposition(0, &result), CBM_MCP_SUPERVISED_RESULT_SUCCESS);
+    ASSERT_EQ(ani_mcp_supervised_result_disposition(0, &result), ANI_MCP_SUPERVISED_RESULT_SUCCESS);
 
     result.cancellation_requested = true;
-    ASSERT_EQ(cbm_mcp_supervised_result_disposition(0, &result),
-              CBM_MCP_SUPERVISED_RESULT_UNSAFE_TERMINAL);
+    ASSERT_EQ(ani_mcp_supervised_result_disposition(0, &result),
+              ANI_MCP_SUPERVISED_RESULT_UNSAFE_TERMINAL);
     result.cancellation_requested = false;
     result.tree_quiesced = false;
-    ASSERT_EQ(cbm_mcp_supervised_result_disposition(0, &result),
-              CBM_MCP_SUPERVISED_RESULT_UNSAFE_TERMINAL);
+    ASSERT_EQ(ani_mcp_supervised_result_disposition(0, &result),
+              ANI_MCP_SUPERVISED_RESULT_UNSAFE_TERMINAL);
     result.tree_quiesced = true;
     result.supervision_failed = true;
-    ASSERT_EQ(cbm_mcp_supervised_result_disposition(0, &result),
-              CBM_MCP_SUPERVISED_RESULT_UNSAFE_TERMINAL);
+    ASSERT_EQ(ani_mcp_supervised_result_disposition(0, &result),
+              ANI_MCP_SUPERVISED_RESULT_UNSAFE_TERMINAL);
 
     result.supervision_failed = false;
-    result.outcome = CBM_PROC_CRASH;
+    result.outcome = ANI_PROC_CRASH;
     result.response = NULL;
-    ASSERT_EQ(cbm_mcp_supervised_result_disposition(0, &result),
-              CBM_MCP_SUPERVISED_RESULT_CONTAINED_FAILURE);
-    ASSERT_EQ(cbm_mcp_supervised_result_disposition(-1, &result),
-              CBM_MCP_SUPERVISED_RESULT_FALLBACK);
+    ASSERT_EQ(ani_mcp_supervised_result_disposition(0, &result),
+              ANI_MCP_SUPERVISED_RESULT_CONTAINED_FAILURE);
+    ASSERT_EQ(ani_mcp_supervised_result_disposition(-1, &result),
+              ANI_MCP_SUPERVISED_RESULT_FALLBACK);
     PASS();
 }
 
@@ -11731,18 +11731,18 @@ enum {
 };
 
 static int idx845_index_inprocess_check(const char *repo_dir) {
-    int spawns_before = cbm_index_supervisor_spawn_count();
+    int spawns_before = ani_index_supervisor_spawn_count();
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     if (!srv) {
         return IDX845_NO_RESULT;
     }
     char args[1024];
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\",\"mode\":\"fast\"}", repo_dir);
-    char *resp = cbm_mcp_handle_tool(srv, "index_repository", args);
+    char *resp = ani_mcp_handle_tool(srv, "index_repository", args);
 
     int code = IDX845_OK;
-    if (cbm_index_supervisor_spawn_count() != spawns_before) {
+    if (ani_index_supervisor_spawn_count() != spawns_before) {
         code = IDX845_SPAWNED;
     } else if (!resp) {
         code = IDX845_NO_RESULT;
@@ -11750,15 +11750,15 @@ static int idx845_index_inprocess_check(const char *repo_dir) {
         code = IDX845_NOT_INDEXED;
     }
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     return code;
 }
 
 TEST(index_supervisor_gate_requires_marked_host_issue845) {
-    /* #845: index_repository via cbm_mcp_handle_tool from an EMBEDDER (this test
-     * binary) must index IN-PROCESS even with CBM_INDEX_SUPERVISOR unset. The
+    /* #845: index_repository via ani_mcp_handle_tool from an EMBEDDER (this test
+     * binary) must index IN-PROCESS even with ANI_INDEX_SUPERVISOR unset. The
      * supervisor gate may only wrap a process that called
-     * cbm_index_supervisor_mark_host() — i.e. the real binary's main(). Before
+     * ani_index_supervisor_mark_host() — i.e. the real binary's main(). Before
      * the fix, should_wrap() was true for ANY embedder: the gate resolved the
      * CURRENT binary (this test runner!) and spawned
      * '<test-runner> cli --index-worker --index-worker-build …', which a test binary
@@ -11771,26 +11771,26 @@ TEST(index_supervisor_gate_requires_marked_host_issue845) {
      * code. Windows: no fork — run in-process (safe once the gate is fixed; the
      * pre-fix redness is demonstrated on POSIX). */
     char tmp_dir[256];
-    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/cbm-idx845-repo-XXXXXX");
-    if (!cbm_mkdtemp(tmp_dir)) {
+    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/ani-idx845-repo-XXXXXX");
+    if (!ani_mkdtemp(tmp_dir)) {
         PASS();
     }
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-idx845-cache-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
-        cbm_rmdir(tmp_dir);
+    snprintf(cache, sizeof(cache), "/tmp/ani-idx845-cache-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
+        ani_rmdir(tmp_dir);
         PASS();
     }
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     /* The point of the guard: NO kill switch. The gate itself must keep an
      * unmarked host in-process. Save + restore the ambient value. */
-    const char *saved_sv = getenv("CBM_INDEX_SUPERVISOR");
+    const char *saved_sv = getenv("ANI_INDEX_SUPERVISOR");
     char *saved_sv_copy = saved_sv ? strdup(saved_sv) : NULL;
-    cbm_unsetenv("CBM_INDEX_SUPERVISOR");
+    ani_unsetenv("ANI_INDEX_SUPERVISOR");
 
     char src_path[512];
     snprintf(src_path, sizeof(src_path), "%s/main.py", tmp_dir);
@@ -11824,19 +11824,19 @@ TEST(index_supervisor_gate_requires_marked_host_issue845) {
 
     /* Restore env BEFORE asserting so a red run doesn't leak state. */
     if (saved_sv_copy) {
-        cbm_setenv("CBM_INDEX_SUPERVISOR", saved_sv_copy, 1);
+        ani_setenv("ANI_INDEX_SUPERVISOR", saved_sv_copy, 1);
         free(saved_sv_copy);
     } else {
-        cbm_unsetenv("CBM_INDEX_SUPERVISOR");
+        ani_unsetenv("ANI_INDEX_SUPERVISOR");
     }
-    char *project = cbm_project_name_from_path(tmp_dir);
+    char *project = ani_project_name_from_path(tmp_dir);
     cleanup_project_db(cache, project);
     free(project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
     remove(src_path);
-    cbm_rmdir(cache);
-    cbm_rmdir(tmp_dir);
+    ani_rmdir(cache);
+    ani_rmdir(tmp_dir);
 
     if (signalled) {
         printf("    child killed by signal %d (alarm => recursive spawn chain hang)\n", sig);
@@ -11849,12 +11849,12 @@ TEST(index_supervisor_gate_requires_marked_host_issue845) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
- *  Mandatory supervision must fail closed in real CBM hosts
+ *  Mandatory supervision must fail closed in real ANI hosts
  * ══════════════════════════════════════════════════════════════════ */
 
-/* A real CBM host must never turn a supervisor refusal into permission to run
+/* A real ANI host must never turn a supervisor refusal into permission to run
  * the native index pipeline in its own long-lived process. The legacy
- * CBM_INDEX_SUPERVISOR=0 switch is a deterministic start-failure seam here: on
+ * ANI_INDEX_SUPERVISOR=0 switch is a deterministic start-failure seam here: on
  * the buggy path should_wrap() returned false, the parent mutation guard ran,
  * and the project DB was written in-process. The fixed path keeps supervision
  * mandatory, returns an error, and leaves both the guard and filesystem
@@ -11872,21 +11872,21 @@ enum {
 
 #ifndef _WIN32
 int mcp_test_idxfailclosed_supervisor_start_check(const char *repo_dir, const char *cache_dir) {
-    (void)cbm_setenv("CBM_CACHE_DIR", cache_dir, 1);
-    cbm_index_supervisor_mark_host();
-    (void)cbm_setenv("CBM_INDEX_SUPERVISOR", "0", 1);
+    (void)ani_setenv("ANI_CACHE_DIR", cache_dir, 1);
+    ani_index_supervisor_mark_host();
+    (void)ani_setenv("ANI_INDEX_SUPERVISOR", "0", 1);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     if (!srv) {
         return IDXFAILCLOSED_NO_SERVER;
     }
     mcp_mutation_guard_probe_t parent_guard = {0};
-    cbm_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
+    ani_mcp_server_set_project_mutation_guard(srv, mcp_mutation_guard_probe_begin,
                                               mcp_mutation_guard_probe_end, &parent_guard);
 
-    char args[CBM_SZ_4K];
+    char args[ANI_SZ_4K];
     (void)snprintf(args, sizeof(args), "{\"repo_path\":\"%s\",\"mode\":\"fast\"}", repo_dir);
-    char *response = cbm_mcp_handle_tool(srv, "index_repository", args);
+    char *response = ani_mcp_handle_tool(srv, "index_repository", args);
 
     int result = IDXFAILCLOSED_OK;
     if (parent_guard.begin_count != 0 || parent_guard.end_count != 0) {
@@ -11901,21 +11901,21 @@ int mcp_test_idxfailclosed_supervisor_start_check(const char *repo_dir, const ch
     }
 
     free(response);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     return result;
 }
 
-static bool idxfailclosed_self_path(char out[CBM_SZ_4K]) {
+static bool idxfailclosed_self_path(char out[ANI_SZ_4K]) {
 #ifdef __APPLE__
-    int length = proc_pidpath(getpid(), out, CBM_SZ_4K);
-    bool resolved = length > 0 && length < CBM_SZ_4K;
+    int length = proc_pidpath(getpid(), out, ANI_SZ_4K);
+    bool resolved = length > 0 && length < ANI_SZ_4K;
     if (resolved) {
         out[length] = '\0';
     }
     return resolved;
 #elif defined(__linux__)
-    ssize_t length = readlink("/proc/self/exe", out, CBM_SZ_4K - 1);
-    bool resolved = length > 0 && length < (ssize_t)CBM_SZ_4K - 1;
+    ssize_t length = readlink("/proc/self/exe", out, ANI_SZ_4K - 1);
+    bool resolved = length > 0 && length < (ssize_t)ANI_SZ_4K - 1;
     if (resolved) {
         out[length] = '\0';
     }
@@ -11931,30 +11931,30 @@ TEST(index_supervisor_start_failure_is_fail_closed_in_real_host) {
 #ifdef _WIN32
     SKIP_PLATFORM("immutable host mark needs fork isolation (POSIX-only)");
 #else
-    char repo_dir[CBM_SZ_1K];
-    char cache_dir[CBM_SZ_1K];
-    (void)snprintf(repo_dir, sizeof(repo_dir), "%s/cbm-idx-failclosed-repo-XXXXXX", cbm_tmpdir());
-    (void)snprintf(cache_dir, sizeof(cache_dir), "%s/cbm-idx-failclosed-cache-XXXXXX",
-                   cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(repo_dir));
-    ASSERT_NOT_NULL(cbm_mkdtemp(cache_dir));
+    char repo_dir[ANI_SZ_1K];
+    char cache_dir[ANI_SZ_1K];
+    (void)snprintf(repo_dir, sizeof(repo_dir), "%s/ani-idx-failclosed-repo-XXXXXX", ani_tmpdir());
+    (void)snprintf(cache_dir, sizeof(cache_dir), "%s/ani-idx-failclosed-cache-XXXXXX",
+                   ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(repo_dir));
+    ASSERT_NOT_NULL(ani_mkdtemp(cache_dir));
 
-    char source_path[CBM_SZ_4K];
+    char source_path[ANI_SZ_4K];
     (void)snprintf(source_path, sizeof(source_path), "%s/should_not_index.py", repo_dir);
-    FILE *source = cbm_fopen(source_path, "wb");
+    FILE *source = ani_fopen(source_path, "wb");
     ASSERT_NOT_NULL(source);
     ASSERT_TRUE(fputs("def should_not_index():\n    return True\n", source) >= 0);
     ASSERT_EQ(fclose(source), 0);
 
-    char *project = cbm_project_name_from_path(repo_dir);
+    char *project = ani_project_name_from_path(repo_dir);
     ASSERT_NOT_NULL(project);
-    char db_path[CBM_SZ_4K];
+    char db_path[ANI_SZ_4K];
     (void)snprintf(db_path, sizeof(db_path), "%s/%s.db", cache_dir, project);
 
-    char self_path[CBM_SZ_4K] = {0};
+    char self_path[ANI_SZ_4K] = {0};
     ASSERT_TRUE(idxfailclosed_self_path(self_path));
     char *const child_argv[] = {
-        self_path, "__cbm_mcp_idxfailclosed_probe", repo_dir, cache_dir, NULL,
+        self_path, "__ani_mcp_idxfailclosed_probe", repo_dir, cache_dir, NULL,
     };
     (void)fflush(NULL);
     pid_t child = -1;
@@ -11964,11 +11964,11 @@ TEST(index_supervisor_start_failure_is_fail_closed_in_real_host) {
     ASSERT_EQ(waitpid(child, &status, 0), child);
     bool exited = WIFEXITED(status);
     int child_result = exited ? WEXITSTATUS(status) : -1;
-    bool database_absent = !cbm_file_exists(db_path);
+    bool database_absent = !ani_file_exists(db_path);
 
     cleanup_project_db(cache_dir, project);
     free(project);
-    (void)cbm_unlink(source_path);
+    (void)ani_unlink(source_path);
     (void)th_rmtree(repo_dir);
     (void)th_rmtree(cache_dir);
 
@@ -11989,15 +11989,15 @@ TEST(index_supervisor_start_failure_is_fail_closed_in_real_host) {
  * mimalloc heaps abandon pages at thread exit and mimalloc v3
  * (page_reclaim_on_free=0) does not reclaim them when the main thread later frees
  * their blocks, so RSS ratchets across re-index cycles (#832). The fix routes both
- * paths through cbm_mcp_index_run_supervised_path() — the SAME supervised worker
+ * paths through ani_mcp_index_run_supervised_path() — the SAME supervised worker
  * subprocess the index_repository tool uses — so the child hands 100%% of its RSS
  * back to the OS on exit.
  *
  * This guard proves the ROUTING: on a supervisor-marked host with the kill switch
  * OFF, the shared entry the watcher/auto-index now call must (a) spawn a worker
- * child (cbm_index_supervisor_spawn_count() increases) and (b) actually index the
+ * child (ani_index_supervisor_spawn_count() increases) and (b) actually index the
  * fixture (the worker child writes the Function node). RED on the unfixed
- * in-process routing: it calls cbm_pipeline_run directly, so spawn_count is
+ * in-process routing: it calls ani_pipeline_run directly, so spawn_count is
  * unchanged → IDX832_NO_SPAWN. */
 enum {
     IDX832_OK = 0,
@@ -12014,14 +12014,14 @@ static int idx832_supervised_route_check(const char *repo_dir) {
      * parent test-runner's process-wide host mark stays clear and the #845
      * unmarked-embedder guard is unaffected. Bound the recovery loop + worker
      * quiet-timeout so a stuck child cannot run long under the fork+alarm net. */
-    cbm_index_supervisor_mark_host();
-    cbm_unsetenv("CBM_INDEX_SUPERVISOR");
-    cbm_setenv("CBM_INDEX_MAX_RESTARTS", "1", 1);
-    cbm_setenv("CBM_INDEX_WORKER_TIMEOUT_S", "30", 1);
+    ani_index_supervisor_mark_host();
+    ani_unsetenv("ANI_INDEX_SUPERVISOR");
+    ani_setenv("ANI_INDEX_MAX_RESTARTS", "1", 1);
+    ani_setenv("ANI_INDEX_WORKER_TIMEOUT_S", "30", 1);
 
-    int spawns_before = cbm_index_supervisor_spawn_count();
-    char *resp = cbm_mcp_index_run_supervised_path(repo_dir);
-    int spawns_after = cbm_index_supervisor_spawn_count();
+    int spawns_before = ani_index_supervisor_spawn_count();
+    char *resp = ani_mcp_index_run_supervised_path(repo_dir);
+    int spawns_after = ani_index_supervisor_spawn_count();
 
     if (spawns_after == spawns_before) {
         free(resp);
@@ -12038,8 +12038,8 @@ static int idx832_supervised_route_check(const char *repo_dir) {
 
     /* Store-level proof the worker child did real work: the Function node it wrote
      * must be queryable from a fresh server reading the DB the child produced. */
-    char *project = cbm_project_name_from_path(repo_dir);
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    char *project = ani_project_name_from_path(repo_dir);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     if (!srv) {
         free(project);
         return IDX832_SERVER_FAIL;
@@ -12050,13 +12050,13 @@ static int idx832_supervised_route_check(const char *repo_dir) {
         snprintf(q, sizeof(q),
                  "{\"project\":\"%s\",\"name_pattern\":\"idx832_fn\",\"label\":\"Function\"}",
                  project);
-        char *sr = cbm_mcp_handle_tool(srv, "search_graph", q);
+        char *sr = ani_mcp_handle_tool(srv, "search_graph", q);
         if (!sr || !strstr(sr, "idx832_fn")) {
             code = IDX832_NOT_INDEXED;
         }
         free(sr);
     }
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     free(project);
     return code;
 }
@@ -12072,20 +12072,20 @@ TEST(index_bg_paths_route_through_supervisor_issue832) {
     SKIP_PLATFORM("supervisor-host guard needs fork isolation (POSIX-only)");
 #else
     char tmp_dir[256];
-    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/cbm-idx832-repo-XXXXXX");
-    if (!cbm_mkdtemp(tmp_dir)) {
+    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/ani-idx832-repo-XXXXXX");
+    if (!ani_mkdtemp(tmp_dir)) {
         PASS();
     }
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-idx832-cache-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
-        cbm_rmdir(tmp_dir);
+    snprintf(cache, sizeof(cache), "/tmp/ani-idx832-cache-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
+        ani_rmdir(tmp_dir);
         PASS();
     }
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1); /* inherited by the worker child */
+    ani_setenv("ANI_CACHE_DIR", cache, 1); /* inherited by the worker child */
 
     char src_path[512];
     snprintf(src_path, sizeof(src_path), "%s/main.py", tmp_dir);
@@ -12113,14 +12113,14 @@ TEST(index_bg_paths_route_through_supervisor_issue832) {
         sig = WTERMSIG(status);
     }
 
-    char *project = cbm_project_name_from_path(tmp_dir);
+    char *project = ani_project_name_from_path(tmp_dir);
     cleanup_project_db(cache, project);
     free(project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
     remove(src_path);
-    cbm_rmdir(cache);
-    cbm_rmdir(tmp_dir);
+    ani_rmdir(cache);
+    ani_rmdir(tmp_dir);
 
     if (signalled) {
         printf("    child killed by signal %d (alarm => worker hang)\n", sig);
@@ -12148,7 +12148,7 @@ TEST(index_bg_paths_route_through_supervisor_issue832) {
  *
  * This guard proves the CONTRACT: with an injected crasher among good
  * files, the supervised index must (a) never spawn a single-threaded worker
- * (cbm_index_supervisor_spawn_st_count stays 0 — RED on the old loop),
+ * (ani_index_supervisor_spawn_st_count stays 0 — RED on the old loop),
  * (b) quarantine exactly the crasher, (c) leave the innocents indexed and
  * NOT quarantined. */
 enum {
@@ -12165,17 +12165,17 @@ enum {
 
 #ifndef _WIN32
 static int idxpar_recovery_check(const char *repo_dir) {
-    cbm_index_supervisor_mark_host();
-    cbm_unsetenv("CBM_INDEX_SUPERVISOR");
+    ani_index_supervisor_mark_host();
+    ani_unsetenv("ANI_INDEX_SUPERVISOR");
     /* Rounds needed: fail+record, fail+quarantine, clean. Generous cap. */
-    cbm_setenv("CBM_INDEX_MAX_RESTARTS", "5", 1);
-    cbm_setenv("CBM_INDEX_WORKER_TIMEOUT_S", "30", 1);
-    cbm_setenv("CBM_TEST_CRASH_ON", "idxpar_crasher", 1);
+    ani_setenv("ANI_INDEX_MAX_RESTARTS", "5", 1);
+    ani_setenv("ANI_INDEX_WORKER_TIMEOUT_S", "30", 1);
+    ani_setenv("ANI_TEST_CRASH_ON", "idxpar_crasher", 1);
 
-    int st_before = cbm_index_supervisor_spawn_st_count();
-    char *resp = cbm_mcp_index_run_supervised_path(repo_dir);
-    int st_after = cbm_index_supervisor_spawn_st_count();
-    cbm_unsetenv("CBM_TEST_CRASH_ON");
+    int st_before = ani_index_supervisor_spawn_st_count();
+    char *resp = ani_mcp_index_run_supervised_path(repo_dir);
+    int st_after = ani_index_supervisor_spawn_st_count();
+    ani_unsetenv("ANI_TEST_CRASH_ON");
 
     if (st_after != st_before) {
         free(resp);
@@ -12200,38 +12200,38 @@ static int idxpar_recovery_check(const char *repo_dir) {
     }
 
     /* Store proof: an innocent's Function node exists. */
-    char *project = cbm_project_name_from_path(repo_dir);
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    char *project = ani_project_name_from_path(repo_dir);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     int code = IDXPAR_OK;
     if (srv && project) {
         char q[512];
         snprintf(q, sizeof(q),
                  "{\"project\":\"%s\",\"name_pattern\":\"idxpar_good_fn\",\"label\":\"Function\"}",
                  project);
-        char *sr = cbm_mcp_handle_tool(srv, "search_graph", q);
+        char *sr = ani_mcp_handle_tool(srv, "search_graph", q);
         if (!sr || !strstr(sr, "idxpar_good_fn")) {
             code = IDXPAR_GOOD_MISSING;
         }
         free(sr);
     }
     if (srv) {
-        cbm_mcp_server_free(srv);
+        ani_mcp_server_free(srv);
     }
     free(project);
     return code;
 }
 
 static int idxpar_exit_nonzero_recovery_check(const char *repo_dir) {
-    cbm_index_supervisor_mark_host();
-    cbm_unsetenv("CBM_INDEX_SUPERVISOR");
-    cbm_setenv("CBM_INDEX_MAX_RESTARTS", "5", 1);
-    cbm_setenv("CBM_INDEX_WORKER_TIMEOUT_S", "30", 1);
-    cbm_setenv("CBM_TEST_EXIT_ON", "idxpar_exit_nonzero", 1);
+    ani_index_supervisor_mark_host();
+    ani_unsetenv("ANI_INDEX_SUPERVISOR");
+    ani_setenv("ANI_INDEX_MAX_RESTARTS", "5", 1);
+    ani_setenv("ANI_INDEX_WORKER_TIMEOUT_S", "30", 1);
+    ani_setenv("ANI_TEST_EXIT_ON", "idxpar_exit_nonzero", 1);
 
-    int st_before = cbm_index_supervisor_spawn_st_count();
-    char *resp = cbm_mcp_index_run_supervised_path(repo_dir);
-    int st_after = cbm_index_supervisor_spawn_st_count();
-    cbm_unsetenv("CBM_TEST_EXIT_ON");
+    int st_before = ani_index_supervisor_spawn_st_count();
+    char *resp = ani_mcp_index_run_supervised_path(repo_dir);
+    int st_after = ani_index_supervisor_spawn_st_count();
+    ani_unsetenv("ANI_TEST_EXIT_ON");
 
     if (st_after != st_before) {
         free(resp);
@@ -12257,36 +12257,36 @@ static int idxpar_exit_nonzero_recovery_check(const char *repo_dir) {
         return IDXPAR_INNOCENT_HIT;
     }
 
-    char *project = cbm_project_name_from_path(repo_dir);
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    char *project = ani_project_name_from_path(repo_dir);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     int code = IDXPAR_OK;
     if (srv && project) {
         char q[512];
         snprintf(q, sizeof(q),
                  "{\"project\":\"%s\",\"name_pattern\":\"idxpar_good_fn\",\"label\":\"Function\"}",
                  project);
-        char *sr = cbm_mcp_handle_tool(srv, "search_graph", q);
+        char *sr = ani_mcp_handle_tool(srv, "search_graph", q);
         if (!sr || !strstr(sr, "idxpar_good_fn")) {
             code = IDXPAR_GOOD_MISSING;
         }
         free(sr);
     }
     if (srv) {
-        cbm_mcp_server_free(srv);
+        ani_mcp_server_free(srv);
     }
     free(project);
     return code;
 }
 
 static int idxpar_systemic_exit_nonzero_give_up_check(const char *repo_dir) {
-    cbm_index_supervisor_mark_host();
-    cbm_unsetenv("CBM_INDEX_SUPERVISOR");
-    cbm_setenv("CBM_INDEX_MAX_RESTARTS", "5", 1);
-    cbm_setenv("CBM_INDEX_WORKER_TIMEOUT_S", "30", 1);
-    cbm_setenv("CBM_TEST_EXIT_ON", "idxpar_", 1);
+    ani_index_supervisor_mark_host();
+    ani_unsetenv("ANI_INDEX_SUPERVISOR");
+    ani_setenv("ANI_INDEX_MAX_RESTARTS", "5", 1);
+    ani_setenv("ANI_INDEX_WORKER_TIMEOUT_S", "30", 1);
+    ani_setenv("ANI_TEST_EXIT_ON", "idxpar_", 1);
 
-    char *resp = cbm_mcp_index_run_supervised_path(repo_dir);
-    cbm_unsetenv("CBM_TEST_EXIT_ON");
+    char *resp = ani_mcp_index_run_supervised_path(repo_dir);
+    ani_unsetenv("ANI_TEST_EXIT_ON");
 
     if (!resp) {
         return IDXPAR_NULL_RESP;
@@ -12311,10 +12311,10 @@ static int idxpar_systemic_exit_nonzero_give_up_check(const char *repo_dir) {
 #endif /* !_WIN32 */
 
 /* #773: SIGABRT (invalid free in ts_stack_delete via
- * cbm_destroy_thread_parser) on the SECOND index_repository in one server
+ * ani_destroy_thread_parser) on the SECOND index_repository in one server
  * process, once both repos take the PARALLEL path (~30+ files). The
  * supervisor masks this on the default MCP path (fresh worker process per
- * index); the in-process pipeline — CBM_INDEX_SUPERVISOR=0, and every
+ * index); the in-process pipeline — ANI_INDEX_SUPERVISOR=0, and every
  * embedded/test consumer — dies. Forked child so the abort cannot kill the
  * runner; ASan legs print the exact bad free. */
 enum {
@@ -12326,7 +12326,7 @@ enum {
 #ifndef _WIN32
 static void idx773_write_py_repo(const char *dir, int files, int variant) {
     for (int i = 0; i < files; i++) {
-        char path[CBM_SZ_512];
+        char path[ANI_SZ_512];
         snprintf(path, sizeof(path), "%s/mod_%d_%03d.py", dir, variant, i);
         FILE *f = fopen(path, "w");
         if (!f) {
@@ -12349,25 +12349,25 @@ static void idx773_write_py_repo(const char *dir, int files, int variant) {
 }
 
 static int idx773_double_index_check(const char *dir_a, const char *dir_b) {
-    cbm_setenv("CBM_INDEX_SUPERVISOR", "0", 1);
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_setenv("ANI_INDEX_SUPERVISOR", "0", 1);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     if (!srv) {
         return IDX773_FIRST_FAILED;
     }
-    char args[CBM_SZ_512];
+    char args[ANI_SZ_512];
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\",\"mode\":\"full\"}", dir_a);
-    char *r1 = cbm_mcp_handle_tool(srv, "index_repository", args);
+    char *r1 = ani_mcp_handle_tool(srv, "index_repository", args);
     bool ok1 = r1 && strstr(r1, "indexed") != NULL;
     free(r1);
     if (!ok1) {
-        cbm_mcp_server_free(srv);
+        ani_mcp_server_free(srv);
         return IDX773_FIRST_FAILED;
     }
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\",\"mode\":\"full\"}", dir_b);
-    char *r2 = cbm_mcp_handle_tool(srv, "index_repository", args); /* SIGABRT here (RED) */
+    char *r2 = ani_mcp_handle_tool(srv, "index_repository", args); /* SIGABRT here (RED) */
     bool ok2 = r2 && strstr(r2, "indexed") != NULL;
     free(r2);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     return ok2 ? IDX773_OK : IDX773_SECOND_FAILED;
 }
 #endif /* !_WIN32 */
@@ -12381,22 +12381,22 @@ static int idx773_double_index_check(const char *dir_a, const char *dir_b) {
  * check also means such caches are refused at import. The parallel path
  * was correct; both pipelines must emit identical, valid JSON. */
 TEST(sequential_service_edge_props_are_valid_json_issue898) {
-    char tmp[CBM_SZ_256];
-    snprintf(tmp, sizeof(tmp), "/tmp/cbm_seq898_XXXXXX");
-    if (!cbm_mkdtemp(tmp)) {
+    char tmp[ANI_SZ_256];
+    snprintf(tmp, sizeof(tmp), "/tmp/ani_seq898_XXXXXX");
+    if (!ani_mkdtemp(tmp)) {
         FAIL("mkdtemp failed");
     }
-    char cache[CBM_SZ_256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm_seq898_cache_XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
-        cbm_rmdir(tmp);
+    char cache[ANI_SZ_256];
+    snprintf(cache, sizeof(cache), "/tmp/ani_seq898_cache_XXXXXX");
+    if (!ani_mkdtemp(cache)) {
+        ani_rmdir(tmp);
         FAIL("cache mkdtemp failed");
     }
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
-    char *saved_cache_copy = saved_cache ? cbm_strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
+    char *saved_cache_copy = saved_cache ? ani_strdup(saved_cache) : NULL;
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
-    char src_path[CBM_SZ_512];
+    char src_path[ANI_SZ_512];
     snprintf(src_path, sizeof(src_path), "%s/queue.py", tmp);
     FILE *f = fopen(src_path, "w");
     ASSERT_NOT_NULL(f);
@@ -12409,11 +12409,11 @@ TEST(sequential_service_edge_props_are_valid_json_issue898) {
           f);
     fclose(f);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    char args[CBM_SZ_512];
+    char args[ANI_SZ_512];
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\"}", tmp);
-    char *resp = cbm_mcp_handle_tool(srv, "index_repository", args);
+    char *resp = ani_mcp_handle_tool(srv, "index_repository", args);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "indexed"));
     free(resp);
@@ -12422,13 +12422,13 @@ TEST(sequential_service_edge_props_are_valid_json_issue898) {
      * process can atomically replace the DB generation (and so Windows does
      * not retain a replacement-blocking handle). Inspect the published DB
      * through an independent query handle instead of relying on srv->store. */
-    char *project = cbm_project_name_from_path(tmp);
+    char *project = ani_project_name_from_path(tmp);
     ASSERT_NOT_NULL(project);
-    char db_path[CBM_SZ_512];
+    char db_path[ANI_SZ_512];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", cache, project);
-    cbm_store_t *store = cbm_store_open_path_query(db_path);
+    ani_store_t *store = ani_store_open_path_query(db_path);
     ASSERT_NOT_NULL(store);
-    struct sqlite3 *db = cbm_store_get_db(store);
+    struct sqlite3 *db = ani_store_get_db(store);
     ASSERT_NOT_NULL(db);
 
     /* Non-vacuous: the fixture must actually produce a brokered edge. */
@@ -12475,15 +12475,15 @@ TEST(sequential_service_edge_props_are_valid_json_issue898) {
     sqlite3_finalize(stmt);
     ASSERT_TRUE(brokered >= 1);
 
-    cbm_store_close(store);
-    cbm_mcp_server_free(srv);
+    ani_store_close(store);
+    ani_mcp_server_free(srv);
     cleanup_project_db(cache, project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
     free(project);
     th_rmtree(cache);
-    cbm_unlink(src_path);
-    cbm_rmdir(tmp);
+    ani_unlink(src_path);
+    ani_rmdir(tmp);
     PASS();
 }
 
@@ -12491,18 +12491,18 @@ TEST(index_second_inprocess_run_survives_issue773) {
 #ifdef _WIN32
     SKIP_PLATFORM("fork-isolated crash guard (POSIX-only)");
 #else
-    char dir_a[CBM_SZ_256];
-    char dir_b[CBM_SZ_256];
-    char cache[CBM_SZ_256];
-    snprintf(dir_a, sizeof(dir_a), "/tmp/cbm-idx773a-XXXXXX");
-    snprintf(dir_b, sizeof(dir_b), "/tmp/cbm-idx773b-XXXXXX");
-    snprintf(cache, sizeof(cache), "/tmp/cbm-idx773c-XXXXXX");
-    if (!cbm_mkdtemp(dir_a) || !cbm_mkdtemp(dir_b) || !cbm_mkdtemp(cache)) {
+    char dir_a[ANI_SZ_256];
+    char dir_b[ANI_SZ_256];
+    char cache[ANI_SZ_256];
+    snprintf(dir_a, sizeof(dir_a), "/tmp/ani-idx773a-XXXXXX");
+    snprintf(dir_b, sizeof(dir_b), "/tmp/ani-idx773b-XXXXXX");
+    snprintf(cache, sizeof(cache), "/tmp/ani-idx773c-XXXXXX");
+    if (!ani_mkdtemp(dir_a) || !ani_mkdtemp(dir_b) || !ani_mkdtemp(cache)) {
         FAIL("mkdtemp failed");
     }
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
-    char *saved_cache_copy = saved_cache ? cbm_strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
+    char *saved_cache_copy = saved_cache ? ani_strdup(saved_cache) : NULL;
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     /* Trigger shape: run 1 small enough for the SEQUENTIAL path (parses on
      * the calling thread, mimalloc epoch), run 2 large enough for the
@@ -12547,23 +12547,23 @@ TEST(index_recovery_parallel_quarantines_crasher) {
 #ifdef _WIN32
     SKIP_PLATFORM("parallel-recovery guard needs fork isolation (POSIX-only)");
 #else
-    char tmp_dir[CBM_SZ_256];
-    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/cbm-idxpar-XXXXXX");
-    if (!cbm_mkdtemp(tmp_dir)) {
+    char tmp_dir[ANI_SZ_256];
+    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/ani-idxpar-XXXXXX");
+    if (!ani_mkdtemp(tmp_dir)) {
         FAIL("mkdtemp failed");
     }
-    char cache[CBM_SZ_256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-idxpar-cache-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
+    char cache[ANI_SZ_256];
+    snprintf(cache, sizeof(cache), "/tmp/ani-idxpar-cache-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
         FAIL("mkdtemp cache failed");
     }
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
-    char *saved_cache_copy = saved_cache ? cbm_strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
+    char *saved_cache_copy = saved_cache ? ani_strdup(saved_cache) : NULL;
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
-    char p1[CBM_SZ_512];
-    char p2[CBM_SZ_512];
-    char pc[CBM_SZ_512];
+    char p1[ANI_SZ_512];
+    char p2[ANI_SZ_512];
+    char pc[ANI_SZ_512];
     snprintf(p1, sizeof(p1), "%s/idxpar_good_a.py", tmp_dir);
     snprintf(p2, sizeof(p2), "%s/idxpar_good_b.py", tmp_dir);
     snprintf(pc, sizeof(pc), "%s/idxpar_crasher.py", tmp_dir);
@@ -12599,7 +12599,7 @@ TEST(index_recovery_parallel_quarantines_crasher) {
         sig = WTERMSIG(status);
     }
 
-    char *project = cbm_project_name_from_path(tmp_dir);
+    char *project = ani_project_name_from_path(tmp_dir);
     cleanup_project_db(cache, project);
     free(project);
     restore_cache_dir(saved_cache_copy);
@@ -12607,8 +12607,8 @@ TEST(index_recovery_parallel_quarantines_crasher) {
     remove(p1);
     remove(p2);
     remove(pc);
-    cbm_rmdir(cache);
-    cbm_rmdir(tmp_dir);
+    ani_rmdir(cache);
+    ani_rmdir(tmp_dir);
 
     if (signalled) {
         printf("    child killed by signal %d (alarm => recovery loop hang)\n", sig);
@@ -12627,23 +12627,23 @@ TEST(index_recovery_quarantines_exit_nonzero) {
 #ifdef _WIN32
     SKIP_PLATFORM("parallel-recovery guard needs fork isolation (POSIX-only)");
 #else
-    char tmp_dir[CBM_SZ_256];
-    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/cbm-idxpar-exit-XXXXXX");
-    if (!cbm_mkdtemp(tmp_dir)) {
+    char tmp_dir[ANI_SZ_256];
+    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/ani-idxpar-exit-XXXXXX");
+    if (!ani_mkdtemp(tmp_dir)) {
         FAIL("mkdtemp failed");
     }
-    char cache[CBM_SZ_256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-idxpar-exit-cache-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
+    char cache[ANI_SZ_256];
+    snprintf(cache, sizeof(cache), "/tmp/ani-idxpar-exit-cache-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
         FAIL("mkdtemp cache failed");
     }
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
-    char *saved_cache_copy = saved_cache ? cbm_strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
+    char *saved_cache_copy = saved_cache ? ani_strdup(saved_cache) : NULL;
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
-    char p1[CBM_SZ_512];
-    char p2[CBM_SZ_512];
-    char pc[CBM_SZ_512];
+    char p1[ANI_SZ_512];
+    char p2[ANI_SZ_512];
+    char pc[ANI_SZ_512];
     snprintf(p1, sizeof(p1), "%s/idxpar_good_a.py", tmp_dir);
     snprintf(p2, sizeof(p2), "%s/idxpar_good_b.py", tmp_dir);
     snprintf(pc, sizeof(pc), "%s/idxpar_exit_nonzero.py", tmp_dir);
@@ -12679,7 +12679,7 @@ TEST(index_recovery_quarantines_exit_nonzero) {
         sig = WTERMSIG(status);
     }
 
-    char *project = cbm_project_name_from_path(tmp_dir);
+    char *project = ani_project_name_from_path(tmp_dir);
     cleanup_project_db(cache, project);
     free(project);
     restore_cache_dir(saved_cache_copy);
@@ -12687,8 +12687,8 @@ TEST(index_recovery_quarantines_exit_nonzero) {
     remove(p1);
     remove(p2);
     remove(pc);
-    cbm_rmdir(cache);
-    cbm_rmdir(tmp_dir);
+    ani_rmdir(cache);
+    ani_rmdir(tmp_dir);
 
     if (signalled) {
         printf("    child killed by signal %d\n", sig);
@@ -12705,22 +12705,22 @@ TEST(index_recovery_systemic_exit_nonzero_gives_up) {
 #ifdef _WIN32
     SKIP_PLATFORM("parallel-recovery guard needs fork isolation (POSIX-only)");
 #else
-    char tmp_dir[CBM_SZ_256];
-    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/cbm-idxpar-sys-XXXXXX");
-    if (!cbm_mkdtemp(tmp_dir)) {
+    char tmp_dir[ANI_SZ_256];
+    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/ani-idxpar-sys-XXXXXX");
+    if (!ani_mkdtemp(tmp_dir)) {
         FAIL("mkdtemp failed");
     }
-    char cache[CBM_SZ_256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-idxpar-sys-cache-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
+    char cache[ANI_SZ_256];
+    snprintf(cache, sizeof(cache), "/tmp/ani-idxpar-sys-cache-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
         FAIL("mkdtemp cache failed");
     }
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
-    char *saved_cache_copy = saved_cache ? cbm_strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
+    char *saved_cache_copy = saved_cache ? ani_strdup(saved_cache) : NULL;
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
-    char p1[CBM_SZ_512];
-    char p2[CBM_SZ_512];
+    char p1[ANI_SZ_512];
+    char p2[ANI_SZ_512];
     snprintf(p1, sizeof(p1), "%s/idxpar_good_a.py", tmp_dir);
     snprintf(p2, sizeof(p2), "%s/idxpar_good_b.py", tmp_dir);
     FILE *f = fopen(p1, "w");
@@ -12751,15 +12751,15 @@ TEST(index_recovery_systemic_exit_nonzero_gives_up) {
         sig = WTERMSIG(status);
     }
 
-    char *project = cbm_project_name_from_path(tmp_dir);
+    char *project = ani_project_name_from_path(tmp_dir);
     cleanup_project_db(cache, project);
     free(project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
     remove(p1);
     remove(p2);
-    cbm_rmdir(cache);
-    cbm_rmdir(tmp_dir);
+    ani_rmdir(cache);
+    ani_rmdir(tmp_dir);
 
     if (signalled) {
         printf("    child killed by signal %d\n", sig);
@@ -12786,8 +12786,8 @@ TEST(index_recovery_systemic_exit_nonzero_gives_up) {
  * Returns a negative code on fixture setup failure. */
 static int auto_watch_connect_watch_count(const char *auto_watch_value) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-autowatch-cache-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
+    snprintf(cache, sizeof(cache), "/tmp/ani-autowatch-cache-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
         return -1;
     }
 
@@ -12800,7 +12800,7 @@ static int auto_watch_connect_watch_count(const char *auto_watch_value) {
 
     /* Same derivation detect_session uses on the cwd — realpath-based, so
      * the name matches even where /tmp is a symlink (macOS). */
-    char *project = cbm_project_name_from_path(repodir);
+    char *project = ani_project_name_from_path(repodir);
     if (!project) {
         th_rmtree(cache);
         return -3;
@@ -12817,12 +12817,12 @@ static int auto_watch_connect_watch_count(const char *auto_watch_value) {
     }
     free(project);
 
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     char old_cwd[1024];
-    if (!cbm_getcwd(old_cwd, sizeof(old_cwd)) || cbm_chdir(repodir) != 0) {
+    if (!ani_getcwd(old_cwd, sizeof(old_cwd)) || ani_chdir(repodir) != 0) {
         restore_cache_dir(saved_copy);
         free(saved_copy);
         th_rmtree(cache);
@@ -12830,37 +12830,37 @@ static int auto_watch_connect_watch_count(const char *auto_watch_value) {
     }
 
     int count = -6;
-    cbm_config_t *cfg = cbm_config_open(cache);
-    cbm_store_t *wstore = cbm_store_open_memory();
-    cbm_watcher_t *watcher = wstore ? cbm_watcher_new(wstore, NULL, NULL) : NULL;
+    ani_config_t *cfg = ani_config_open(cache);
+    ani_store_t *wstore = ani_store_open_memory();
+    ani_watcher_t *watcher = wstore ? ani_watcher_new(wstore, NULL, NULL) : NULL;
     if (cfg && watcher) {
         if (auto_watch_value) {
-            cbm_config_set(cfg, CBM_CONFIG_AUTO_WATCH, auto_watch_value);
+            ani_config_set(cfg, ANI_CONFIG_AUTO_WATCH, auto_watch_value);
         }
 
-        cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+        ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
         if (srv) {
-            cbm_mcp_server_set_watcher(srv, watcher);
-            cbm_mcp_server_set_config(srv, cfg);
-            char *resp = cbm_mcp_server_handle(
+            ani_mcp_server_set_watcher(srv, watcher);
+            ani_mcp_server_set_config(srv, cfg);
+            char *resp = ani_mcp_server_handle(
                 srv, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}");
             free(resp);
-            count = cbm_watcher_watch_count(watcher);
-            cbm_mcp_server_free(srv);
+            count = ani_watcher_watch_count(watcher);
+            ani_mcp_server_free(srv);
         }
     }
 
     if (watcher) {
-        cbm_watcher_free(watcher);
+        ani_watcher_free(watcher);
     }
     if (wstore) {
-        cbm_store_close(wstore);
+        ani_store_close(wstore);
     }
     if (cfg) {
-        cbm_config_close(cfg);
+        ani_config_close(cfg);
     }
 
-    (void)cbm_chdir(old_cwd);
+    (void)ani_chdir(old_cwd);
     restore_cache_dir(saved_copy);
     free(saved_copy);
     th_rmtree(cache);
@@ -12908,8 +12908,8 @@ static void autoindex_skip_capture_log(const char *line) {
  * Returns false on fixture setup failure. */
 static bool autoindex_skip_warning(char *out, size_t out_size) {
     char cache[256];
-    snprintf(cache, sizeof(cache), "%s/cbm-autoindex-limit-XXXXXX", cbm_tmpdir());
-    if (!cbm_mkdtemp(cache)) {
+    snprintf(cache, sizeof(cache), "%s/ani-autoindex-limit-XXXXXX", ani_tmpdir());
+    if (!ani_mkdtemp(cache)) {
         return false;
     }
 
@@ -12925,12 +12925,12 @@ static bool autoindex_skip_warning(char *out, size_t out_size) {
         return false;
     }
 
-    const char *saved = getenv("CBM_CACHE_DIR");
+    const char *saved = getenv("ANI_CACHE_DIR");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     char old_cwd[1024];
-    if (!cbm_getcwd(old_cwd, sizeof(old_cwd)) || cbm_chdir(repodir) != 0) {
+    if (!ani_getcwd(old_cwd, sizeof(old_cwd)) || ani_chdir(repodir) != 0) {
         restore_cache_dir(saved_copy);
         free(saved_copy);
         th_rmtree(cache);
@@ -12938,35 +12938,35 @@ static bool autoindex_skip_warning(char *out, size_t out_size) {
     }
 
     bool ok = false;
-    cbm_config_t *cfg = cbm_config_open(cache);
+    ani_config_t *cfg = ani_config_open(cache);
     if (cfg) {
-        cbm_config_set(cfg, CBM_CONFIG_AUTO_INDEX, "true");
-        cbm_config_set(cfg, CBM_CONFIG_AUTO_INDEX_LIMIT, "1");
+        ani_config_set(cfg, ANI_CONFIG_AUTO_INDEX, "true");
+        ani_config_set(cfg, ANI_CONFIG_AUTO_INDEX_LIMIT, "1");
 
-        cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+        ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
         if (srv) {
             autoindex_skip_log[0] = '\0';
-            CBMLogLevel prev_level = cbm_log_get_level();
-            cbm_log_set_level(CBM_LOG_WARN);
-            cbm_log_set_format(CBM_LOG_FORMAT_TEXT);
-            cbm_log_set_sink_ex(autoindex_skip_capture_log, CBM_LOG_SINK_REPLACE);
+            ANILogLevel prev_level = ani_log_get_level();
+            ani_log_set_level(ANI_LOG_WARN);
+            ani_log_set_format(ANI_LOG_FORMAT_TEXT);
+            ani_log_set_sink_ex(autoindex_skip_capture_log, ANI_LOG_SINK_REPLACE);
 
-            cbm_mcp_server_set_config(srv, cfg);
-            char *resp = cbm_mcp_server_handle(
+            ani_mcp_server_set_config(srv, cfg);
+            char *resp = ani_mcp_server_handle(
                 srv, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}");
             free(resp);
-            cbm_mcp_server_free(srv);
+            ani_mcp_server_free(srv);
 
-            cbm_log_set_sink(NULL);
-            cbm_log_set_level(prev_level);
+            ani_log_set_sink(NULL);
+            ani_log_set_level(prev_level);
 
             snprintf(out, out_size, "%s", autoindex_skip_log);
             ok = true;
         }
-        cbm_config_close(cfg);
+        ani_config_close(cfg);
     }
 
-    (void)cbm_chdir(old_cwd);
+    (void)ani_chdir(old_cwd);
     restore_cache_dir(saved_copy);
     free(saved_copy);
     th_rmtree(cache);
@@ -12997,7 +12997,7 @@ TEST(autoindex_skip_reports_numeric_limit_issue1466) {
 /* #849 routed ALL watcher registration through register_watcher_if_enabled()
  * (auto_watch gate). The #832 keystone then added a SECOND registration site in
  * autoindex_thread's supervised-success branch, but wired it as a DIRECT
- * cbm_watcher_watch() guarded only by `if (srv->watcher)` — srv->watcher is set
+ * ani_watcher_watch() guarded only by `if (srv->watcher)` — srv->watcher is set
  * unconditionally, so that guard does NOT honour `config set auto_watch false`.
  * The above tests only cover the already-indexed on-connect path
  * (register_watcher_if_enabled); this guard covers the fresh-index SUPERVISED
@@ -13005,17 +13005,17 @@ TEST(autoindex_skip_reports_numeric_limit_issue1466) {
  *
  * Drive the real public entry initialize → maybe_auto_index → autoindex_thread on
  * a supervisor-marked host (kill switch off) with a FRESH project (no prior .db)
- * and auto_watch=false. cbm_mcp_server_free() joins the autoindex thread, so the
+ * and auto_watch=false. ani_mcp_server_free() joins the autoindex thread, so the
  * (buggy or gated) registration decision has run before we read the watch count.
  *
  * RED on the unfixed ungated block: the supervised success branch calls
- * cbm_watcher_watch() unconditionally → watch_count == 1 → IDX853_WATCHER_REGISTERED.
+ * ani_watcher_watch() unconditionally → watch_count == 1 → IDX853_WATCHER_REGISTERED.
  * GREEN once it calls register_watcher_if_enabled() → auto_watch_off skip → 0.
  * spawn_count is asserted to have advanced so the assertion cannot pass vacuously
  * (i.e. green only because the supervised branch was never entered). */
 enum {
     IDX853_OK = 0,                  /* watch_count==0, supervised branch ran → GREEN */
-    IDX853_WATCHER_REGISTERED = 61, /* watch_count==1 → RED: ungated cbm_watcher_watch */
+    IDX853_WATCHER_REGISTERED = 61, /* watch_count==1 → RED: ungated ani_watcher_watch */
     IDX853_NO_SPAWN = 62,           /* spawn_count unchanged → supervised path not exercised */
     IDX853_SETUP_FAIL = 63,         /* config/watcher/server/cwd setup failed */
     IDX853_BAD_COUNT = 64,          /* unexpected watch_count (<0 or >1) */
@@ -13027,56 +13027,56 @@ static int idx853_supervised_autowatch_check(const char *repo_dir, const char *c
      * server's state. Done in the FORKED CHILD only (see harness) so the parent
      * test-runner's process-wide host mark stays clear (#845 invariant). Bound the
      * worker so a stuck spawn cannot run long under the fork+alarm net. */
-    cbm_index_supervisor_mark_host();
-    cbm_unsetenv("CBM_INDEX_SUPERVISOR");
-    cbm_setenv("CBM_INDEX_MAX_RESTARTS", "1", 1);
-    cbm_setenv("CBM_INDEX_WORKER_TIMEOUT_S", "30", 1);
+    ani_index_supervisor_mark_host();
+    ani_unsetenv("ANI_INDEX_SUPERVISOR");
+    ani_setenv("ANI_INDEX_MAX_RESTARTS", "1", 1);
+    ani_setenv("ANI_INDEX_WORKER_TIMEOUT_S", "30", 1);
 
-    cbm_config_t *cfg = cbm_config_open(cache_dir);
-    cbm_store_t *wstore = cbm_store_open_memory();
-    cbm_watcher_t *watcher = wstore ? cbm_watcher_new(wstore, NULL, NULL) : NULL;
+    ani_config_t *cfg = ani_config_open(cache_dir);
+    ani_store_t *wstore = ani_store_open_memory();
+    ani_watcher_t *watcher = wstore ? ani_watcher_new(wstore, NULL, NULL) : NULL;
     if (!cfg || !watcher) {
         if (watcher) {
-            cbm_watcher_free(watcher);
+            ani_watcher_free(watcher);
         }
         if (wstore) {
-            cbm_store_close(wstore);
+            ani_store_close(wstore);
         }
         if (cfg) {
-            cbm_config_close(cfg);
+            ani_config_close(cfg);
         }
         return IDX853_SETUP_FAIL;
     }
     /* auto_index=true → maybe_auto_index launches autoindex_thread for the fresh
      * project; auto_watch=false → the gate this guard exercises. */
-    cbm_config_set(cfg, CBM_CONFIG_AUTO_INDEX, "true");
-    cbm_config_set(cfg, CBM_CONFIG_AUTO_WATCH, "false");
+    ani_config_set(cfg, ANI_CONFIG_AUTO_INDEX, "true");
+    ani_config_set(cfg, ANI_CONFIG_AUTO_WATCH, "false");
 
     /* detect_session derives session_root/session_project from the cwd. */
     char old_cwd[1024];
-    if (!cbm_getcwd(old_cwd, sizeof(old_cwd)) || cbm_chdir(repo_dir) != 0) {
-        cbm_watcher_free(watcher);
-        cbm_store_close(wstore);
-        cbm_config_close(cfg);
+    if (!ani_getcwd(old_cwd, sizeof(old_cwd)) || ani_chdir(repo_dir) != 0) {
+        ani_watcher_free(watcher);
+        ani_store_close(wstore);
+        ani_config_close(cfg);
         return IDX853_SETUP_FAIL;
     }
 
-    int spawns_before = cbm_index_supervisor_spawn_count();
+    int spawns_before = ani_index_supervisor_spawn_count();
     int code = IDX853_SETUP_FAIL;
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     if (srv) {
-        cbm_mcp_server_set_watcher(srv, watcher);
-        cbm_mcp_server_set_config(srv, cfg);
-        char *resp = cbm_mcp_server_handle(
+        ani_mcp_server_set_watcher(srv, watcher);
+        ani_mcp_server_set_config(srv, cfg);
+        char *resp = ani_mcp_server_handle(
             srv, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}");
         free(resp);
         /* free() joins the autoindex thread → the supervised worker has finished
          * and the registration decision (buggy or gated) has executed. */
-        cbm_mcp_server_free(srv);
+        ani_mcp_server_free(srv);
 
-        int spawns_after = cbm_index_supervisor_spawn_count();
-        int watch_count = cbm_watcher_watch_count(watcher);
+        int spawns_after = ani_index_supervisor_spawn_count();
+        int watch_count = ani_watcher_watch_count(watcher);
 
         if (spawns_after == spawns_before) {
             code = IDX853_NO_SPAWN; /* supervised branch never ran — not a valid probe */
@@ -13089,10 +13089,10 @@ static int idx853_supervised_autowatch_check(const char *repo_dir, const char *c
         }
     }
 
-    (void)cbm_chdir(old_cwd);
-    cbm_watcher_free(watcher);
-    cbm_store_close(wstore);
-    cbm_config_close(cfg);
+    (void)ani_chdir(old_cwd);
+    ani_watcher_free(watcher);
+    ani_store_close(wstore);
+    ani_config_close(cfg);
     return code;
 }
 #endif /* !_WIN32 */
@@ -13105,20 +13105,20 @@ TEST(mcp_auto_watch_false_skips_supervised_autoindex_issue853) {
     SKIP_PLATFORM("supervisor-host guard needs fork isolation (POSIX-only)");
 #else
     char tmp_dir[256];
-    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/cbm-idx853-repo-XXXXXX");
-    if (!cbm_mkdtemp(tmp_dir)) {
+    snprintf(tmp_dir, sizeof(tmp_dir), "/tmp/ani-idx853-repo-XXXXXX");
+    if (!ani_mkdtemp(tmp_dir)) {
         PASS();
     }
     char cache[256];
-    snprintf(cache, sizeof(cache), "/tmp/cbm-idx853-cache-XXXXXX");
-    if (!cbm_mkdtemp(cache)) {
-        cbm_rmdir(tmp_dir);
+    snprintf(cache, sizeof(cache), "/tmp/ani-idx853-cache-XXXXXX");
+    if (!ani_mkdtemp(cache)) {
+        ani_rmdir(tmp_dir);
         PASS();
     }
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1); /* inherited by the worker child */
+    ani_setenv("ANI_CACHE_DIR", cache, 1); /* inherited by the worker child */
 
     char src_path[512];
     snprintf(src_path, sizeof(src_path), "%s/main.py", tmp_dir);
@@ -13146,14 +13146,14 @@ TEST(mcp_auto_watch_false_skips_supervised_autoindex_issue853) {
         sig = WTERMSIG(status);
     }
 
-    char *project = cbm_project_name_from_path(tmp_dir);
+    char *project = ani_project_name_from_path(tmp_dir);
     cleanup_project_db(cache, project);
     free(project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
     remove(src_path);
-    cbm_rmdir(cache);
-    cbm_rmdir(tmp_dir);
+    ani_rmdir(cache);
+    ani_rmdir(tmp_dir);
 
     if (signalled) {
         printf("    child killed by signal %d (alarm => worker hang)\n", sig);
@@ -13173,16 +13173,16 @@ TEST(mcp_auto_watch_false_skips_supervised_autoindex_issue853) {
  * search_code). A result path that resolves outside the indexed project root
  * — via a `..` segment or a followed symlink/junction — must be rejected so
  * its contents never reach a tool response. */
-extern bool cbm_path_within_root(const char *root_path, const char *abs_path);
+extern bool ani_path_within_root(const char *root_path, const char *abs_path);
 
 TEST(mcp_path_within_root_rejects_escape) {
 #ifdef _WIN32
     char root[512];
     char outside[512];
-    snprintf(root, sizeof(root), "%s/cbm_pwr_root_XXXXXX", cbm_tmpdir());
-    snprintf(outside, sizeof(outside), "%s/cbm_pwr_outside_XXXXXX", cbm_tmpdir());
-    ASSERT_NOT_NULL(cbm_mkdtemp(root));
-    ASSERT_NOT_NULL(cbm_mkdtemp(outside));
+    snprintf(root, sizeof(root), "%s/ani_pwr_root_XXXXXX", ani_tmpdir());
+    snprintf(outside, sizeof(outside), "%s/ani_pwr_outside_XXXXXX", ani_tmpdir());
+    ASSERT_NOT_NULL(ani_mkdtemp(root));
+    ASSERT_NOT_NULL(ani_mkdtemp(outside));
 
     char inside[700];
     char target[700];
@@ -13192,16 +13192,16 @@ TEST(mcp_path_within_root_rejects_escape) {
     snprintf(target, sizeof(target), "%s/outside.c", outside);
     snprintf(junction, sizeof(junction), "%s/escape", root);
     snprintf(linked_target, sizeof(linked_target), "%s/outside.c", junction);
-    FILE *fp = cbm_fopen(inside, "w");
+    FILE *fp = ani_fopen(inside, "w");
     ASSERT_NOT_NULL(fp);
     fputs("int inside;\n", fp);
     fclose(fp);
-    fp = cbm_fopen(target, "w");
+    fp = ani_fopen(target, "w");
     ASSERT_NOT_NULL(fp);
     fputs("int outside;\n", fp);
     fclose(fp);
 
-    /* cbm_tmpdir() can expose the MSYS spelling C:/msys64/...; cmd's mklink
+    /* ani_tmpdir() can expose the MSYS spelling C:/msys64/...; cmd's mklink
      * builtin treats the slash before "msys64" as another option delimiter.
      * Native backslashes are required only at this cmd.exe fixture boundary. */
     char junction_native[sizeof(junction)];
@@ -13220,12 +13220,12 @@ TEST(mcp_path_within_root_rejects_escape) {
     }
     const char *junction_argv[] = {"cmd.exe",       "/d",           "/c", "mklink", "/J",
                                    junction_native, outside_native, NULL};
-    bool linked = cbm_exec_no_shell(junction_argv) == 0;
+    bool linked = ani_exec_no_shell(junction_argv) == 0;
 
     ASSERT_TRUE(linked);
-    ASSERT_TRUE(cbm_path_within_root(root, inside));
-    ASSERT_FALSE(cbm_path_within_root(root, target));
-    ASSERT_FALSE(cbm_path_within_root(root, linked_target));
+    ASSERT_TRUE(ani_path_within_root(root, inside));
+    ASSERT_FALSE(ani_path_within_root(root, target));
+    ASSERT_FALSE(ani_path_within_root(root, linked_target));
 
     char case_alias[sizeof(root)];
     snprintf(case_alias, sizeof(case_alias), "%s", root);
@@ -13240,24 +13240,24 @@ TEST(mcp_path_within_root_rejects_escape) {
     } else if (*leaf >= 'A' && *leaf <= 'Z') {
         *leaf = (char)(*leaf - 'A' + 'a');
     }
-    ASSERT_TRUE(cbm_path_within_root(case_alias, inside));
+    ASSERT_TRUE(ani_path_within_root(case_alias, inside));
 
     char drive_root[] = {root[0], ':', '\\', '\0'};
     ASSERT_TRUE(((root[0] >= 'A' && root[0] <= 'Z') || (root[0] >= 'a' && root[0] <= 'z')) &&
                 root[1] == ':');
-    ASSERT_TRUE(cbm_path_within_root(drive_root, inside));
+    ASSERT_TRUE(ani_path_within_root(drive_root, inside));
 
-    cbm_rmdir(junction);
-    cbm_unlink(inside);
-    cbm_unlink(target);
-    cbm_rmdir(root);
-    cbm_rmdir(outside);
+    ani_rmdir(junction);
+    ani_unlink(inside);
+    ani_unlink(target);
+    ani_rmdir(root);
+    ani_rmdir(outside);
     PASS();
 #else
     char root[512];
-    snprintf(root, sizeof(root), "%s/cbm_pwr_XXXXXX", cbm_tmpdir());
-    if (!cbm_mkdtemp(root)) {
-        FAIL("cbm_mkdtemp failed");
+    snprintf(root, sizeof(root), "%s/ani_pwr_XXXXXX", ani_tmpdir());
+    if (!ani_mkdtemp(root)) {
+        FAIL("ani_mkdtemp failed");
     }
     char inside[700];
     snprintf(inside, sizeof(inside), "%s/inside.c", root);
@@ -13271,13 +13271,13 @@ TEST(mcp_path_within_root_rejects_escape) {
      * rejected. */
     char escape[900];
     snprintf(escape, sizeof(escape), "%s/../../../../etc/hosts", root);
-    ASSERT_TRUE(cbm_path_within_root(root, inside));
-    ASSERT_FALSE(cbm_path_within_root(root, escape));
-    ASSERT_FALSE(cbm_path_within_root(root, "/etc/hosts"));
-    ASSERT_TRUE(cbm_path_within_root("/", "/etc/hosts"));
+    ASSERT_TRUE(ani_path_within_root(root, inside));
+    ASSERT_FALSE(ani_path_within_root(root, escape));
+    ASSERT_FALSE(ani_path_within_root(root, "/etc/hosts"));
+    ASSERT_TRUE(ani_path_within_root("/", "/etc/hosts"));
 
     remove(inside);
-    cbm_rmdir(root);
+    ani_rmdir(root);
     PASS();
 #endif
 }
@@ -13287,22 +13287,22 @@ TEST(mcp_path_within_root_rejects_escape) {
  * --output=<path> writes the diff to an arbitrary file) rather than a ref. It
  * must be rejected up front, alongside the shell-metacharacter check. */
 TEST(detect_changes_rejects_option_like_base_branch) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    char *resp = cbm_mcp_server_handle(
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    char *resp = ani_mcp_server_handle(
         srv, "{\"jsonrpc\":\"2.0\",\"id\":77,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"detect_changes\","
-             "\"arguments\":{\"project\":\"p\",\"base_branch\":\"--output=/tmp/cbm_pwn\"}}}");
+             "\"arguments\":{\"project\":\"p\",\"base_branch\":\"--output=/tmp/ani_pwn\"}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "invalid characters"));
     free(resp);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(detect_changes_rejects_windows_cmd_metacharacters_in_base_branch) {
 #ifdef _WIN32
     const char *const branches[] = {"topic%PATH%", "topic!name!", "topic^name"};
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
     for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++) {
         char request[512];
@@ -13311,12 +13311,12 @@ TEST(detect_changes_rejects_windows_cmd_metacharacters_in_base_branch) {
                  "\"params\":{\"name\":\"detect_changes\","
                  "\"arguments\":{\"project\":\"p\",\"base_branch\":\"%s\"}}}",
                  branches[i]);
-        char *response = cbm_mcp_server_handle(srv, request);
+        char *response = ani_mcp_server_handle(srv, request);
         ASSERT_NOT_NULL(response);
         ASSERT_NOT_NULL(strstr(response, "base_branch contains invalid characters"));
         free(response);
     }
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 #else
     SKIP_PLATFORM("cmd.exe interpolation validation runs on Windows");
@@ -13325,20 +13325,20 @@ TEST(detect_changes_rejects_windows_cmd_metacharacters_in_base_branch) {
 
 TEST(detect_changes_rejects_windows_cmd_metacharacters_in_project_root) {
 #ifdef _WIN32
-    const char *const roots[] = {"C:\\cbm-root-%PATH%", "C:\\cbm-root-!name!",
-                                 "C:\\cbm-root-^name"};
+    const char *const roots[] = {"C:\\ani-root-%PATH%", "C:\\ani-root-!name!",
+                                 "C:\\ani-root-^name"};
     const char *project = "windows-cmd-root-validation";
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *store = cbm_mcp_server_store(srv);
+    ani_store_t *store = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(store);
-    cbm_mcp_server_set_project(srv, project);
+    ani_mcp_server_set_project(srv, project);
     mcp_command_hook_probe_t command_probe = {0};
-    cbm_mcp_server_set_command_test_hook(srv, mcp_command_hook_probe, &command_probe);
+    ani_mcp_server_set_command_test_hook(srv, mcp_command_hook_probe, &command_probe);
 
     for (size_t i = 0; i < sizeof(roots) / sizeof(roots[0]); i++) {
-        ASSERT_EQ(cbm_store_upsert_project(store, project, roots[i]), CBM_STORE_OK);
-        char *response = cbm_mcp_handle_tool(
+        ASSERT_EQ(ani_store_upsert_project(store, project, roots[i]), ANI_STORE_OK);
+        char *response = ani_mcp_handle_tool(
             srv, "detect_changes",
             "{\"project\":\"windows-cmd-root-validation\",\"base_branch\":\"main\"}");
         ASSERT_NOT_NULL(response);
@@ -13347,7 +13347,7 @@ TEST(detect_changes_rejects_windows_cmd_metacharacters_in_project_root) {
     }
     ASSERT_EQ(command_probe.diff_calls, 0);
     ASSERT_EQ(command_probe.merge_base_calls, 0);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 #else
     SKIP_PLATFORM("cmd.exe interpolation validation runs on Windows");
@@ -13359,71 +13359,71 @@ TEST(detect_changes_rejects_windows_cmd_metacharacters_in_project_root) {
  * holds out of the box: the paths the advisories actually demonstrate are refused
  * without anyone setting an environment variable first. */
 TEST(index_repository_refuses_overbroad_roots_by_default) {
-    const char *saved = getenv("CBM_ALLOWED_ROOT");
+    const char *saved = getenv("ANI_ALLOWED_ROOT");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    cbm_unsetenv("CBM_ALLOWED_ROOT");
+    ani_unsetenv("ANI_ALLOWED_ROOT");
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
     /* A top-level system tree: refused on breadth, with no configuration. */
-    char *resp = cbm_mcp_handle_tool(srv, "index_repository", "{\"repo_path\":\"/etc\"}");
+    char *resp = ani_mcp_handle_tool(srv, "index_repository", "{\"repo_path\":\"/etc\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_TRUE(strstr(resp, "too broad") != NULL);
     free(resp);
 
     /* The filesystem root is refused outright and is never overridable. */
-    resp = cbm_mcp_handle_tool(srv, "index_repository", "{\"repo_path\":\"/\"}");
+    resp = ani_mcp_handle_tool(srv, "index_repository", "{\"repo_path\":\"/\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_TRUE(strstr(resp, "cannot be indexed") != NULL);
     free(resp);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     if (saved_copy) {
-        cbm_setenv("CBM_ALLOWED_ROOT", saved_copy, 1);
+        ani_setenv("ANI_ALLOWED_ROOT", saved_copy, 1);
         free(saved_copy);
     }
     PASS();
 }
 
-/* Opt-in workspace boundary: when CBM_ALLOWED_ROOT is set, index_repository
+/* Opt-in workspace boundary: when ANI_ALLOWED_ROOT is set, index_repository
  * must refuse a repo_path that resolves outside it. Unset (the default) imposes
  * no restriction. */
 TEST(index_repository_honors_allowed_root) {
     char allowed[512];
-    snprintf(allowed, sizeof(allowed), "%s/cbm_allowed_XXXXXX", cbm_tmpdir());
-    if (!cbm_mkdtemp(allowed)) {
-        FAIL("cbm_mkdtemp failed");
+    snprintf(allowed, sizeof(allowed), "%s/ani_allowed_XXXXXX", ani_tmpdir());
+    if (!ani_mkdtemp(allowed)) {
+        FAIL("ani_mkdtemp failed");
     }
-    cbm_setenv("CBM_ALLOWED_ROOT", allowed, 1);
+    ani_setenv("ANI_ALLOWED_ROOT", allowed, 1);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     char args[1024];
     snprintf(args, sizeof(args),
              "{\"jsonrpc\":\"2.0\",\"id\":88,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"index_repository\","
              "\"arguments\":{\"repo_path\":\"%s/../..\"}}}",
              allowed); /* resolves to a parent, outside the allowed root */
-    char *resp = cbm_mcp_server_handle(srv, args);
+    char *resp = ani_mcp_server_handle(srv, args);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "outside the allowed root"));
     free(resp);
 
-    cbm_unsetenv("CBM_ALLOWED_ROOT");
-    cbm_mcp_server_free(srv);
-    cbm_rmdir(allowed);
+    ani_unsetenv("ANI_ALLOWED_ROOT");
+    ani_mcp_server_free(srv);
+    ani_rmdir(allowed);
     PASS();
 }
 
 TEST(index_repository_relative_path_uses_explicit_session_root) {
     char session_root[512];
     char cache[512];
-    snprintf(session_root, sizeof(session_root), "%s/cbm_daemon_session_XXXXXX", cbm_tmpdir());
-    snprintf(cache, sizeof(cache), "%s/cbm_daemon_cache_XXXXXX", cbm_tmpdir());
-    if (!cbm_mkdtemp(session_root) || !cbm_mkdtemp(cache)) {
+    snprintf(session_root, sizeof(session_root), "%s/ani_daemon_session_XXXXXX", ani_tmpdir());
+    snprintf(cache, sizeof(cache), "%s/ani_daemon_cache_XXXXXX", ani_tmpdir());
+    if (!ani_mkdtemp(session_root) || !ani_mkdtemp(cache)) {
         th_rmtree(session_root);
         th_rmtree(cache);
-        FAIL("cbm_mkdtemp failed");
+        FAIL("ani_mkdtemp failed");
     }
 
     char repo[1024];
@@ -13432,37 +13432,37 @@ TEST(index_repository_relative_path_uses_explicit_session_root) {
     snprintf(source, sizeof(source), "%s/main.py", repo);
     ASSERT_EQ(th_write_file(source, "def main():\n    return 1\n"), 0);
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    const char *saved_supervisor = getenv("CBM_INDEX_SUPERVISOR");
+    const char *saved_supervisor = getenv("ANI_INDEX_SUPERVISOR");
     char *saved_supervisor_copy = saved_supervisor ? strdup(saved_supervisor) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
-    cbm_setenv("CBM_INDEX_SUPERVISOR", "0", 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_INDEX_SUPERVISOR", "0", 1);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
-    bool context_set = srv && cbm_mcp_server_set_session_context(srv, session_root, session_root);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
+    bool context_set = srv && ani_mcp_server_set_session_context(srv, session_root, session_root);
     const char request[] = "{\"jsonrpc\":\"2.0\",\"id\":89,\"method\":\"tools/call\","
                            "\"params\":{\"name\":\"index_repository\","
                            "\"arguments\":{\"repo_path\":\"repo\",\"mode\":\"fast\"}}}";
-    char *response = context_set ? cbm_mcp_server_handle(srv, request) : NULL;
+    char *response = context_set ? ani_mcp_server_handle(srv, request) : NULL;
     bool accepted = response && strstr(response, "outside the allowed root") == NULL &&
                     strstr(response, "\"isError\":true") == NULL;
 
-    char *project = cbm_project_name_from_path(repo);
-    char db_path[CBM_SZ_4K];
+    char *project = ani_project_name_from_path(repo);
+    char db_path[ANI_SZ_4K];
     snprintf(db_path, sizeof(db_path), "%s/%s.db", cache, project ? project : "missing");
-    bool indexed_session_repo = project && cbm_file_size(db_path) >= 0;
+    bool indexed_session_repo = project && ani_file_size(db_path) >= 0;
 
     free(response);
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     cleanup_project_db(cache, project);
     free(project);
     restore_cache_dir(saved_cache_copy);
     free(saved_cache_copy);
     if (saved_supervisor_copy) {
-        cbm_setenv("CBM_INDEX_SUPERVISOR", saved_supervisor_copy, 1);
+        ani_setenv("ANI_INDEX_SUPERVISOR", saved_supervisor_copy, 1);
     } else {
-        cbm_unsetenv("CBM_INDEX_SUPERVISOR");
+        ani_unsetenv("ANI_INDEX_SUPERVISOR");
     }
     free(saved_supervisor_copy);
     th_rmtree(session_root);
@@ -13497,44 +13497,44 @@ enum {
 
 #ifndef _WIN32
 static int idxcanon_supervised_session_path_check(const char *session_root, const char *decoy_cwd) {
-    char saved_cwd[CBM_SZ_4K];
-    if (!cbm_getcwd(saved_cwd, sizeof(saved_cwd))) {
+    char saved_cwd[ANI_SZ_4K];
+    if (!ani_getcwd(saved_cwd, sizeof(saved_cwd))) {
         return IDXCANON_GETCWD_FAILED;
     }
-    if (cbm_chdir(decoy_cwd) != 0) {
+    if (ani_chdir(decoy_cwd) != 0) {
         return IDXCANON_CHDIR_FAILED;
     }
 
     /* Match a real supervisor host. Environment changes are isolated to this
      * forked child and inherited by its worker; the parent test process keeps
      * its supervisor kill switch and allowed-root environment untouched. */
-    cbm_index_supervisor_mark_host();
-    cbm_unsetenv("CBM_INDEX_SUPERVISOR");
-    cbm_unsetenv("CBM_ALLOWED_ROOT");
-    cbm_setenv("CBM_INDEX_MAX_RESTARTS", "1", 1);
-    cbm_setenv("CBM_INDEX_WORKER_TIMEOUT_S", "30", 1);
+    ani_index_supervisor_mark_host();
+    ani_unsetenv("ANI_INDEX_SUPERVISOR");
+    ani_unsetenv("ANI_ALLOWED_ROOT");
+    ani_setenv("ANI_INDEX_MAX_RESTARTS", "1", 1);
+    ani_setenv("ANI_INDEX_WORKER_TIMEOUT_S", "30", 1);
 
-    char session_repo[CBM_SZ_4K];
-    char decoy_repo[CBM_SZ_4K];
+    char session_repo[ANI_SZ_4K];
+    char decoy_repo[ANI_SZ_4K];
     snprintf(session_repo, sizeof(session_repo), "%s/repo", session_root);
     snprintf(decoy_repo, sizeof(decoy_repo), "%s/repo", decoy_cwd);
-    char *session_project = cbm_project_name_from_path(session_repo);
-    char *decoy_project = cbm_project_name_from_path(decoy_repo);
+    char *session_project = ani_project_name_from_path(session_repo);
+    char *decoy_project = ani_project_name_from_path(decoy_repo);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     int code = IDXCANON_OK;
     if (!srv) {
         code = IDXCANON_NO_SERVER;
-    } else if (!cbm_mcp_server_set_session_context(srv, session_root, session_root)) {
+    } else if (!ani_mcp_server_set_session_context(srv, session_root, session_root)) {
         code = IDXCANON_CONTEXT_FAILED;
     }
 
-    int spawns_before = cbm_index_supervisor_spawn_count();
+    int spawns_before = ani_index_supervisor_spawn_count();
     char *resp = code == IDXCANON_OK
-                     ? cbm_mcp_handle_tool(srv, "index_repository",
+                     ? ani_mcp_handle_tool(srv, "index_repository",
                                            "{\"repo_path\":\"repo\",\"mode\":\"fast\"}")
                      : NULL;
-    int spawns_after = cbm_index_supervisor_spawn_count();
+    int spawns_after = ani_index_supervisor_spawn_count();
     if (code == IDXCANON_OK && spawns_after == spawns_before) {
         code = IDXCANON_NO_SPAWN;
     } else if (code == IDXCANON_OK && !resp) {
@@ -13545,7 +13545,7 @@ static int idxcanon_supervised_session_path_check(const char *session_root, cons
     }
 
     if (code == IDXCANON_OK) {
-        char expected[CBM_SZ_4K];
+        char expected[ANI_SZ_4K];
         snprintf(expected, sizeof(expected), "\"project\":\"%s\"",
                  session_project ? session_project : "");
         if (!session_project || !response_contains_json_fragment(resp, expected)) {
@@ -13558,32 +13558,32 @@ static int idxcanon_supervised_session_path_check(const char *session_root, cons
      * and creates this project DB. Its absence proves the original JSON did not
      * substitute a different path after the parent validated session_repo. */
     if (code == IDXCANON_OK) {
-        const char *cache = getenv("CBM_CACHE_DIR");
-        char decoy_db[CBM_SZ_4K];
+        const char *cache = getenv("ANI_CACHE_DIR");
+        char decoy_db[ANI_SZ_4K];
         snprintf(decoy_db, sizeof(decoy_db), "%s/%s.db", cache ? cache : "",
                  decoy_project ? decoy_project : "");
-        if (!cache || !decoy_project || cbm_file_size(decoy_db) >= 0) {
+        if (!cache || !decoy_project || ani_file_size(decoy_db) >= 0) {
             code = IDXCANON_DECOY_INDEXED;
         }
     }
 
     if (code == IDXCANON_OK) {
-        char query[CBM_SZ_4K];
+        char query[ANI_SZ_4K];
         snprintf(query, sizeof(query),
                  "{\"project\":\"%s\",\"name_pattern\":\"canonical_target_fn\","
                  "\"label\":\"Function\"}",
                  session_project ? session_project : "");
-        char *search = cbm_mcp_handle_tool(srv, "search_graph", query);
+        char *search = ani_mcp_handle_tool(srv, "search_graph", query);
         if (!session_project || !search || !strstr(search, "canonical_target_fn")) {
             code = IDXCANON_TARGET_MISSING;
         }
         free(search);
     }
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     free(session_project);
     free(decoy_project);
-    if (cbm_chdir(saved_cwd) != 0 && code == IDXCANON_OK) {
+    if (ani_chdir(saved_cwd) != 0 && code == IDXCANON_OK) {
         code = IDXCANON_CWD_RESTORE_FAILED;
     }
     return code;
@@ -13597,26 +13597,26 @@ TEST(index_repository_supervisor_uses_canonical_session_path) {
     char session_root[512];
     char decoy_cwd[512];
     char cache[512];
-    snprintf(session_root, sizeof(session_root), "%s/cbm_canonical_session_XXXXXX", cbm_tmpdir());
-    snprintf(decoy_cwd, sizeof(decoy_cwd), "%s/cbm_canonical_decoy_XXXXXX", cbm_tmpdir());
-    snprintf(cache, sizeof(cache), "%s/cbm_canonical_cache_XXXXXX", cbm_tmpdir());
-    if (!cbm_mkdtemp(session_root) || !cbm_mkdtemp(decoy_cwd) || !cbm_mkdtemp(cache)) {
+    snprintf(session_root, sizeof(session_root), "%s/ani_canonical_session_XXXXXX", ani_tmpdir());
+    snprintf(decoy_cwd, sizeof(decoy_cwd), "%s/ani_canonical_decoy_XXXXXX", ani_tmpdir());
+    snprintf(cache, sizeof(cache), "%s/ani_canonical_cache_XXXXXX", ani_tmpdir());
+    if (!ani_mkdtemp(session_root) || !ani_mkdtemp(decoy_cwd) || !ani_mkdtemp(cache)) {
         th_rmtree(session_root);
         th_rmtree(decoy_cwd);
         th_rmtree(cache);
-        FAIL("cbm_mkdtemp failed");
+        FAIL("ani_mkdtemp failed");
     }
 
-    char session_source[CBM_SZ_4K];
-    char decoy_source[CBM_SZ_4K];
+    char session_source[ANI_SZ_4K];
+    char decoy_source[ANI_SZ_4K];
     snprintf(session_source, sizeof(session_source), "%s/repo/main.py", session_root);
     snprintf(decoy_source, sizeof(decoy_source), "%s/repo/main.py", decoy_cwd);
     ASSERT_EQ(th_write_file(session_source, "def canonical_target_fn():\n    return 1\n"), 0);
     ASSERT_EQ(th_write_file(decoy_source, "def decoy_fn():\n    return 2\n"), 0);
 
-    const char *saved_cache = getenv("CBM_CACHE_DIR");
+    const char *saved_cache = getenv("ANI_CACHE_DIR");
     char *saved_cache_copy = saved_cache ? strdup(saved_cache) : NULL;
-    cbm_setenv("CBM_CACHE_DIR", cache, 1);
+    ani_setenv("ANI_CACHE_DIR", cache, 1);
 
     int code = -1;
     bool signalled = false;
@@ -13637,12 +13637,12 @@ TEST(index_repository_supervisor_uses_canonical_session_path) {
         sig = WTERMSIG(status);
     }
 
-    char session_repo[CBM_SZ_4K];
-    char decoy_repo[CBM_SZ_4K];
+    char session_repo[ANI_SZ_4K];
+    char decoy_repo[ANI_SZ_4K];
     snprintf(session_repo, sizeof(session_repo), "%s/repo", session_root);
     snprintf(decoy_repo, sizeof(decoy_repo), "%s/repo", decoy_cwd);
-    char *session_project = cbm_project_name_from_path(session_repo);
-    char *decoy_project = cbm_project_name_from_path(decoy_repo);
+    char *session_project = ani_project_name_from_path(session_repo);
+    char *decoy_project = ani_project_name_from_path(decoy_repo);
     cleanup_project_db(cache, session_project);
     cleanup_project_db(cache, decoy_project);
     free(session_project);
@@ -13677,16 +13677,16 @@ TEST(index_repository_supervisor_uses_canonical_session_path) {
  * cover the query side: prose is findable, the excluded labels come back, and
  * the ranked query and the count query still agree. */
 
-static cbm_mcp_server_t *setup_prose_search_server(const char *proj) {
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+static ani_mcp_server_t *setup_prose_search_server(const char *proj) {
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     if (!srv) {
         return NULL;
     }
-    cbm_store_t *st = cbm_mcp_server_store(srv);
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/prose");
+    ani_store_t *st = ani_mcp_server_store(srv);
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/prose");
 
-    cbm_node_t section = {.project = proj,
+    ani_node_t section = {.project = proj,
                           .label = "Section",
                           .name = "Installation",
                           .qualified_name = "prose.README.Installation",
@@ -13695,9 +13695,9 @@ static cbm_mcp_server_t *setup_prose_search_server(const char *proj) {
                           .end_line = 20,
                           .properties_json = "{\"docstring\":\"provisions an ephemeral "
                                              "workstation runner and seeds the cache\"}"};
-    cbm_store_upsert_node(st, &section);
+    ani_store_upsert_node(st, &section);
 
-    cbm_node_t module = {.project = proj,
+    ani_node_t module = {.project = proj,
                          .label = "Module",
                          .name = "action.yml",
                          .qualified_name = "prose.action_yml",
@@ -13706,29 +13706,29 @@ static cbm_mcp_server_t *setup_prose_search_server(const char *proj) {
                          .end_line = 40,
                          .properties_json =
                              "{\"docstring\":\"aggregates telemetry from every shard\"}"};
-    cbm_store_upsert_node(st, &module);
+    ani_store_upsert_node(st, &module);
 
-    cbm_node_t fn = {.project = proj,
+    ani_node_t fn = {.project = proj,
                      .label = "Function",
                      .name = "telemetryCollector",
                      .qualified_name = "prose.src.telemetryCollector",
                      .file_path = "src/collect.c",
                      .start_line = 3,
                      .end_line = 9};
-    cbm_store_upsert_node(st, &fn);
+    ani_store_upsert_node(st, &fn);
 
-    cbm_store_fts_rebuild(st, NULL, 0);
+    ani_store_fts_rebuild(st, NULL, 0);
     return srv;
 }
 
-static char *prose_search(cbm_mcp_server_t *srv, const char *proj, const char *query) {
+static char *prose_search(ani_mcp_server_t *srv, const char *proj, const char *query) {
     char req[512];
     snprintf(req, sizeof(req),
              "{\"jsonrpc\":\"2.0\",\"id\":518,\"method\":\"tools/call\","
              "\"params\":{\"name\":\"search_graph\","
              "\"arguments\":{\"project\":\"%s\",\"query\":\"%s\",\"limit\":10}}}",
              proj, query);
-    char *resp = cbm_mcp_server_handle(srv, req);
+    char *resp = ani_mcp_server_handle(srv, req);
     if (!resp) {
         return NULL;
     }
@@ -13738,7 +13738,7 @@ static char *prose_search(cbm_mcp_server_t *srv, const char *proj, const char *q
 }
 
 TEST(bm25_finds_section_by_its_prose_issue518) {
-    cbm_mcp_server_t *srv = setup_prose_search_server("prose518");
+    ani_mcp_server_t *srv = setup_prose_search_server("prose518");
     ASSERT_NOT_NULL(srv);
 
     /* "ephemeral" appears NOWHERE in any identifier — only in the section's
@@ -13750,12 +13750,12 @@ TEST(bm25_finds_section_by_its_prose_issue518) {
     ASSERT_NOT_NULL(strstr(inner, "Section"));
     free(inner);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
 TEST(bm25_finds_module_by_promoted_description_issue519) {
-    cbm_mcp_server_t *srv = setup_prose_search_server("prose519");
+    ani_mcp_server_t *srv = setup_prose_search_server("prose519");
     ASSERT_NOT_NULL(srv);
 
     /* A config file's own description, promoted onto its Module node. Module
@@ -13766,7 +13766,7 @@ TEST(bm25_finds_module_by_promoted_description_issue519) {
     ASSERT_NOT_NULL(strstr(inner, "Module"));
     free(inner);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -13774,7 +13774,7 @@ TEST(bm25_results_and_total_stay_consistent_issue518) {
     /* The ranked query and the count query share an inner candidate window and
      * MIRROR each other's filter. Changing the label exclusion (or the weights)
      * in only one silently reports a total that does not describe the rows. */
-    cbm_mcp_server_t *srv = setup_prose_search_server("prosecount");
+    ani_mcp_server_t *srv = setup_prose_search_server("prosecount");
     ASSERT_NOT_NULL(srv);
 
     char *inner = prose_search(srv, "prosecount", "telemetry");
@@ -13793,7 +13793,7 @@ TEST(bm25_results_and_total_stay_consistent_issue518) {
     ASSERT_NOT_NULL(strstr(inner, "prose.src.telemetryCollector"));
     free(inner);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -13801,28 +13801,28 @@ TEST(bm25_identifier_match_outranks_prose_only_match_issue518) {
     /* The 0.3 body weight is what keeps prose from drowning identifiers. Both
      * candidates carry the same label boost, so the ordering here is decided by
      * the column weights alone. */
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ani_mcp_server_t *srv = ani_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     const char *proj = "prose-rank";
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, "/tmp/prose-rank");
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, "/tmp/prose-rank");
 
-    cbm_node_t by_name = {.project = proj,
+    ani_node_t by_name = {.project = proj,
                           .label = "Function",
                           .name = "reconcile",
                           .qualified_name = "pr.a.reconcile",
                           .file_path = "a.c"};
-    ASSERT_TRUE(cbm_store_upsert_node(st, &by_name) > 0);
+    ASSERT_TRUE(ani_store_upsert_node(st, &by_name) > 0);
 
-    cbm_node_t by_body = {.project = proj,
+    ani_node_t by_body = {.project = proj,
                           .label = "Function",
                           .name = "zzz",
                           .qualified_name = "pr.b.zzz",
                           .file_path = "b.c",
                           .properties_json = "{\"docstring\":\"reconcile the ledger\"}"};
-    ASSERT_TRUE(cbm_store_upsert_node(st, &by_body) > 0);
-    ASSERT_EQ(cbm_store_fts_rebuild(st, NULL, 0), CBM_STORE_OK);
+    ASSERT_TRUE(ani_store_upsert_node(st, &by_body) > 0);
+    ASSERT_EQ(ani_store_fts_rebuild(st, NULL, 0), ANI_STORE_OK);
 
     char *inner = prose_search(srv, proj, "reconcile");
     ASSERT_NOT_NULL(inner);
@@ -13833,7 +13833,7 @@ TEST(bm25_identifier_match_outranks_prose_only_match_issue518) {
     ASSERT_TRUE(name_hit < body_hit); /* ... but never above the identifier */
     free(inner);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     PASS();
 }
 
@@ -13842,17 +13842,17 @@ TEST(bm25_searches_legacy_four_column_fts_without_error_issue518) {
      * column is opened by the current binary. bm25()'s fifth weight must be
      * inert there, not an error: FTS5 reads a weight only for a column an
      * instance actually landed in. */
-    char *td = th_mktempdir("cbm_mcp_legacy_fts");
+    char *td = th_mktempdir("ani_mcp_legacy_fts");
     ASSERT_NOT_NULL(td);
-    /* cbm_mcp_server_new(project) opens <cache_dir>/<project>.db, so seeding
+    /* ani_mcp_server_new(project) opens <cache_dir>/<project>.db, so seeding
      * the legacy table THERE is what puts the server on a pre-body database —
      * the same way a real upgrade finds one. */
     char saved_cache[512] = {0};
-    const char *prev = getenv("CBM_CACHE_DIR");
+    const char *prev = getenv("ANI_CACHE_DIR");
     if (prev) {
         snprintf(saved_cache, sizeof(saved_cache), "%s", prev);
     }
-    cbm_setenv("CBM_CACHE_DIR", td, 1);
+    ani_setenv("ANI_CACHE_DIR", td, 1);
 
     const char *proj = "legacyfts";
     char dbpath[600];
@@ -13868,21 +13868,21 @@ TEST(bm25_searches_legacy_four_column_fts_without_error_issue518) {
               SQLITE_OK);
     sqlite3_close(raw);
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(proj);
+    ani_mcp_server_t *srv = ani_mcp_server_new(proj);
     ASSERT_NOT_NULL(srv);
-    cbm_store_t *st = cbm_mcp_server_store(srv);
+    ani_store_t *st = ani_mcp_server_store(srv);
     ASSERT_NOT_NULL(st);
-    cbm_mcp_server_set_project(srv, proj);
-    cbm_store_upsert_project(st, proj, td);
+    ani_mcp_server_set_project(srv, proj);
+    ani_store_upsert_project(st, proj, td);
 
-    cbm_node_t fn = {.project = proj,
+    ani_node_t fn = {.project = proj,
                      .label = "Function",
                      .name = "reconcile",
                      .qualified_name = "legacy.a.reconcile",
                      .file_path = "a.c",
                      .properties_json = "{\"docstring\":\"prose that cannot be indexed here\"}"};
-    ASSERT_TRUE(cbm_store_upsert_node(st, &fn) > 0);
-    ASSERT_EQ(cbm_store_fts_rebuild(st, NULL, 0), CBM_STORE_OK);
+    ASSERT_TRUE(ani_store_upsert_node(st, &fn) > 0);
+    ASSERT_EQ(ani_store_fts_rebuild(st, NULL, 0), ANI_STORE_OK);
 
     char *inner = prose_search(srv, proj, "reconcile");
     ASSERT_NOT_NULL(inner);
@@ -13896,11 +13896,11 @@ TEST(bm25_searches_legacy_four_column_fts_without_error_issue518) {
     ASSERT_NULL(strstr(inner, "legacy.a.reconcile"));
     free(inner);
 
-    cbm_mcp_server_free(srv);
+    ani_mcp_server_free(srv);
     if (saved_cache[0]) {
-        cbm_setenv("CBM_CACHE_DIR", saved_cache, 1);
+        ani_setenv("ANI_CACHE_DIR", saved_cache, 1);
     } else {
-        cbm_unsetenv("CBM_CACHE_DIR");
+        ani_unsetenv("ANI_CACHE_DIR");
     }
     th_rmtree(td);
     PASS();
@@ -13982,7 +13982,7 @@ SUITE(mcp) {
     /* Server protocol handling */
     RUN_TEST(server_handle_initialize);
     RUN_TEST(server_handle_initialized_notification);
-#ifdef CBM_ENABLE_TEST_SEAMS
+#ifdef ANI_ENABLE_TEST_SEAMS
     RUN_TEST(mcp_issue403_sensitive_root_stops_before_discovery_count);
     RUN_TEST(mcp_issue403_explicit_approval_preserves_auto_index);
 #endif

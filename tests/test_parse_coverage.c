@@ -6,9 +6,9 @@
  * When tree-sitter hits a construct it cannot parse (ERROR/MISSING nodes in
  * the tree), extraction silently drops every definition inside the failed
  * region — the file looks fully indexed but is not. `ts_node_has_error(root)`
- * detects this, yet nothing consumed it: CBMFileResult gained the fields
+ * detects this, yet nothing consumed it: ANIFileResult gained the fields
  * parse_incomplete / error_ranges / error_region_count, but the parse site in
- * cbm_extract_file_impl never sets them.
+ * ani_extract_file_impl never sets them.
  *
  * Canonical trigger: the preprocessor-blind #ifdef-split-brace pattern in C —
  * both branches open `fn(...) {` and share ONE closing brace, so the raw text
@@ -17,7 +17,7 @@
  *
  * ── The contract these tests enforce ────────────────────────────────────────
  *   RED  (unfixed): parse_incomplete is never set → flagged-file tests fail.
- *   GREEN (fixed):  cbm_extract_file sets parse_incomplete=true iff the tree
+ *   GREEN (fixed):  ani_extract_file sets parse_incomplete=true iff the tree
  *                   contains ERROR/MISSING nodes, records the 1-based line
  *                   ranges of the TOP-MOST error regions ("start-end,..."),
  *                   bounded by the 64-region cap, and clean files stay
@@ -29,18 +29,18 @@
  */
 
 #include "test_framework.h"
-#include "cbm.h"
+#include "ani.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 /* Convenience extract wrapper (same shape as test_extraction_imports.c). */
-static CBMFileResult *do_extract(const char *src, CBMLanguage lang, const char *path) {
-    return cbm_extract_file(src, (int)strlen(src), lang, "covproj", path, 0, NULL, NULL);
+static ANIFileResult *do_extract(const char *src, ANILanguage lang, const char *path) {
+    return ani_extract_file(src, (int)strlen(src), lang, "covproj", path, 0, NULL, NULL);
 }
 
 /* Return 1 if any extracted definition has the given short name. */
-static int has_def(CBMFileResult *r, const char *name) {
+static int has_def(ANIFileResult *r, const char *name) {
     for (int i = 0; i < r->defs.count; i++) {
         if (r->defs.items[i].name && strcmp(r->defs.items[i].name, name) == 0) {
             return 1;
@@ -123,25 +123,25 @@ static const char *PERL_MALFORMED = "package Broken;\n"
 /* ── Tests ────────────────────────────────────────────────────────────────── */
 
 TEST(c_ifdef_split_brace_sets_parse_incomplete) {
-    CBMFileResult *r = do_extract(C_IFDEF_SPLIT, CBM_LANG_C, "split.c");
+    ANIFileResult *r = do_extract(C_IFDEF_SPLIT, ANI_LANG_C, "split.c");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error); /* parse succeeded — this is the silent-partial class */
     ASSERT_TRUE(r->parse_incomplete);
     ASSERT_GTE(r->error_region_count, 1);
     ASSERT_NOT_NULL(r->error_ranges);
     ASSERT_GT((int)strlen(r->error_ranges), 0);
-    cbm_free_result(r);
+    ani_free_result(r);
     PASS();
 }
 
 TEST(c_ifdef_split_brace_neighbors_still_extracted) {
     /* Documents WHY the flag matters: the file is partially indexed —
      * neighbors extract, so nothing else hints at the dropped region. */
-    CBMFileResult *r = do_extract(C_IFDEF_SPLIT, CBM_LANG_C, "split.c");
+    ANIFileResult *r = do_extract(C_IFDEF_SPLIT, ANI_LANG_C, "split.c");
     ASSERT_NOT_NULL(r);
     ASSERT_TRUE(has_def(r, "ok_before"));
     ASSERT_TRUE(r->parse_incomplete);
-    cbm_free_result(r);
+    ani_free_result(r);
     PASS();
 }
 
@@ -149,7 +149,7 @@ TEST(c_error_range_points_at_failed_region) {
     /* The recorded range must overlap the #ifdef construct (lines 5–11) so an
      * agent can be pointed at the exact unparsed region. Format is
      * "start-end[,start-end...]", 1-based, inclusive. */
-    CBMFileResult *r = do_extract(C_IFDEF_SPLIT, CBM_LANG_C, "split.c");
+    ANIFileResult *r = do_extract(C_IFDEF_SPLIT, ANI_LANG_C, "split.c");
     ASSERT_NOT_NULL(r);
     ASSERT_TRUE(r->parse_incomplete);
     ASSERT_NOT_NULL(r->error_ranges);
@@ -161,13 +161,13 @@ TEST(c_error_range_points_at_failed_region) {
     ASSERT_GTE(end, 5u);    /* ends at or after the region's first line   */
     ASSERT_LTE(end, 13u);   /* never past EOF */
     ASSERT_LTE(start, end);
-    cbm_free_result(r);
+    ani_free_result(r);
     PASS();
 }
 
 TEST(c_clean_file_not_flagged) {
     /* No false positives: a clean parse must stay completely unflagged. */
-    CBMFileResult *r = do_extract(C_CLEAN, CBM_LANG_C, "clean.c");
+    ANIFileResult *r = do_extract(C_CLEAN, ANI_LANG_C, "clean.c");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     ASSERT_FALSE(r->parse_incomplete);
@@ -175,18 +175,18 @@ TEST(c_clean_file_not_flagged) {
     ASSERT_NULL(r->error_ranges);
     ASSERT_TRUE(has_def(r, "alpha"));
     ASSERT_TRUE(has_def(r, "beta"));
-    cbm_free_result(r);
+    ani_free_result(r);
     PASS();
 }
 
 TEST(py_unrecovered_garbage_sets_parse_incomplete) {
-    CBMFileResult *r = do_extract(PY_GARBAGE, CBM_LANG_PYTHON, "garbage.py");
+    ANIFileResult *r = do_extract(PY_GARBAGE, ANI_LANG_PYTHON, "garbage.py");
     ASSERT_NOT_NULL(r);
     ASSERT_TRUE(r->parse_incomplete);
     ASSERT_GTE(r->error_region_count, 1);
     ASSERT_NOT_NULL(r->error_ranges);
     ASSERT_TRUE(has_def(r, "ok")); /* partial: clean defs still extracted */
-    cbm_free_result(r);
+    ani_free_result(r);
     PASS();
 }
 
@@ -194,30 +194,30 @@ TEST(py_recovered_def_not_flagged) {
     /* Recovery subtraction: `def broken(:` produces an ERROR region, but the
      * def walker still recovers `broken` covering the whole region — the
      * construct IS in the graph, so flagging it would be a false miss. */
-    CBMFileResult *r = do_extract(PY_BROKEN_RECOVERED, CBM_LANG_PYTHON, "broken.py");
+    ANIFileResult *r = do_extract(PY_BROKEN_RECOVERED, ANI_LANG_PYTHON, "broken.py");
     ASSERT_NOT_NULL(r);
     ASSERT_TRUE(has_def(r, "broken")); /* the recovery that justifies unflagging */
     ASSERT_FALSE(r->parse_incomplete);
     ASSERT_EQ(r->error_region_count, 0);
     ASSERT_NULL(r->error_ranges);
-    cbm_free_result(r);
+    ani_free_result(r);
     PASS();
 }
 
 TEST(py_clean_file_not_flagged) {
-    CBMFileResult *r = do_extract(PY_CLEAN, CBM_LANG_PYTHON, "clean.py");
+    ANIFileResult *r = do_extract(PY_CLEAN, ANI_LANG_PYTHON, "clean.py");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->parse_incomplete);
     ASSERT_EQ(r->error_region_count, 0);
     ASSERT_NULL(r->error_ranges);
-    cbm_free_result(r);
+    ani_free_result(r);
     PASS();
 }
 
 TEST(error_region_cap_is_honored) {
     /* Pathological input: many separate unrecoverable garbage blocks
      * interleaved with valid defs. The collector must stay bounded by its
-     * 64-region cap (matches CBM_MAX_ERROR_REGIONS in cbm.c) — pathological
+     * 64-region cap (matches ANI_MAX_ERROR_REGIONS in ani.c) — pathological
      * input can't blow up the report, and the flag itself still fires. */
     enum { GARBAGE_BLOCKS = 200, LINE_CAP = 64 };
     char *src = (char *)malloc(GARBAGE_BLOCKS * 96 + 1);
@@ -227,14 +227,14 @@ TEST(error_region_cap_is_honored) {
         off += (size_t)snprintf(
             src + off, 96, "def ok%d():\n    return %d\n%%%%%% garbage%d ((( %%%%%%\n", i, i, i);
     }
-    CBMFileResult *r = do_extract(src, CBM_LANG_PYTHON, "many_errors.py");
+    ANIFileResult *r = do_extract(src, ANI_LANG_PYTHON, "many_errors.py");
     free(src);
     ASSERT_NOT_NULL(r);
     ASSERT_TRUE(r->parse_incomplete);
     ASSERT_GTE(r->error_region_count, 1);
     ASSERT_LTE(r->error_region_count, LINE_CAP);
     ASSERT_NOT_NULL(r->error_ranges);
-    cbm_free_result(r);
+    ani_free_result(r);
     PASS();
 }
 
@@ -252,12 +252,12 @@ TEST(c_trailing_recovered_defs_keep_flag) {
                       "}\n"
                       "void ok_after(void) { }\n"
                       "static int nested_ok(int y) { return y; }\n";
-    CBMFileResult *r = do_extract(src, CBM_LANG_C, "probe.c");
+    ANIFileResult *r = do_extract(src, ANI_LANG_C, "probe.c");
     ASSERT_NOT_NULL(r);
     ASSERT_TRUE(has_def(r, "guarded_alt")); /* partial recovery inside the region */
     ASSERT_TRUE(r->parse_incomplete);       /* ...but `guarded` is still lost */
     ASSERT_GTE(r->error_region_count, 1);
-    cbm_free_result(r);
+    ani_free_result(r);
     PASS();
 }
 
@@ -285,10 +285,10 @@ TEST(c_trailing_recovered_defs_keep_flag) {
 TEST(dockerfile_missing_final_newline_not_flagged_issue1610) {
     const char *src = "FROM mcr.microsoft.com/dotnet/aspnet:8.0\n"
                       "ENTRYPOINT [\"dotnet\", \"App.dll\"]"; /* deliberately no \n */
-    CBMFileResult *r = do_extract(src, CBM_LANG_DOCKERFILE, "Dockerfile");
+    ANIFileResult *r = do_extract(src, ANI_LANG_DOCKERFILE, "Dockerfile");
     ASSERT_NOT_NULL(r);
     bool flagged = r->parse_incomplete;
-    cbm_free_result(r);
+    ani_free_result(r);
     if (flagged) {
         FAIL("a Dockerfile lacking only its final newline must not be parse_partial");
     }
@@ -301,10 +301,10 @@ TEST(dockerfile_missing_final_newline_not_flagged_issue1610) {
 TEST(dockerfile_with_final_newline_still_clean_issue1610) {
     const char *src = "FROM mcr.microsoft.com/dotnet/aspnet:8.0\n"
                       "ENTRYPOINT [\"dotnet\", \"App.dll\"]\n";
-    CBMFileResult *r = do_extract(src, CBM_LANG_DOCKERFILE, "Dockerfile");
+    ANIFileResult *r = do_extract(src, ANI_LANG_DOCKERFILE, "Dockerfile");
     ASSERT_NOT_NULL(r);
     bool flagged = r->parse_incomplete;
-    cbm_free_result(r);
+    ani_free_result(r);
     if (flagged) {
         FAIL("a terminated Dockerfile must not be parse_partial");
     }
@@ -315,14 +315,14 @@ TEST(dockerfile_with_final_newline_still_clean_issue1610) {
  * ASCII space and then EOF was reported as parse_partial. */
 TEST(dockerfile_trailing_space_at_eof_not_flagged_issue1746) {
     const char *src = "FROM scratch\nENTRYPOINT [\"a\"] ";
-    CBMFileResult *r = do_extract(src, CBM_LANG_DOCKERFILE, "Dockerfile");
+    ANIFileResult *r = do_extract(src, ANI_LANG_DOCKERFILE, "Dockerfile");
     ASSERT_NOT_NULL(r);
     bool flagged = r->parse_incomplete;
     if (flagged) {
         fprintf(stderr, "  exact issue #1746 fixture flagged: ranges=%s\n",
                 r->error_ranges ? r->error_ranges : "(none)");
     }
-    cbm_free_result(r);
+    ani_free_result(r);
     if (flagged) {
         FAIL("trailing horizontal whitespace at Dockerfile EOF must not be parse_partial");
     }
@@ -333,30 +333,30 @@ TEST(dockerfile_trailing_space_at_eof_not_flagged_issue1746) {
  * control executes even while the exact affected fixture is RED. */
 TEST(dockerfile_trailing_space_with_final_newline_clean_issue1746) {
     const char *src = "FROM scratch\nENTRYPOINT [\"a\"] \n";
-    CBMFileResult *r = do_extract(src, CBM_LANG_DOCKERFILE, "Dockerfile");
+    ANIFileResult *r = do_extract(src, ANI_LANG_DOCKERFILE, "Dockerfile");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->parse_incomplete);
-    cbm_free_result(r);
+    ani_free_result(r);
     PASS();
 }
 
 /* Removing the trailing space while retaining EOF must also stay clean. */
 TEST(dockerfile_without_trailing_space_at_eof_clean_issue1746) {
     const char *src = "FROM scratch\nENTRYPOINT [\"a\"]";
-    CBMFileResult *r = do_extract(src, CBM_LANG_DOCKERFILE, "Dockerfile");
+    ANIFileResult *r = do_extract(src, ANI_LANG_DOCKERFILE, "Dockerfile");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->parse_incomplete);
-    cbm_free_result(r);
+    ani_free_result(r);
     PASS();
 }
 
 /* The reporter also observed the same failure when the first line uses CRLF. */
 TEST(dockerfile_crlf_trailing_space_at_eof_not_flagged_issue1746) {
     const char *src = "FROM scratch\r\nENTRYPOINT [\"a\"] ";
-    CBMFileResult *r = do_extract(src, CBM_LANG_DOCKERFILE, "Dockerfile");
+    ANIFileResult *r = do_extract(src, ANI_LANG_DOCKERFILE, "Dockerfile");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->parse_incomplete);
-    cbm_free_result(r);
+    ani_free_result(r);
     PASS();
 }
 
@@ -365,23 +365,23 @@ TEST(dockerfile_crlf_trailing_space_at_eof_not_flagged_issue1746) {
 TEST(missing_final_newline_not_flagged_across_grammars_issue1610) {
     struct {
         const char *src;
-        CBMLanguage lang;
+        ANILanguage lang;
         const char *path;
     } cases[] = {
-        {"proc foo {} {}\nproc bar {} {}", CBM_LANG_TCL, "a.tcl"},
-        {"function foo\n  echo hi\nend", CBM_LANG_FISH, "a.fish"},
-        {"module example.com/m\n\ngo 1.21", CBM_LANG_GOMOD, "go.mod"},
-        {"general {\n  gaps_in = 5\n}", CBM_LANG_HYPRLANG, "hypr.conf"},
+        {"proc foo {} {}\nproc bar {} {}", ANI_LANG_TCL, "a.tcl"},
+        {"function foo\n  echo hi\nend", ANI_LANG_FISH, "a.fish"},
+        {"module example.com/m\n\ngo 1.21", ANI_LANG_GOMOD, "go.mod"},
+        {"general {\n  gaps_in = 5\n}", ANI_LANG_HYPRLANG, "hypr.conf"},
     };
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-        CBMFileResult *r = do_extract(cases[i].src, cases[i].lang, cases[i].path);
+        ANIFileResult *r = do_extract(cases[i].src, cases[i].lang, cases[i].path);
         ASSERT_NOT_NULL(r);
         bool flagged = r->parse_incomplete;
         if (flagged) {
             fprintf(stderr, "  %s flagged: ranges=%s\n", cases[i].path,
                     r->error_ranges ? r->error_ranges : "(none)");
         }
-        cbm_free_result(r);
+        ani_free_result(r);
         if (flagged) {
             FAIL("an unterminated final line must not be parse_partial in any grammar");
         }
@@ -404,12 +404,12 @@ TEST(real_error_before_eof_still_flagged_without_final_newline_issue1610) {
     memcpy(unterminated, C_IFDEF_SPLIT, n);
     unterminated[n - 1] = '\0'; /* drop the final newline */
 
-    CBMFileResult *r = do_extract(unterminated, CBM_LANG_C, "split.c");
+    ANIFileResult *r = do_extract(unterminated, ANI_LANG_C, "split.c");
     free(unterminated);
     ASSERT_NOT_NULL(r);
     bool flagged = r->parse_incomplete;
     bool has_ranges = r->error_ranges != NULL;
-    cbm_free_result(r);
+    ani_free_result(r);
     if (!flagged) {
         FAIL("a real mid-file parse failure must still be reported when the file also lacks its final newline");
     }
@@ -421,13 +421,13 @@ TEST(real_error_before_eof_still_flagged_without_final_newline_issue1610) {
 
 /* GUARD: a MISSING/ERROR node WITH WIDTH at EOF is a genuine loss and must
  * still be flagged. A Makefile whose final recipe line lacks its newline really
- * does drop the recipe from the tree — cbm's flag is honest there. */
+ * does drop the recipe from the tree — ani's flag is honest there. */
 TEST(width_bearing_error_at_eof_still_flagged_issue1610) {
     const char *src = "all:\n\techo hi"; /* no trailing newline; recipe is lost */
-    CBMFileResult *r = do_extract(src, CBM_LANG_MAKEFILE, "Makefile");
+    ANIFileResult *r = do_extract(src, ANI_LANG_MAKEFILE, "Makefile");
     ASSERT_NOT_NULL(r);
     bool flagged = r->parse_incomplete;
-    cbm_free_result(r);
+    ani_free_result(r);
     if (!flagged) {
         FAIL("a width-bearing parse failure at EOF must still be reported");
     }
@@ -438,7 +438,7 @@ TEST(width_bearing_error_at_eof_still_flagged_issue1610) {
  * reports the file as partial.  The supported upstream v1.2.1 grammar accepts
  * the format and preserves declaration extraction beyond its dot terminator. */
 TEST(perl_format_followed_by_named_sub_is_complete_issue1838) {
-    CBMFileResult *r = do_extract(PERL_FORMAT_WITH_FOLLOWING_SUB, CBM_LANG_PERL, "report.pl");
+    ANIFileResult *r = do_extract(PERL_FORMAT_WITH_FOLLOWING_SUB, ANI_LANG_PERL, "report.pl");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     bool partial = r->parse_incomplete;
@@ -452,21 +452,21 @@ TEST(perl_format_followed_by_named_sub_is_complete_issue1838) {
                 error_regions,
                 r->error_ranges ? r->error_ranges : "(none)",
                 has_following_sub);
-        cbm_free_result(r);
+        ani_free_result(r);
         FAIL("a valid Perl format and its following named sub must parse completely");
     }
-    cbm_free_result(r);
+    ani_free_result(r);
     PASS();
 }
 
 TEST(perl_malformed_source_remains_partial_issue1838) {
-    CBMFileResult *r = do_extract(PERL_MALFORMED, CBM_LANG_PERL, "broken.pl");
+    ANIFileResult *r = do_extract(PERL_MALFORMED, ANI_LANG_PERL, "broken.pl");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     ASSERT_TRUE(r->parse_incomplete);
     ASSERT_GTE(r->error_region_count, 1);
     ASSERT_NOT_NULL(r->error_ranges);
-    cbm_free_result(r);
+    ani_free_result(r);
     PASS();
 }
 
@@ -488,14 +488,14 @@ TEST(dockerfile_trailing_blank_at_eof_not_flagged_issue1746) {
         "FROM scratch\nENTRYPOINT [\"a\"] \r",   /* CRLF file truncated to CR */
     };
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-        CBMFileResult *r = do_extract(cases[i], CBM_LANG_DOCKERFILE, "Dockerfile");
+        ANIFileResult *r = do_extract(cases[i], ANI_LANG_DOCKERFILE, "Dockerfile");
         ASSERT_NOT_NULL(r);
         bool flagged = r->parse_incomplete;
         if (flagged) {
             fprintf(stderr, "  case %zu flagged: ranges=%s\n", i,
                     r->error_ranges ? r->error_ranges : "(none)");
         }
-        cbm_free_result(r);
+        ani_free_result(r);
         if (flagged) {
             FAIL("trailing blanks must not turn an absent final newline into parse_partial");
         }
@@ -512,12 +512,12 @@ TEST(real_error_before_eof_still_flagged_with_trailing_blank_issue1746) {
     memcpy(buf, C_IFDEF_SPLIT, n + 1);
     buf[n - 1] = ' '; /* final newline becomes a blank */
 
-    CBMFileResult *r = do_extract(buf, CBM_LANG_C, "split.c");
+    ANIFileResult *r = do_extract(buf, ANI_LANG_C, "split.c");
     free(buf);
     ASSERT_NOT_NULL(r);
     bool flagged = r->parse_incomplete;
     bool has_ranges = r->error_ranges != NULL;
-    cbm_free_result(r);
+    ani_free_result(r);
     if (!flagged) {
         FAIL("a real mid-file parse failure must still be reported when the file ends in blanks");
     }
@@ -531,10 +531,10 @@ TEST(real_error_before_eof_still_flagged_with_trailing_blank_issue1746) {
  * Makefile recipe really is dropped, and only zero-width nodes are excused. */
 TEST(width_bearing_error_at_eof_still_flagged_with_trailing_blank_issue1746) {
     const char *src = "all:\n\techo hi ";
-    CBMFileResult *r = do_extract(src, CBM_LANG_MAKEFILE, "Makefile");
+    ANIFileResult *r = do_extract(src, ANI_LANG_MAKEFILE, "Makefile");
     ASSERT_NOT_NULL(r);
     bool flagged = r->parse_incomplete;
-    cbm_free_result(r);
+    ani_free_result(r);
     if (!flagged) {
         FAIL("a width-bearing parse failure at EOF must still be reported when the file ends in blanks");
     }

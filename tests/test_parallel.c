@@ -18,7 +18,7 @@
 #include "discover/discover.h"
 #include "foundation/platform.h"
 #include "foundation/log.h"
-#include "cbm.h"
+#include "ani.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -30,27 +30,27 @@
 static char g_par_tmpdir[256];
 
 TEST(usage_semantic_reference_candidate_trusts_marked_producer) {
-    CBMUsage usage = {0};
-    usage.kind = CBM_USAGE_VALUE;
+    ANIUsage usage = {0};
+    usage.kind = ANI_USAGE_VALUE;
     usage.may_be_call_reference = true;
-    ASSERT_TRUE(cbm_pipeline_usage_semantic_reference_candidate(&usage));
+    ASSERT_TRUE(ani_pipeline_usage_semantic_reference_candidate(&usage));
 
     usage.may_be_call_reference = false;
-    ASSERT_FALSE(cbm_pipeline_usage_semantic_reference_candidate(&usage));
+    ASSERT_FALSE(ani_pipeline_usage_semantic_reference_candidate(&usage));
 
-    usage.kind = CBM_USAGE_CALL_REFERENCE;
-    ASSERT_TRUE(cbm_pipeline_usage_semantic_reference_candidate(&usage));
+    usage.kind = ANI_USAGE_CALL_REFERENCE;
+    ASSERT_TRUE(ani_pipeline_usage_semantic_reference_candidate(&usage));
 
     /* Lexical evidence gates only the later textual fallback. An exact
      * occurrence row must still get the chance to prove one callable target. */
     usage.semantic_reference_blocked = true;
-    ASSERT_TRUE(cbm_pipeline_usage_semantic_reference_candidate(&usage));
+    ASSERT_TRUE(ani_pipeline_usage_semantic_reference_candidate(&usage));
     PASS();
 }
 
 static int setup_parallel_repo(void) {
-    snprintf(g_par_tmpdir, sizeof(g_par_tmpdir), "/tmp/cbm_par_XXXXXX");
-    if (!cbm_mkdtemp(g_par_tmpdir))
+    snprintf(g_par_tmpdir, sizeof(g_par_tmpdir), "/tmp/ani_par_XXXXXX");
+    if (!ani_mkdtemp(g_par_tmpdir))
         return -1;
 
     char path[512];
@@ -66,7 +66,7 @@ static int setup_parallel_repo(void) {
 
     /* pkg/ */
     snprintf(path, sizeof(path), "%s/pkg", g_par_tmpdir);
-    cbm_mkdir(path);
+    ani_mkdir(path);
 
     /* pkg/service.go */
     snprintf(path, sizeof(path), "%s/pkg/service.go", g_par_tmpdir);
@@ -79,7 +79,7 @@ static int setup_parallel_repo(void) {
 
     /* pkg/util/ */
     snprintf(path, sizeof(path), "%s/pkg/util", g_par_tmpdir);
-    cbm_mkdir(path);
+    ani_mkdir(path);
 
     /* pkg/util/helper.go */
     snprintf(path, sizeof(path), "%s/pkg/util/helper.go", g_par_tmpdir);
@@ -96,7 +96,7 @@ static int setup_parallel_repo(void) {
      * INHERITS parity tests compare 0 == 0 and guard nothing (the demotion
      * bug shipped: elasticsearch had 11k implements-as-INHERITS edges). */
     snprintf(path, sizeof(path), "%s/probe", g_par_tmpdir);
-    cbm_mkdir(path);
+    ani_mkdir(path);
     snprintf(path, sizeof(path), "%s/probe/Shape.java", g_par_tmpdir);
     f = fopen(path, "w");
     if (!f)
@@ -134,8 +134,8 @@ static void teardown_parallel_repo(void) {
 /* The compact parity helpers normally omit the production structure pass.
  * Tests that exercise graph-derived import maps must seed its File-node
  * precondition explicitly, without changing legacy parity fixtures. */
-static void seed_test_file_nodes(cbm_gbuf_t *gbuf, const char *project,
-                                 const cbm_file_info_t *files, int file_count) {
+static void seed_test_file_nodes(ani_gbuf_t *gbuf, const char *project,
+                                 const ani_file_info_t *files, int file_count) {
     if (!gbuf || !project || !files) {
         return;
     }
@@ -144,11 +144,11 @@ static void seed_test_file_nodes(cbm_gbuf_t *gbuf, const char *project,
         if (!rel) {
             continue;
         }
-        char *file_qn = cbm_pipeline_fqn_compute(project, rel, "__file__");
+        char *file_qn = ani_pipeline_fqn_compute(project, rel, "__file__");
         const char *slash = strrchr(rel, '/');
         const char *basename = slash ? slash + 1 : rel;
         if (file_qn) {
-            cbm_gbuf_upsert_node(gbuf, "File", basename, file_qn, rel, 0, 0, "{}");
+            ani_gbuf_upsert_node(gbuf, "File", basename, file_qn, rel, 0, 0, "{}");
         }
         free(file_qn);
     }
@@ -160,7 +160,7 @@ static void seed_test_file_nodes(cbm_gbuf_t *gbuf, const char *project,
  * ctx — mirrors the production teardown in pipeline.c; the harness never
  * runs it, which leaked once the fixture gained typed (Java) methods. The
  * fixture has no ObjectScript, so no macro table can exist here. */
-static void harness_ctx_free_tables(cbm_pipeline_ctx_t *ctx) {
+static void harness_ctx_free_tables(ani_pipeline_ctx_t *ctx) {
     if (ctx->return_type_table) {
         for (int i = 0; i < ctx->return_type_table->count; i++) {
             free((void *)ctx->return_type_table->entries[i].return_type);
@@ -170,14 +170,14 @@ static void harness_ctx_free_tables(cbm_pipeline_ctx_t *ctx) {
     }
 }
 
-static cbm_gbuf_t *run_sequential(const char *project, const char *repo_path,
-                                  cbm_file_info_t *files, int file_count) {
-    cbm_gbuf_t *gbuf = cbm_gbuf_new(project, repo_path);
-    cbm_registry_t *reg = cbm_registry_new();
+static ani_gbuf_t *run_sequential(const char *project, const char *repo_path,
+                                  ani_file_info_t *files, int file_count) {
+    ani_gbuf_t *gbuf = ani_gbuf_new(project, repo_path);
+    ani_registry_t *reg = ani_registry_new();
     atomic_int cancelled;
     atomic_init(&cancelled, 0);
 
-    cbm_pipeline_ctx_t ctx = {
+    ani_pipeline_ctx_t ctx = {
         .project_name = project,
         .repo_path = repo_path,
         .gbuf = gbuf,
@@ -185,38 +185,38 @@ static cbm_gbuf_t *run_sequential(const char *project, const char *repo_path,
         .cancelled = &cancelled,
     };
 
-    cbm_init();
-    cbm_pipeline_pass_definitions(&ctx, files, file_count);
-    cbm_pipeline_pass_calls(&ctx, files, file_count);
-    cbm_pipeline_pass_usages(&ctx, files, file_count);
-    cbm_pipeline_pass_semantic(&ctx, files, file_count);
+    ani_init();
+    ani_pipeline_pass_definitions(&ctx, files, file_count);
+    ani_pipeline_pass_calls(&ctx, files, file_count);
+    ani_pipeline_pass_usages(&ctx, files, file_count);
+    ani_pipeline_pass_semantic(&ctx, files, file_count);
 
     harness_ctx_free_tables(&ctx);
-    cbm_registry_free(reg);
+    ani_registry_free(reg);
     return gbuf;
 }
 
-typedef void (*parallel_result_mutator_fn)(CBMFileResult **result_cache, int file_count, void *ud);
+typedef void (*parallel_result_mutator_fn)(ANIFileResult **result_cache, int file_count, void *ud);
 
 /* Production's sequential pipeline retains one extraction cache and runs the
  * cross-file LSP pass between definitions and edge materialization. Keep this
  * explicit helper for tests whose semantic target is declared in another file;
  * the lightweight run_sequential helper above intentionally predates that pass. */
-static cbm_gbuf_t *run_sequential_with_lsp_cross_and_mutator(
-    const char *project, const char *repo_path, cbm_file_info_t *files, int file_count,
+static ani_gbuf_t *run_sequential_with_lsp_cross_and_mutator(
+    const char *project, const char *repo_path, ani_file_info_t *files, int file_count,
     parallel_result_mutator_fn mutator, void *mutator_ud, bool seed_structure) {
-    cbm_gbuf_t *gbuf = cbm_gbuf_new(project, repo_path);
-    cbm_registry_t *reg = cbm_registry_new();
-    CBMFileResult **cache = (CBMFileResult **)calloc((size_t)file_count, sizeof(CBMFileResult *));
+    ani_gbuf_t *gbuf = ani_gbuf_new(project, repo_path);
+    ani_registry_t *reg = ani_registry_new();
+    ANIFileResult **cache = (ANIFileResult **)calloc((size_t)file_count, sizeof(ANIFileResult *));
     if (!gbuf || !reg || !cache) {
-        cbm_gbuf_free(gbuf);
-        cbm_registry_free(reg);
+        ani_gbuf_free(gbuf);
+        ani_registry_free(reg);
         free(cache);
         return NULL;
     }
     atomic_int cancelled;
     atomic_init(&cancelled, 0);
-    cbm_pipeline_ctx_t ctx = {
+    ani_pipeline_ctx_t ctx = {
         .project_name = project,
         .repo_path = repo_path,
         .gbuf = gbuf,
@@ -229,28 +229,28 @@ static cbm_gbuf_t *run_sequential_with_lsp_cross_and_mutator(
         seed_test_file_nodes(gbuf, project, files, file_count);
     }
 
-    cbm_init();
-    cbm_pipeline_pass_definitions(&ctx, files, file_count);
-    cbm_pipeline_pass_lsp_cross(&ctx, files, file_count, cache);
+    ani_init();
+    ani_pipeline_pass_definitions(&ctx, files, file_count);
+    ani_pipeline_pass_lsp_cross(&ctx, files, file_count, cache);
     if (mutator) {
         mutator(cache, file_count, mutator_ud);
     }
-    cbm_pipeline_pass_calls(&ctx, files, file_count);
-    cbm_pipeline_pass_usages(&ctx, files, file_count);
-    cbm_pipeline_pass_semantic(&ctx, files, file_count);
+    ani_pipeline_pass_calls(&ctx, files, file_count);
+    ani_pipeline_pass_usages(&ctx, files, file_count);
+    ani_pipeline_pass_semantic(&ctx, files, file_count);
 
     for (int i = 0; i < file_count; i++) {
-        cbm_free_result(cache[i]);
+        ani_free_result(cache[i]);
     }
     free(cache);
-    cbm_registry_free(reg);
+    ani_registry_free(reg);
     /* The cross pass builds its shared registries in the caller-owned
      * ctx->seq_cross_arena precisely so they outlive pass_calls; production's
      * run_sequential_pipeline destroys that arena after all passes, and this
      * harness must too -- LSan flagged the whole registry arena (stdlib
      * registrations included) leaking per test. */
     if (ctx.seq_cross_arena_live) {
-        cbm_arena_destroy(&ctx.seq_cross_arena);
+        ani_arena_destroy(&ctx.seq_cross_arena);
         ctx.seq_cross_arena_live = false;
     }
     if (ctx.seq_cross_def_modules) {
@@ -263,24 +263,24 @@ static cbm_gbuf_t *run_sequential_with_lsp_cross_and_mutator(
     return gbuf;
 }
 
-static cbm_gbuf_t *run_sequential_with_lsp_cross(const char *project, const char *repo_path,
-                                                 cbm_file_info_t *files, int file_count) {
+static ani_gbuf_t *run_sequential_with_lsp_cross(const char *project, const char *repo_path,
+                                                 ani_file_info_t *files, int file_count) {
     return run_sequential_with_lsp_cross_and_mutator(project, repo_path, files, file_count, NULL,
                                                      NULL, false);
 }
 
 /* ── Run parallel pipeline on files, returning gbuf ───────────────── */
 
-static cbm_gbuf_t *run_parallel_with_extract_opts_and_mutator(
-    const char *project, const char *repo_path, cbm_file_info_t *files, int file_count,
-    int worker_count, const cbm_parallel_extract_opts_t *extract_opts,
+static ani_gbuf_t *run_parallel_with_extract_opts_and_mutator(
+    const char *project, const char *repo_path, ani_file_info_t *files, int file_count,
+    int worker_count, const ani_parallel_extract_opts_t *extract_opts,
     parallel_result_mutator_fn mutator, void *mutator_ud, bool seed_structure) {
-    cbm_gbuf_t *gbuf = cbm_gbuf_new(project, repo_path);
-    cbm_registry_t *reg = cbm_registry_new();
+    ani_gbuf_t *gbuf = ani_gbuf_new(project, repo_path);
+    ani_registry_t *reg = ani_registry_new();
     atomic_int cancelled;
     atomic_init(&cancelled, 0);
 
-    cbm_pipeline_ctx_t ctx = {
+    ani_pipeline_ctx_t ctx = {
         .project_name = project,
         .repo_path = repo_path,
         .gbuf = gbuf,
@@ -293,49 +293,49 @@ static cbm_gbuf_t *run_parallel_with_extract_opts_and_mutator(
     }
 
     _Atomic int64_t shared_ids;
-    int64_t gbuf_next = cbm_gbuf_next_id(gbuf);
+    int64_t gbuf_next = ani_gbuf_next_id(gbuf);
     atomic_init(&shared_ids, gbuf_next);
 
-    CBMFileResult **result_cache = calloc((size_t)file_count, sizeof(CBMFileResult *));
+    ANIFileResult **result_cache = calloc((size_t)file_count, sizeof(ANIFileResult *));
 
-    cbm_init();
+    ani_init();
     if (extract_opts) {
-        cbm_parallel_extract_ex(&ctx, files, file_count, result_cache, &shared_ids, worker_count,
+        ani_parallel_extract_ex(&ctx, files, file_count, result_cache, &shared_ids, worker_count,
                                 extract_opts);
     } else {
-        cbm_parallel_extract(&ctx, files, file_count, result_cache, &shared_ids, worker_count);
+        ani_parallel_extract(&ctx, files, file_count, result_cache, &shared_ids, worker_count);
     }
-    cbm_gbuf_set_next_id(gbuf, atomic_load(&shared_ids));
+    ani_gbuf_set_next_id(gbuf, atomic_load(&shared_ids));
 
     if (mutator) {
         mutator(result_cache, file_count, mutator_ud);
     }
 
-    cbm_build_registry_from_cache(&ctx, files, file_count, result_cache);
-    int64_t registry_next = cbm_gbuf_next_id(gbuf);
+    ani_build_registry_from_cache(&ctx, files, file_count, result_cache);
+    int64_t registry_next = ani_gbuf_next_id(gbuf);
     if (registry_next > atomic_load(&shared_ids)) {
         atomic_store(&shared_ids, registry_next);
     }
 
     /* Cross-file LSP — mirrors run_parallel_pipeline ordering in pipeline.c.
      * Build the project-wide all_defs[] precondition, then feed it into
-     * cbm_parallel_resolve where the fused resolve_worker invokes
-     * cbm_pxc_run_one(_ts) per file BEFORE materializing CALLS edges. */
+     * ani_parallel_resolve where the fused resolve_worker invokes
+     * ani_pxc_run_one(_ts) per file BEFORE materializing CALLS edges. */
     char **def_modules = (char **)calloc((size_t)file_count, sizeof(char *));
     int def_count = 0;
-    CBMLSPDef *all_defs =
-        def_modules ? cbm_pxc_collect_all_defs(&ctx, result_cache, files, file_count,
+    ANILSPDef *all_defs =
+        def_modules ? ani_pxc_collect_all_defs(&ctx, result_cache, files, file_count,
                                                ctx.project_name, def_modules, &def_count, NULL)
                     : NULL;
-    CBMModuleDefIndex *module_def_index =
-        all_defs ? cbm_pxc_build_module_def_index(all_defs, def_count) : NULL;
+    ANIModuleDefIndex *module_def_index =
+        all_defs ? ani_pxc_build_module_def_index(all_defs, def_count) : NULL;
 
-    cbm_parallel_resolve(&ctx, files, file_count, result_cache, &shared_ids, worker_count, all_defs,
+    ani_parallel_resolve(&ctx, files, file_count, result_cache, &shared_ids, worker_count, all_defs,
                          def_count, def_modules, module_def_index,
                          NULL /* cross_registries — tests use per-file path */);
-    cbm_gbuf_set_next_id(gbuf, atomic_load(&shared_ids));
+    ani_gbuf_set_next_id(gbuf, atomic_load(&shared_ids));
 
-    cbm_pxc_free_module_def_index(module_def_index);
+    ani_pxc_free_module_def_index(module_def_index);
     free(all_defs);
     if (def_modules) {
         for (int i = 0; i < file_count; i++) {
@@ -346,29 +346,29 @@ static cbm_gbuf_t *run_parallel_with_extract_opts_and_mutator(
 
     for (int i = 0; i < file_count; i++)
         if (result_cache[i])
-            cbm_free_result(result_cache[i]);
+            ani_free_result(result_cache[i]);
     free(result_cache);
 
     harness_ctx_free_tables(&ctx);
-    cbm_registry_free(reg);
-    /* cbm_parallel_extract installs a process-global package map whose
+    ani_registry_free(reg);
+    /* ani_parallel_extract installs a process-global package map whose
      * production owner is the surrounding pipeline lifecycle.  This direct
      * pass harness owns that lifecycle itself, so mirror production teardown
      * before returning the graph to the test. */
-    cbm_pkgmap_free(cbm_pipeline_get_pkgmap());
-    cbm_pipeline_set_pkgmap(NULL);
+    ani_pkgmap_free(ani_pipeline_get_pkgmap());
+    ani_pipeline_set_pkgmap(NULL);
     return gbuf;
 }
 
-static cbm_gbuf_t *run_parallel_with_extract_opts(const char *project, const char *repo_path,
-                                                  cbm_file_info_t *files, int file_count,
+static ani_gbuf_t *run_parallel_with_extract_opts(const char *project, const char *repo_path,
+                                                  ani_file_info_t *files, int file_count,
                                                   int worker_count,
-                                                  const cbm_parallel_extract_opts_t *extract_opts) {
+                                                  const ani_parallel_extract_opts_t *extract_opts) {
     return run_parallel_with_extract_opts_and_mutator(
         project, repo_path, files, file_count, worker_count, extract_opts, NULL, NULL, false);
 }
 
-static cbm_gbuf_t *run_parallel(const char *project, const char *repo_path, cbm_file_info_t *files,
+static ani_gbuf_t *run_parallel(const char *project, const char *repo_path, ani_file_info_t *files,
                                 int file_count, int worker_count) {
     return run_parallel_with_extract_opts(project, repo_path, files, file_count, worker_count,
                                           NULL);
@@ -376,8 +376,8 @@ static cbm_gbuf_t *run_parallel(const char *project, const char *repo_path, cbm_
 
 /* ── Parity Tests ─────────────────────────────────────────────────── */
 
-static cbm_gbuf_t *g_seq_gbuf = NULL;
-static cbm_gbuf_t *g_par_gbuf = NULL;
+static ani_gbuf_t *g_seq_gbuf = NULL;
+static ani_gbuf_t *g_par_gbuf = NULL;
 static int g_parity_setup_done = 0;
 
 static int ensure_parity_setup(void) {
@@ -388,10 +388,10 @@ static int ensure_parity_setup(void) {
         return -1;
 
     /* Discover files */
-    cbm_discover_opts_t opts = {.mode = CBM_MODE_FULL};
-    cbm_file_info_t *files = NULL;
+    ani_discover_opts_t opts = {.mode = ANI_MODE_FULL};
+    ani_file_info_t *files = NULL;
     int file_count = 0;
-    if (cbm_discover(g_par_tmpdir, &opts, &files, &file_count) != 0)
+    if (ani_discover(g_par_tmpdir, &opts, &files, &file_count) != 0)
         return -1;
 
     const char *project = "par-test";
@@ -404,18 +404,18 @@ static int ensure_parity_setup(void) {
     g_seq_gbuf = run_sequential(project, g_par_tmpdir, files, file_count);
     g_par_gbuf = run_parallel(project, g_par_tmpdir, files, file_count, 2);
 
-    cbm_discover_free(files, file_count);
+    ani_discover_free(files, file_count);
     g_parity_setup_done = 1;
     return 0;
 }
 
 static void parity_teardown(void) {
     if (g_seq_gbuf) {
-        cbm_gbuf_free(g_seq_gbuf);
+        ani_gbuf_free(g_seq_gbuf);
         g_seq_gbuf = NULL;
     }
     if (g_par_gbuf) {
-        cbm_gbuf_free(g_par_gbuf);
+        ani_gbuf_free(g_par_gbuf);
         g_par_gbuf = NULL;
     }
     teardown_parallel_repo();
@@ -426,8 +426,8 @@ static void parity_teardown(void) {
 TEST(parallel_node_count) {
     if (ensure_parity_setup() != 0)
         FAIL("setup failed");
-    int seq = cbm_gbuf_node_count(g_seq_gbuf);
-    int par = cbm_gbuf_node_count(g_par_gbuf);
+    int seq = ani_gbuf_node_count(g_seq_gbuf);
+    int par = ani_gbuf_node_count(g_par_gbuf);
     ASSERT_GT(seq, 0);
     ASSERT_EQ(seq, par);
     PASS();
@@ -437,8 +437,8 @@ TEST(parallel_node_count) {
 static int assert_edge_type_parity(const char *type) {
     if (ensure_parity_setup() != 0)
         return -1;
-    int seq = cbm_gbuf_edge_count_by_type(g_seq_gbuf, type);
-    int par = cbm_gbuf_edge_count_by_type(g_par_gbuf, type);
+    int seq = ani_gbuf_edge_count_by_type(g_seq_gbuf, type);
+    int par = ani_gbuf_edge_count_by_type(g_par_gbuf, type);
     if (seq != par) {
         printf("  FAIL: %s edges: seq=%d par=%d\n", type, seq, par);
         return 1;
@@ -508,21 +508,21 @@ TEST(parallel_semantic_fixture_expected_counts) {
     if (ensure_parity_setup() != 0)
         FAIL("setup failed");
     /* Circle implements Shape; Base extends Circle — in BOTH venues. */
-    ASSERT_EQ(cbm_gbuf_edge_count_by_type(g_seq_gbuf, "IMPLEMENTS"), 1);
-    ASSERT_EQ(cbm_gbuf_edge_count_by_type(g_par_gbuf, "IMPLEMENTS"), 1);
-    ASSERT_EQ(cbm_gbuf_edge_count_by_type(g_seq_gbuf, "INHERITS"), 1);
-    ASSERT_EQ(cbm_gbuf_edge_count_by_type(g_par_gbuf, "INHERITS"), 1);
+    ASSERT_EQ(ani_gbuf_edge_count_by_type(g_seq_gbuf, "IMPLEMENTS"), 1);
+    ASSERT_EQ(ani_gbuf_edge_count_by_type(g_par_gbuf, "IMPLEMENTS"), 1);
+    ASSERT_EQ(ani_gbuf_edge_count_by_type(g_seq_gbuf, "INHERITS"), 1);
+    ASSERT_EQ(ani_gbuf_edge_count_by_type(g_par_gbuf, "INHERITS"), 1);
     /* Circle.area overrides Shape.area; Base.area overrides Circle.area. */
-    ASSERT_EQ(cbm_gbuf_edge_count_by_type(g_seq_gbuf, "OVERRIDE"), 2);
-    ASSERT_EQ(cbm_gbuf_edge_count_by_type(g_par_gbuf, "OVERRIDE"), 2);
+    ASSERT_EQ(ani_gbuf_edge_count_by_type(g_seq_gbuf, "OVERRIDE"), 2);
+    ASSERT_EQ(ani_gbuf_edge_count_by_type(g_par_gbuf, "OVERRIDE"), 2);
     PASS();
 }
 
 TEST(parallel_total_edges) {
     if (ensure_parity_setup() != 0)
         FAIL("setup failed");
-    int seq = cbm_gbuf_edge_count(g_seq_gbuf);
-    int par = cbm_gbuf_edge_count(g_par_gbuf);
+    int seq = ani_gbuf_edge_count(g_seq_gbuf);
+    int par = ani_gbuf_edge_count(g_par_gbuf);
     ASSERT_GT(seq, 0);
     ASSERT_EQ(seq, par);
     PASS();
@@ -531,12 +531,12 @@ TEST(parallel_total_edges) {
 /* ── Empty file list ──────────────────────────────────────────────── */
 
 TEST(parallel_empty_files) {
-    cbm_gbuf_t *gbuf = cbm_gbuf_new("empty-proj", "/tmp");
-    cbm_registry_t *reg = cbm_registry_new();
+    ani_gbuf_t *gbuf = ani_gbuf_new("empty-proj", "/tmp");
+    ani_registry_t *reg = ani_registry_new();
     atomic_int cancelled;
     atomic_init(&cancelled, 0);
 
-    cbm_pipeline_ctx_t ctx = {
+    ani_pipeline_ctx_t ctx = {
         .project_name = "empty-proj",
         .repo_path = "/tmp",
         .gbuf = gbuf,
@@ -547,20 +547,20 @@ TEST(parallel_empty_files) {
     _Atomic int64_t shared_ids;
     atomic_init(&shared_ids, 1);
 
-    CBMFileResult **cache = NULL;
-    int rc = cbm_parallel_extract(&ctx, NULL, 0, cache, &shared_ids, 2);
+    ANIFileResult **cache = NULL;
+    int rc = ani_parallel_extract(&ctx, NULL, 0, cache, &shared_ids, 2);
     ASSERT_EQ(rc, 0);
-    ASSERT_EQ(cbm_gbuf_node_count(gbuf), 0);
+    ASSERT_EQ(ani_gbuf_node_count(gbuf), 0);
 
-    cbm_registry_free(reg);
-    cbm_gbuf_free(gbuf);
+    ani_registry_free(reg);
+    ani_gbuf_free(gbuf);
     PASS();
 }
 
 /* ── Regression: args JSON must not overflow the props buffer ──────── */
 
 /* A call with many long string arguments makes append_args_json()'s running
- * position exceed the fixed CBM_SZ_2K `props` stack buffer in
+ * position exceed the fixed ANI_SZ_2K `props` stack buffer in
  * emit_normal_calls_edge(): format_call_arg() returns snprintf's UNtruncated
  * length, so pos += n could run past the buffer and the trailing
  * buf[pos]='\0' wrote out of bounds (stack-buffer-overflow; caught by the
@@ -569,8 +569,8 @@ TEST(parallel_empty_files) {
  * ASan test build a regression aborts here. */
 TEST(parallel_args_json_no_overflow) {
     char dir[256];
-    snprintf(dir, sizeof(dir), "/tmp/cbm_argov_XXXXXX");
-    ASSERT_TRUE(cbm_mkdtemp(dir) != NULL);
+    snprintf(dir, sizeof(dir), "/tmp/ani_argov_XXXXXX");
+    ASSERT_TRUE(ani_mkdtemp(dir) != NULL);
 
     char path[512];
     snprintf(path, sizeof(path), "%s/app.ts", dir);
@@ -589,18 +589,18 @@ TEST(parallel_args_json_no_overflow) {
     fputs("  );\n}\n", f);
     fclose(f);
 
-    cbm_discover_opts_t opts = {.mode = CBM_MODE_FULL};
-    cbm_file_info_t *files = NULL;
+    ani_discover_opts_t opts = {.mode = ANI_MODE_FULL};
+    ani_file_info_t *files = NULL;
     int file_count = 0;
-    ASSERT_EQ(cbm_discover(dir, &opts, &files, &file_count), 0);
+    ASSERT_EQ(ani_discover(dir, &opts, &files, &file_count), 0);
     ASSERT_GT(file_count, 0);
 
-    cbm_gbuf_t *gbuf = run_parallel("argov-test", dir, files, file_count, 4);
+    ani_gbuf_t *gbuf = run_parallel("argov-test", dir, files, file_count, 4);
     ASSERT_TRUE(gbuf != NULL);
-    ASSERT_GT(cbm_gbuf_edge_count(gbuf), 0);
+    ASSERT_GT(ani_gbuf_edge_count(gbuf), 0);
 
-    cbm_gbuf_free(gbuf);
-    cbm_discover_free(files, file_count);
+    ani_gbuf_free(gbuf);
+    ani_discover_free(files, file_count);
     th_rmtree(dir);
     PASS();
 }
@@ -609,118 +609,118 @@ TEST(parallel_args_json_no_overflow) {
 
 TEST(gbuf_shared_ids_unique) {
     _Atomic int64_t shared = 1;
-    cbm_gbuf_t *ga = cbm_gbuf_new_shared_ids("proj", "/", &shared);
-    cbm_gbuf_t *gb = cbm_gbuf_new_shared_ids("proj", "/", &shared);
+    ani_gbuf_t *ga = ani_gbuf_new_shared_ids("proj", "/", &shared);
+    ani_gbuf_t *gb = ani_gbuf_new_shared_ids("proj", "/", &shared);
 
-    int64_t id1 = cbm_gbuf_upsert_node(ga, "Function", "foo", "proj.foo", "a.go", 1, 5, "{}");
-    int64_t id2 = cbm_gbuf_upsert_node(gb, "Function", "bar", "proj.bar", "b.go", 1, 3, "{}");
+    int64_t id1 = ani_gbuf_upsert_node(ga, "Function", "foo", "proj.foo", "a.go", 1, 5, "{}");
+    int64_t id2 = ani_gbuf_upsert_node(gb, "Function", "bar", "proj.bar", "b.go", 1, 3, "{}");
     ASSERT_GT(id1, 0);
     ASSERT_GT(id2, 0);
     ASSERT_NEQ(id1, id2);
 
-    cbm_gbuf_free(ga);
-    cbm_gbuf_free(gb);
+    ani_gbuf_free(ga);
+    ani_gbuf_free(gb);
     PASS();
 }
 
 TEST(gbuf_merge_nodes) {
     _Atomic int64_t shared = 1;
-    cbm_gbuf_t *dst = cbm_gbuf_new_shared_ids("proj", "/", &shared);
-    cbm_gbuf_t *src = cbm_gbuf_new_shared_ids("proj", "/", &shared);
+    ani_gbuf_t *dst = ani_gbuf_new_shared_ids("proj", "/", &shared);
+    ani_gbuf_t *src = ani_gbuf_new_shared_ids("proj", "/", &shared);
 
-    cbm_gbuf_upsert_node(dst, "Function", "a", "proj.a", "a.go", 1, 5, "{}");
-    cbm_gbuf_upsert_node(dst, "Function", "b", "proj.b", "a.go", 6, 10, "{}");
-    cbm_gbuf_upsert_node(src, "Function", "c", "proj.c", "b.go", 1, 5, "{}");
-    cbm_gbuf_upsert_node(src, "Function", "d", "proj.d", "b.go", 6, 10, "{}");
+    ani_gbuf_upsert_node(dst, "Function", "a", "proj.a", "a.go", 1, 5, "{}");
+    ani_gbuf_upsert_node(dst, "Function", "b", "proj.b", "a.go", 6, 10, "{}");
+    ani_gbuf_upsert_node(src, "Function", "c", "proj.c", "b.go", 1, 5, "{}");
+    ani_gbuf_upsert_node(src, "Function", "d", "proj.d", "b.go", 6, 10, "{}");
 
-    ASSERT_EQ(cbm_gbuf_node_count(dst), 2);
-    cbm_gbuf_merge(dst, src);
-    ASSERT_EQ(cbm_gbuf_node_count(dst), 4);
+    ASSERT_EQ(ani_gbuf_node_count(dst), 2);
+    ani_gbuf_merge(dst, src);
+    ASSERT_EQ(ani_gbuf_node_count(dst), 4);
 
-    ASSERT_NOT_NULL(cbm_gbuf_find_by_qn(dst, "proj.c"));
-    ASSERT_NOT_NULL(cbm_gbuf_find_by_qn(dst, "proj.d"));
+    ASSERT_NOT_NULL(ani_gbuf_find_by_qn(dst, "proj.c"));
+    ASSERT_NOT_NULL(ani_gbuf_find_by_qn(dst, "proj.d"));
     /* dst originals still there */
-    ASSERT_NOT_NULL(cbm_gbuf_find_by_qn(dst, "proj.a"));
-    ASSERT_NOT_NULL(cbm_gbuf_find_by_qn(dst, "proj.b"));
+    ASSERT_NOT_NULL(ani_gbuf_find_by_qn(dst, "proj.a"));
+    ASSERT_NOT_NULL(ani_gbuf_find_by_qn(dst, "proj.b"));
 
-    cbm_gbuf_free(src);
-    cbm_gbuf_free(dst);
+    ani_gbuf_free(src);
+    ani_gbuf_free(dst);
     PASS();
 }
 
 TEST(gbuf_merge_edges) {
     _Atomic int64_t shared = 1;
-    cbm_gbuf_t *dst = cbm_gbuf_new_shared_ids("proj", "/", &shared);
-    cbm_gbuf_t *src = cbm_gbuf_new_shared_ids("proj", "/", &shared);
+    ani_gbuf_t *dst = ani_gbuf_new_shared_ids("proj", "/", &shared);
+    ani_gbuf_t *src = ani_gbuf_new_shared_ids("proj", "/", &shared);
 
-    int64_t a = cbm_gbuf_upsert_node(dst, "Function", "a", "proj.a", "a.go", 1, 5, "{}");
-    int64_t b = cbm_gbuf_upsert_node(dst, "Function", "b", "proj.b", "a.go", 6, 10, "{}");
+    int64_t a = ani_gbuf_upsert_node(dst, "Function", "a", "proj.a", "a.go", 1, 5, "{}");
+    int64_t b = ani_gbuf_upsert_node(dst, "Function", "b", "proj.b", "a.go", 6, 10, "{}");
     /* Put an edge in src that references dst nodes (by ID) */
-    cbm_gbuf_insert_edge(src, a, b, "CALLS", "{}");
+    ani_gbuf_insert_edge(src, a, b, "CALLS", "{}");
 
-    cbm_gbuf_merge(dst, src);
-    ASSERT_GT(cbm_gbuf_edge_count(dst), 0);
+    ani_gbuf_merge(dst, src);
+    ASSERT_GT(ani_gbuf_edge_count(dst), 0);
 
-    const cbm_gbuf_edge_t **edges = NULL;
+    const ani_gbuf_edge_t **edges = NULL;
     int count = 0;
-    cbm_gbuf_find_edges_by_source_type(dst, a, "CALLS", &edges, &count);
+    ani_gbuf_find_edges_by_source_type(dst, a, "CALLS", &edges, &count);
     ASSERT_EQ(count, 1);
     ASSERT_EQ(edges[0]->target_id, b);
 
-    cbm_gbuf_free(src);
-    cbm_gbuf_free(dst);
+    ani_gbuf_free(src);
+    ani_gbuf_free(dst);
     PASS();
 }
 
 TEST(gbuf_merge_empty_src) {
     _Atomic int64_t shared = 1;
-    cbm_gbuf_t *dst = cbm_gbuf_new_shared_ids("proj", "/", &shared);
-    cbm_gbuf_t *src = cbm_gbuf_new_shared_ids("proj", "/", &shared);
+    ani_gbuf_t *dst = ani_gbuf_new_shared_ids("proj", "/", &shared);
+    ani_gbuf_t *src = ani_gbuf_new_shared_ids("proj", "/", &shared);
 
-    cbm_gbuf_upsert_node(dst, "Function", "a", "proj.a", "a.go", 1, 5, "{}");
-    int before = cbm_gbuf_node_count(dst);
-    cbm_gbuf_merge(dst, src);
-    ASSERT_EQ(cbm_gbuf_node_count(dst), before);
+    ani_gbuf_upsert_node(dst, "Function", "a", "proj.a", "a.go", 1, 5, "{}");
+    int before = ani_gbuf_node_count(dst);
+    ani_gbuf_merge(dst, src);
+    ASSERT_EQ(ani_gbuf_node_count(dst), before);
 
-    cbm_gbuf_free(src);
-    cbm_gbuf_free(dst);
+    ani_gbuf_free(src);
+    ani_gbuf_free(dst);
     PASS();
 }
 
 TEST(gbuf_merge_src_free_safe) {
     _Atomic int64_t shared = 1;
-    cbm_gbuf_t *dst = cbm_gbuf_new_shared_ids("proj", "/", &shared);
-    cbm_gbuf_t *src = cbm_gbuf_new_shared_ids("proj", "/", &shared);
+    ani_gbuf_t *dst = ani_gbuf_new_shared_ids("proj", "/", &shared);
+    ani_gbuf_t *src = ani_gbuf_new_shared_ids("proj", "/", &shared);
 
-    cbm_gbuf_upsert_node(src, "Function", "x", "proj.x", "x.go", 1, 5, "{}");
-    cbm_gbuf_merge(dst, src);
-    cbm_gbuf_free(src); /* must not crash */
+    ani_gbuf_upsert_node(src, "Function", "x", "proj.x", "x.go", 1, 5, "{}");
+    ani_gbuf_merge(dst, src);
+    ani_gbuf_free(src); /* must not crash */
 
     /* dst node still accessible */
-    ASSERT_NOT_NULL(cbm_gbuf_find_by_qn(dst, "proj.x"));
-    cbm_gbuf_free(dst);
+    ASSERT_NOT_NULL(ani_gbuf_find_by_qn(dst, "proj.x"));
+    ani_gbuf_free(dst);
     PASS();
 }
 
 TEST(gbuf_next_id_accessors) {
-    cbm_gbuf_t *gb = cbm_gbuf_new("proj", "/");
-    ASSERT_EQ(cbm_gbuf_next_id(gb), 1);
+    ani_gbuf_t *gb = ani_gbuf_new("proj", "/");
+    ASSERT_EQ(ani_gbuf_next_id(gb), 1);
 
-    cbm_gbuf_upsert_node(gb, "Function", "foo", "proj.foo", "f.go", 1, 5, "{}");
-    ASSERT_GT(cbm_gbuf_next_id(gb), 1);
+    ani_gbuf_upsert_node(gb, "Function", "foo", "proj.foo", "f.go", 1, 5, "{}");
+    ASSERT_GT(ani_gbuf_next_id(gb), 1);
 
-    cbm_gbuf_set_next_id(gb, 100);
-    int64_t id = cbm_gbuf_upsert_node(gb, "Function", "bar", "proj.bar", "f.go", 6, 10, "{}");
+    ani_gbuf_set_next_id(gb, 100);
+    int64_t id = ani_gbuf_upsert_node(gb, "Function", "bar", "proj.bar", "f.go", 6, 10, "{}");
     ASSERT_GTE(id, 100);
 
-    cbm_gbuf_free(gb);
+    ani_gbuf_free(gb);
     PASS();
 }
 
 /* ── Parallel-pipeline LSP-override regression ────────────────────── */
 /* Pin the wiring fix that unified pass_calls.c (sequential) and
- * pass_parallel.c (parallel) on cbm_pipeline_find_lsp_resolution +
- * CBM_LSP_CONFIDENCE_FLOOR (lsp_resolve.h). Before the unification, the
+ * pass_parallel.c (parallel) on ani_pipeline_find_lsp_resolution +
+ * ANI_LSP_CONFIDENCE_FLOOR (lsp_resolve.h). Before the unification, the
  * parallel path carried its own lsp_override_resolution_pp at floor 0.5
  * while the sequential path used find_lsp_resolution at floor 0.6, so a
  * project produced different CALLS edge attributions depending on which
@@ -734,7 +734,7 @@ typedef struct {
     int total_calls;
 } lsp_edge_count_ctx_t;
 
-static void count_lsp_call_edges(const cbm_gbuf_edge_t *edge, void *ud) {
+static void count_lsp_call_edges(const ani_gbuf_edge_t *edge, void *ud) {
     lsp_edge_count_ctx_t *c = ud;
     if (!edge || !edge->type || strcmp(edge->type, "CALLS") != 0) {
         return;
@@ -763,21 +763,21 @@ static const char *class_method_tail(const char *qn) {
     return qn;
 }
 
-static const cbm_gbuf_node_t *find_unique_callable_node_by_tail(const cbm_gbuf_t *gbuf,
+static const ani_gbuf_node_t *find_unique_callable_node_by_tail(const ani_gbuf_t *gbuf,
                                                                 const char *tail) {
     const char *method = tail ? strrchr(tail, '.') : NULL;
     method = method ? method + 1 : tail;
     if (!gbuf || !tail || !method) {
         return NULL;
     }
-    const cbm_gbuf_node_t **nodes = NULL;
+    const ani_gbuf_node_t **nodes = NULL;
     int count = 0;
-    if (cbm_gbuf_find_by_name(gbuf, method, &nodes, &count) != 0) {
+    if (ani_gbuf_find_by_name(gbuf, method, &nodes, &count) != 0) {
         return NULL;
     }
-    const cbm_gbuf_node_t *match = NULL;
+    const ani_gbuf_node_t *match = NULL;
     for (int i = 0; i < count; i++) {
-        const cbm_gbuf_node_t *node = nodes[i];
+        const ani_gbuf_node_t *node = nodes[i];
         if (!node || !node->label || !node->qualified_name) {
             continue;
         }
@@ -809,21 +809,21 @@ static bool qn_has_segment_suffix(const char *qualified_name, const char *suffix
     return qualified_len == suffix_len || qualified_name[qualified_len - suffix_len - 1] == '.';
 }
 
-static const cbm_gbuf_node_t *find_unique_node_by_name_label_qn_suffix(const cbm_gbuf_t *gbuf,
+static const ani_gbuf_node_t *find_unique_node_by_name_label_qn_suffix(const ani_gbuf_t *gbuf,
                                                                        const char *name,
                                                                        const char *label,
                                                                        const char *qn_suffix) {
     if (!gbuf || !name || !label || !qn_suffix) {
         return NULL;
     }
-    const cbm_gbuf_node_t **nodes = NULL;
+    const ani_gbuf_node_t **nodes = NULL;
     int count = 0;
-    if (cbm_gbuf_find_by_name(gbuf, name, &nodes, &count) != 0) {
+    if (ani_gbuf_find_by_name(gbuf, name, &nodes, &count) != 0) {
         return NULL;
     }
-    const cbm_gbuf_node_t *match = NULL;
+    const ani_gbuf_node_t *match = NULL;
     for (int i = 0; i < count; i++) {
-        const cbm_gbuf_node_t *node = nodes[i];
+        const ani_gbuf_node_t *node = nodes[i];
         if (!node || !node->label || !node->qualified_name || strcmp(node->label, label) != 0 ||
             !qn_has_segment_suffix(node->qualified_name, qn_suffix)) {
             continue;
@@ -836,14 +836,14 @@ static const cbm_gbuf_node_t *find_unique_node_by_name_label_qn_suffix(const cbm
     return match;
 }
 
-static int count_edges_between_nodes(const cbm_gbuf_t *gbuf, const cbm_gbuf_node_t *source,
-                                     const cbm_gbuf_node_t *target, const char *edge_type) {
+static int count_edges_between_nodes(const ani_gbuf_t *gbuf, const ani_gbuf_node_t *source,
+                                     const ani_gbuf_node_t *target, const char *edge_type) {
     if (!gbuf || !source || !target || !edge_type) {
         return -1;
     }
-    const cbm_gbuf_edge_t **edges = NULL;
+    const ani_gbuf_edge_t **edges = NULL;
     int count = 0;
-    if (cbm_gbuf_find_edges_by_source_type(gbuf, source->id, edge_type, &edges, &count) != 0) {
+    if (ani_gbuf_find_edges_by_source_type(gbuf, source->id, edge_type, &edges, &count) != 0) {
         return -1;
     }
     int matches = 0;
@@ -855,15 +855,15 @@ static int count_edges_between_nodes(const cbm_gbuf_t *gbuf, const cbm_gbuf_node
     return matches;
 }
 
-static bool has_edge_from_callable_to_node(const cbm_gbuf_t *gbuf, const char *source_tail,
-                                           const cbm_gbuf_node_t *target, const char *edge_type) {
-    const cbm_gbuf_node_t *source = find_unique_callable_node_by_tail(gbuf, source_tail);
+static bool has_edge_from_callable_to_node(const ani_gbuf_t *gbuf, const char *source_tail,
+                                           const ani_gbuf_node_t *target, const char *edge_type) {
+    const ani_gbuf_node_t *source = find_unique_callable_node_by_tail(gbuf, source_tail);
     if (!source || !target || !edge_type) {
         return false;
     }
-    const cbm_gbuf_edge_t **edges = NULL;
+    const ani_gbuf_edge_t **edges = NULL;
     int count = 0;
-    if (cbm_gbuf_find_edges_by_source_type(gbuf, source->id, edge_type, &edges, &count) != 0) {
+    if (ani_gbuf_find_edges_by_source_type(gbuf, source->id, edge_type, &edges, &count) != 0) {
         return false;
     }
     for (int i = 0; i < count; i++) {
@@ -874,18 +874,18 @@ static bool has_edge_from_callable_to_node(const cbm_gbuf_t *gbuf, const char *s
     return false;
 }
 
-static const cbm_gbuf_edge_t *find_calls_edge_by_tails(const cbm_gbuf_t *gbuf,
+static const ani_gbuf_edge_t *find_calls_edge_by_tails(const ani_gbuf_t *gbuf,
                                                        const char *source_tail,
                                                        const char *target_tail) {
-    const cbm_gbuf_node_t *source = find_unique_callable_node_by_tail(gbuf, source_tail);
-    const cbm_gbuf_node_t *target = find_unique_callable_node_by_tail(gbuf, target_tail);
+    const ani_gbuf_node_t *source = find_unique_callable_node_by_tail(gbuf, source_tail);
+    const ani_gbuf_node_t *target = find_unique_callable_node_by_tail(gbuf, target_tail);
     if (!source || !target) {
         return NULL;
     }
 
-    const cbm_gbuf_edge_t **edges = NULL;
+    const ani_gbuf_edge_t **edges = NULL;
     int count = 0;
-    if (cbm_gbuf_find_edges_by_source_type(gbuf, source->id, "CALLS", &edges, &count) != 0) {
+    if (ani_gbuf_find_edges_by_source_type(gbuf, source->id, "CALLS", &edges, &count) != 0) {
         return NULL;
     }
     for (int i = 0; i < count; i++) {
@@ -896,15 +896,15 @@ static const cbm_gbuf_edge_t *find_calls_edge_by_tails(const cbm_gbuf_t *gbuf,
     return NULL;
 }
 
-static bool has_edge_from_callable_to_qn(const cbm_gbuf_t *gbuf, const char *source_tail,
+static bool has_edge_from_callable_to_qn(const ani_gbuf_t *gbuf, const char *source_tail,
                                          const char *target_qn, const char *edge_type) {
-    const cbm_gbuf_node_t *source = find_unique_callable_node_by_tail(gbuf, source_tail);
-    const cbm_gbuf_node_t *target = cbm_gbuf_find_by_qn(gbuf, target_qn);
+    const ani_gbuf_node_t *source = find_unique_callable_node_by_tail(gbuf, source_tail);
+    const ani_gbuf_node_t *target = ani_gbuf_find_by_qn(gbuf, target_qn);
     if (!source || !target)
         return false;
-    const cbm_gbuf_edge_t **edges = NULL;
+    const ani_gbuf_edge_t **edges = NULL;
     int count = 0;
-    if (cbm_gbuf_find_edges_by_source_type(gbuf, source->id, edge_type, &edges, &count) != 0)
+    if (ani_gbuf_find_edges_by_source_type(gbuf, source->id, edge_type, &edges, &count) != 0)
         return false;
     for (int i = 0; i < count; i++) {
         if (edges[i] && edges[i]->target_id == target->id)
@@ -913,50 +913,50 @@ static bool has_edge_from_callable_to_qn(const cbm_gbuf_t *gbuf, const char *sou
     return false;
 }
 
-static bool callable_has_call_target_fragment(const cbm_gbuf_t *gbuf, const char *source_tail,
+static bool callable_has_call_target_fragment(const ani_gbuf_t *gbuf, const char *source_tail,
                                               const char *target_fragment) {
-    const cbm_gbuf_node_t *source = find_unique_callable_node_by_tail(gbuf, source_tail);
+    const ani_gbuf_node_t *source = find_unique_callable_node_by_tail(gbuf, source_tail);
     if (!source || !target_fragment)
         return false;
-    const cbm_gbuf_edge_t **edges = NULL;
+    const ani_gbuf_edge_t **edges = NULL;
     int count = 0;
-    if (cbm_gbuf_find_edges_by_source_type(gbuf, source->id, "CALLS", &edges, &count) != 0)
+    if (ani_gbuf_find_edges_by_source_type(gbuf, source->id, "CALLS", &edges, &count) != 0)
         return false;
     for (int i = 0; i < count; i++) {
-        const cbm_gbuf_node_t *target =
-            edges[i] ? cbm_gbuf_find_by_id(gbuf, edges[i]->target_id) : NULL;
+        const ani_gbuf_node_t *target =
+            edges[i] ? ani_gbuf_find_by_id(gbuf, edges[i]->target_id) : NULL;
         if (target && target->qualified_name && strstr(target->qualified_name, target_fragment))
             return true;
     }
     return false;
 }
 
-static const cbm_gbuf_edge_t *find_call_edge_to_target_fragment(const cbm_gbuf_t *gbuf,
+static const ani_gbuf_edge_t *find_call_edge_to_target_fragment(const ani_gbuf_t *gbuf,
                                                                 const char *source_tail,
                                                                 const char *target_fragment) {
-    const cbm_gbuf_node_t *source = find_unique_callable_node_by_tail(gbuf, source_tail);
+    const ani_gbuf_node_t *source = find_unique_callable_node_by_tail(gbuf, source_tail);
     if (!source || !target_fragment)
         return NULL;
-    const cbm_gbuf_edge_t **edges = NULL;
+    const ani_gbuf_edge_t **edges = NULL;
     int count = 0;
-    if (cbm_gbuf_find_edges_by_source_type(gbuf, source->id, "CALLS", &edges, &count) != 0)
+    if (ani_gbuf_find_edges_by_source_type(gbuf, source->id, "CALLS", &edges, &count) != 0)
         return NULL;
     for (int i = 0; i < count; i++) {
-        const cbm_gbuf_node_t *target =
-            edges[i] ? cbm_gbuf_find_by_id(gbuf, edges[i]->target_id) : NULL;
+        const ani_gbuf_node_t *target =
+            edges[i] ? ani_gbuf_find_by_id(gbuf, edges[i]->target_id) : NULL;
         if (target && target->qualified_name && strstr(target->qualified_name, target_fragment))
             return edges[i];
     }
     return NULL;
 }
 
-static int count_calls_edges_to_tail(const cbm_gbuf_t *gbuf, const char *target_tail) {
-    const cbm_gbuf_node_t *target = find_unique_callable_node_by_tail(gbuf, target_tail);
+static int count_calls_edges_to_tail(const ani_gbuf_t *gbuf, const char *target_tail) {
+    const ani_gbuf_node_t *target = find_unique_callable_node_by_tail(gbuf, target_tail);
     if (!target)
         return -1;
-    const cbm_gbuf_edge_t **edges = NULL;
+    const ani_gbuf_edge_t **edges = NULL;
     int count = 0;
-    if (cbm_gbuf_find_edges_by_target_type(gbuf, target->id, "CALLS", &edges, &count) != 0)
+    if (ani_gbuf_find_edges_by_target_type(gbuf, target->id, "CALLS", &edges, &count) != 0)
         return -1;
     return count;
 }
@@ -969,22 +969,22 @@ typedef struct {
  * record, then append a higher-confidence legacy 0:0 record for Beta.render.
  * The shared linear matcher and the compact parallel index must both prefer
  * the exact occurrence. */
-static void inject_higher_confidence_legacy_render(CBMFileResult **result_cache, int file_count,
+static void inject_higher_confidence_legacy_render(ANIFileResult **result_cache, int file_count,
                                                    void *ud) {
     lsp_legacy_injection_t *state = (lsp_legacy_injection_t *)ud;
     if (!state) {
         return;
     }
     for (int file = 0; file < file_count; file++) {
-        CBMFileResult *result = result_cache ? result_cache[file] : NULL;
+        ANIFileResult *result = result_cache ? result_cache[file] : NULL;
         if (!result) {
             continue;
         }
-        const CBMResolvedCall *exact = NULL;
+        const ANIResolvedCall *exact = NULL;
         const char *beta_qn = NULL;
         for (int i = 0; i < result->resolved_calls.count; i++) {
-            const CBMResolvedCall *candidate = &result->resolved_calls.items[i];
-            if (candidate->kind == CBM_RESOLVED_INVOCATION && candidate->caller_qn &&
+            const ANIResolvedCall *candidate = &result->resolved_calls.items[i];
+            if (candidate->kind == ANI_RESOLVED_INVOCATION && candidate->caller_qn &&
                 strstr(candidate->caller_qn, "Caller.run") && candidate->callee_qn &&
                 strstr(candidate->callee_qn, "Alpha.render") &&
                 candidate->site_end_byte > candidate->site_start_byte) {
@@ -993,7 +993,7 @@ static void inject_higher_confidence_legacy_render(CBMFileResult **result_cache,
             }
         }
         for (int i = 0; i < result->defs.count; i++) {
-            const CBMDefinition *definition = &result->defs.items[i];
+            const ANIDefinition *definition = &result->defs.items[i];
             if (definition->qualified_name && strstr(definition->qualified_name, "Beta.render")) {
                 beta_qn = definition->qualified_name;
                 break;
@@ -1002,13 +1002,13 @@ static void inject_higher_confidence_legacy_render(CBMFileResult **result_cache,
         if (!exact || !beta_qn) {
             continue;
         }
-        CBMResolvedCall legacy = *exact;
+        ANIResolvedCall legacy = *exact;
         legacy.callee_qn = beta_qn;
         legacy.strategy = "test_legacy_zero_span";
         legacy.confidence = 0.99f;
         legacy.site_start_byte = 0;
         legacy.site_end_byte = 0;
-        cbm_resolvedcall_push(&result->resolved_calls, &result->arena, legacy);
+        ani_resolvedcall_push(&result->resolved_calls, &result->arena, legacy);
         state->injected = true;
         return;
     }
@@ -1016,14 +1016,14 @@ static void inject_higher_confidence_legacy_render(CBMFileResult **result_cache,
 
 TEST(parallel_lsp_index_exact_site_beats_legacy_record_in_graph) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_lsp_site_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_lsp_site_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
 
     char path[512];
     snprintf(path, sizeof(path), "%s/app.py", tmpdir);
-    FILE *file = cbm_fopen(path, "w");
+    FILE *file = ani_fopen(path, "w");
     if (!file) {
         rmdir(tmpdir);
         FAIL("fopen app.py failed");
@@ -1042,19 +1042,19 @@ TEST(parallel_lsp_index_exact_site_beats_legacy_record_in_graph) {
                   "        return value.render()\n");
     fclose(file);
 
-    cbm_file_info_t files[1] = {0};
+    ani_file_info_t files[1] = {0};
     files[0].path = path;
     files[0].rel_path = (char *)"app.py";
-    files[0].language = CBM_LANG_PYTHON;
+    files[0].language = ANI_LANG_PYTHON;
     lsp_legacy_injection_t injection = {0};
-    cbm_gbuf_t *gbuf = run_parallel_with_extract_opts_and_mutator(
-        "cbm_par_lsp_site", tmpdir, files, 1, 1, NULL, inject_higher_confidence_legacy_render,
+    ani_gbuf_t *gbuf = run_parallel_with_extract_opts_and_mutator(
+        "ani_par_lsp_site", tmpdir, files, 1, 1, NULL, inject_higher_confidence_legacy_render,
         &injection, false);
     ASSERT_NOT_NULL(gbuf);
     ASSERT_TRUE(injection.injected);
 
-    const cbm_gbuf_edge_t *exact = find_calls_edge_by_tails(gbuf, "Caller.run", "Alpha.render");
-    const cbm_gbuf_edge_t *wrong = find_calls_edge_by_tails(gbuf, "Caller.run", "Beta.render");
+    const ani_gbuf_edge_t *exact = find_calls_edge_by_tails(gbuf, "Caller.run", "Alpha.render");
+    const ani_gbuf_edge_t *wrong = find_calls_edge_by_tails(gbuf, "Caller.run", "Beta.render");
     if (!exact || wrong) {
         printf("  lsp index occurrence diagnostic: exact=%s legacy_wrong=%s\n",
                exact ? "present" : "absent", wrong ? "present" : "absent");
@@ -1062,7 +1062,7 @@ TEST(parallel_lsp_index_exact_site_beats_legacy_record_in_graph) {
     ASSERT_NOT_NULL(exact);
     ASSERT_NULL(wrong);
 
-    cbm_gbuf_free(gbuf);
+    ani_gbuf_free(gbuf);
     unlink(path);
     rmdir(tmpdir);
     PASS();
@@ -1076,60 +1076,60 @@ typedef struct {
  * make the carrier semantic-only. Both the shared matcher and the compact
  * parallel index must fail closed; neither confidence nor textual registry
  * fallback may select one target. */
-static void inject_distinct_exact_render_target(CBMFileResult **result_cache, int file_count,
+static void inject_distinct_exact_render_target(ANIFileResult **result_cache, int file_count,
                                                 void *ud) {
     lsp_exact_ambiguity_injection_t *state = (lsp_exact_ambiguity_injection_t *)ud;
     if (!state) {
         return;
     }
     for (int file = 0; file < file_count; file++) {
-        CBMFileResult *result = result_cache ? result_cache[file] : NULL;
+        ANIFileResult *result = result_cache ? result_cache[file] : NULL;
         if (!result) {
             continue;
         }
-        CBMCall *carrier = NULL;
-        const CBMResolvedCall *exact = NULL;
+        ANICall *carrier = NULL;
+        const ANIResolvedCall *exact = NULL;
         const char *beta_qn = NULL;
         for (int i = 0; i < result->calls.count; i++) {
-            CBMCall *candidate = &result->calls.items[i];
+            ANICall *candidate = &result->calls.items[i];
             if (candidate->callee_name && candidate->enclosing_func_qn &&
                 strstr(candidate->enclosing_func_qn, "Caller.run") &&
-                strcmp(cbm_pipeline_call_callee_leaf(candidate->callee_name), "render") == 0 &&
-                cbm_pipeline_source_site_present(candidate->site_start_byte,
+                strcmp(ani_pipeline_call_callee_leaf(candidate->callee_name), "render") == 0 &&
+                ani_pipeline_source_site_present(candidate->site_start_byte,
                                                  candidate->site_end_byte)) {
                 carrier = candidate;
                 break;
             }
         }
         for (int i = 0; i < result->resolved_calls.count; i++) {
-            const CBMResolvedCall *candidate = &result->resolved_calls.items[i];
-            if (candidate->kind == CBM_RESOLVED_INVOCATION && candidate->caller_qn &&
+            const ANIResolvedCall *candidate = &result->resolved_calls.items[i];
+            if (candidate->kind == ANI_RESOLVED_INVOCATION && candidate->caller_qn &&
                 strstr(candidate->caller_qn, "Caller.run") && candidate->callee_qn &&
                 strstr(candidate->callee_qn, "Alpha.render") &&
-                cbm_pipeline_source_site_present(candidate->site_start_byte,
+                ani_pipeline_source_site_present(candidate->site_start_byte,
                                                  candidate->site_end_byte)) {
                 exact = candidate;
                 break;
             }
         }
         for (int i = 0; i < result->defs.count; i++) {
-            const CBMDefinition *definition = &result->defs.items[i];
+            const ANIDefinition *definition = &result->defs.items[i];
             if (definition->qualified_name && strstr(definition->qualified_name, "Beta.render")) {
                 beta_qn = definition->qualified_name;
                 break;
             }
         }
         if (!carrier || !exact || !beta_qn ||
-            !cbm_pipeline_source_site_eq(carrier->site_start_byte, carrier->site_end_byte,
+            !ani_pipeline_source_site_eq(carrier->site_start_byte, carrier->site_end_byte,
                                          exact->site_start_byte, exact->site_end_byte)) {
             continue;
         }
         carrier->requires_lsp_resolution = true;
-        CBMResolvedCall ambiguous = *exact;
+        ANIResolvedCall ambiguous = *exact;
         ambiguous.callee_qn = beta_qn;
         ambiguous.strategy = "test_distinct_exact_target";
         ambiguous.confidence = 0.99f;
-        cbm_resolvedcall_push(&result->resolved_calls, &result->arena, ambiguous);
+        ani_resolvedcall_push(&result->resolved_calls, &result->arena, ambiguous);
         state->injected = true;
         return;
     }
@@ -1137,13 +1137,13 @@ static void inject_distinct_exact_render_target(CBMFileResult **result_cache, in
 
 TEST(parallel_lsp_index_distinct_exact_targets_fail_closed_in_graph) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_lsp_ambiguous_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_lsp_ambiguous_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
     char path[512];
     snprintf(path, sizeof(path), "%s/app.py", tmpdir);
-    FILE *file = cbm_fopen(path, "w");
+    FILE *file = ani_fopen(path, "w");
     if (!file) {
         rmdir(tmpdir);
         FAIL("fopen app.py failed");
@@ -1158,20 +1158,20 @@ TEST(parallel_lsp_index_distinct_exact_targets_fail_closed_in_graph) {
                   "        return value.render()\n");
     fclose(file);
 
-    cbm_file_info_t file_info = {0};
+    ani_file_info_t file_info = {0};
     file_info.path = path;
     file_info.rel_path = (char *)"app.py";
-    file_info.language = CBM_LANG_PYTHON;
+    file_info.language = ANI_LANG_PYTHON;
     lsp_exact_ambiguity_injection_t injection = {0};
-    cbm_gbuf_t *gbuf = run_parallel_with_extract_opts_and_mutator(
-        "cbm_par_lsp_ambiguous", tmpdir, &file_info, 1, 1, NULL,
+    ani_gbuf_t *gbuf = run_parallel_with_extract_opts_and_mutator(
+        "ani_par_lsp_ambiguous", tmpdir, &file_info, 1, 1, NULL,
         inject_distinct_exact_render_target, &injection, false);
     ASSERT_NOT_NULL(gbuf);
     ASSERT_TRUE(injection.injected);
     ASSERT_NOT_NULL(find_unique_callable_node_by_tail(gbuf, "Alpha.render"));
     ASSERT_NOT_NULL(find_unique_callable_node_by_tail(gbuf, "Beta.render"));
-    const cbm_gbuf_edge_t *alpha = find_calls_edge_by_tails(gbuf, "Caller.run", "Alpha.render");
-    const cbm_gbuf_edge_t *beta = find_calls_edge_by_tails(gbuf, "Caller.run", "Beta.render");
+    const ani_gbuf_edge_t *alpha = find_calls_edge_by_tails(gbuf, "Caller.run", "Alpha.render");
+    const ani_gbuf_edge_t *beta = find_calls_edge_by_tails(gbuf, "Caller.run", "Beta.render");
     if (alpha || beta) {
         printf("  lsp exact ambiguity diagnostic: alpha=%s beta=%s\n", alpha ? "present" : "absent",
                beta ? "present" : "absent");
@@ -1179,7 +1179,7 @@ TEST(parallel_lsp_index_distinct_exact_targets_fail_closed_in_graph) {
     ASSERT_NULL(alpha);
     ASSERT_NULL(beta);
 
-    cbm_gbuf_free(gbuf);
+    ani_gbuf_free(gbuf);
     unlink(path);
     rmdir(tmpdir);
     PASS();
@@ -1196,7 +1196,7 @@ typedef struct {
  * leaving the carrier eligible for legacy resolution. The authoritative
  * matcher must keep the exact-site ambiguity authoritative; the compact
  * parallel index must not reinterpret its tombstone as "try legacy". */
-static void inject_legacy_after_exact_render_ambiguity(CBMFileResult **result_cache, int file_count,
+static void inject_legacy_after_exact_render_ambiguity(ANIFileResult **result_cache, int file_count,
                                                        void *ud) {
     lsp_exact_ambiguity_legacy_probe_t *probe = (lsp_exact_ambiguity_legacy_probe_t *)ud;
     if (!probe) {
@@ -1208,74 +1208,74 @@ static void inject_legacy_after_exact_render_ambiguity(CBMFileResult **result_ca
     }
 
     for (int file = 0; file < file_count; file++) {
-        CBMFileResult *result = result_cache ? result_cache[file] : NULL;
+        ANIFileResult *result = result_cache ? result_cache[file] : NULL;
         if (!result) {
             continue;
         }
-        CBMCall *carrier = NULL;
-        const CBMResolvedCall *exact = NULL;
+        ANICall *carrier = NULL;
+        const ANIResolvedCall *exact = NULL;
         const char *legacy_qn = NULL;
         for (int i = 0; i < result->calls.count; i++) {
-            CBMCall *candidate = &result->calls.items[i];
+            ANICall *candidate = &result->calls.items[i];
             if (candidate->callee_name && candidate->enclosing_func_qn &&
                 strstr(candidate->enclosing_func_qn, "Caller.run") &&
-                strcmp(cbm_pipeline_call_callee_leaf(candidate->callee_name), "render") == 0 &&
-                cbm_pipeline_source_site_present(candidate->site_start_byte,
+                strcmp(ani_pipeline_call_callee_leaf(candidate->callee_name), "render") == 0 &&
+                ani_pipeline_source_site_present(candidate->site_start_byte,
                                                  candidate->site_end_byte)) {
                 carrier = candidate;
                 break;
             }
         }
         for (int i = 0; i < result->resolved_calls.count; i++) {
-            const CBMResolvedCall *candidate = &result->resolved_calls.items[i];
-            if (candidate->kind == CBM_RESOLVED_INVOCATION && candidate->caller_qn &&
+            const ANIResolvedCall *candidate = &result->resolved_calls.items[i];
+            if (candidate->kind == ANI_RESOLVED_INVOCATION && candidate->caller_qn &&
                 strstr(candidate->caller_qn, "Caller.run") && candidate->callee_qn &&
                 strstr(candidate->callee_qn, "Alpha.render") &&
-                cbm_pipeline_source_site_present(candidate->site_start_byte,
+                ani_pipeline_source_site_present(candidate->site_start_byte,
                                                  candidate->site_end_byte)) {
                 exact = candidate;
                 break;
             }
         }
         for (int i = 0; i < result->defs.count; i++) {
-            const CBMDefinition *definition = &result->defs.items[i];
+            const ANIDefinition *definition = &result->defs.items[i];
             if (definition->qualified_name && strstr(definition->qualified_name, "Legacy.render")) {
                 legacy_qn = definition->qualified_name;
                 break;
             }
         }
         if (!carrier || !exact || !legacy_qn ||
-            !cbm_pipeline_source_site_eq(carrier->site_start_byte, carrier->site_end_byte,
+            !ani_pipeline_source_site_eq(carrier->site_start_byte, carrier->site_end_byte,
                                          exact->site_start_byte, exact->site_end_byte)) {
             continue;
         }
 
         carrier->requires_lsp_resolution = false;
-        CBMResolvedCall legacy = *exact;
+        ANIResolvedCall legacy = *exact;
         legacy.callee_qn = legacy_qn;
         legacy.strategy = "test_legacy_after_exact_ambiguity";
         legacy.confidence = 0.99f;
         legacy.site_start_byte = 0;
         legacy.site_end_byte = 0;
-        cbm_resolvedcall_push(&result->resolved_calls, &result->arena, legacy);
+        ani_resolvedcall_push(&result->resolved_calls, &result->arena, legacy);
 
         probe->legacy_injected = true;
         probe->carrier_allows_fallback = !carrier->requires_lsp_resolution;
         probe->shared_matcher_failed_closed =
-            cbm_pipeline_find_lsp_resolution(&result->resolved_calls, carrier, false) == NULL;
+            ani_pipeline_find_lsp_resolution(&result->resolved_calls, carrier, false) == NULL;
         return;
     }
 }
 
 TEST(parallel_lsp_index_exact_ambiguity_does_not_fall_through_to_legacy) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_lsp_ambiguous_legacy_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_lsp_ambiguous_legacy_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
     char path[512];
     snprintf(path, sizeof(path), "%s/app.py", tmpdir);
-    FILE *file = cbm_fopen(path, "w");
+    FILE *file = ani_fopen(path, "w");
     if (!file) {
         rmdir(tmpdir);
         FAIL("fopen app.py failed");
@@ -1292,20 +1292,20 @@ TEST(parallel_lsp_index_exact_ambiguity_does_not_fall_through_to_legacy) {
                   "        return value.render()\n");
     fclose(file);
 
-    cbm_file_info_t file_info = {0};
+    ani_file_info_t file_info = {0};
     file_info.path = path;
     file_info.rel_path = (char *)"app.py";
-    file_info.language = CBM_LANG_PYTHON;
+    file_info.language = ANI_LANG_PYTHON;
     lsp_exact_ambiguity_legacy_probe_t probe = {0};
-    cbm_gbuf_t *gbuf = run_parallel_with_extract_opts_and_mutator(
-        "cbm_par_lsp_ambiguous_legacy", tmpdir, &file_info, 1, 1, NULL,
+    ani_gbuf_t *gbuf = run_parallel_with_extract_opts_and_mutator(
+        "ani_par_lsp_ambiguous_legacy", tmpdir, &file_info, 1, 1, NULL,
         inject_legacy_after_exact_render_ambiguity, &probe, false);
     ASSERT_NOT_NULL(gbuf);
 
     int alpha_edges = count_calls_edges_to_tail(gbuf, "Alpha.render");
     int beta_edges = count_calls_edges_to_tail(gbuf, "Beta.render");
     int legacy_edges = count_calls_edges_to_tail(gbuf, "Legacy.render");
-    const cbm_gbuf_edge_t *legacy_edge =
+    const ani_gbuf_edge_t *legacy_edge =
         find_calls_edge_by_tails(gbuf, "Caller.run", "Legacy.render");
     if (!probe.ambiguity.injected || !probe.legacy_injected || !probe.carrier_allows_fallback ||
         !probe.shared_matcher_failed_closed || alpha_edges != 0 || beta_edges != 0 ||
@@ -1318,7 +1318,7 @@ TEST(parallel_lsp_index_exact_ambiguity_does_not_fall_through_to_legacy) {
                legacy_edge && legacy_edge->properties_json ? legacy_edge->properties_json : "");
     }
 
-    cbm_gbuf_free(gbuf);
+    ani_gbuf_free(gbuf);
     unlink(path);
     rmdir(tmpdir);
     ASSERT_TRUE(probe.ambiguity.injected);
@@ -1357,29 +1357,29 @@ typedef struct {
     bool exact_key_overflows;
 } lsp_long_key_probe_t;
 
-static void inject_long_caller_exact_and_legacy(CBMFileResult **result_cache, int file_count,
+static void inject_long_caller_exact_and_legacy(ANIFileResult **result_cache, int file_count,
                                                 void *ud) {
     lsp_long_key_probe_t *probe = (lsp_long_key_probe_t *)ud;
     if (!probe)
         return;
     for (int file = 0; file < file_count; file++) {
-        CBMFileResult *result = result_cache ? result_cache[file] : NULL;
+        ANIFileResult *result = result_cache ? result_cache[file] : NULL;
         if (!result)
             continue;
-        CBMCall *carrier = NULL;
-        CBMResolvedCall *exact = NULL;
+        ANICall *carrier = NULL;
+        ANIResolvedCall *exact = NULL;
         const char *beta_qn = NULL;
         for (int i = 0; i < result->calls.count; i++) {
-            CBMCall *candidate = &result->calls.items[i];
+            ANICall *candidate = &result->calls.items[i];
             if (candidate->callee_name &&
-                strcmp(cbm_pipeline_call_callee_leaf(candidate->callee_name), "render") == 0) {
+                strcmp(ani_pipeline_call_callee_leaf(candidate->callee_name), "render") == 0) {
                 carrier = candidate;
                 break;
             }
         }
         for (int i = 0; i < result->resolved_calls.count; i++) {
-            CBMResolvedCall *candidate = &result->resolved_calls.items[i];
-            if (candidate->kind == CBM_RESOLVED_INVOCATION && candidate->callee_qn &&
+            ANIResolvedCall *candidate = &result->resolved_calls.items[i];
+            if (candidate->kind == ANI_RESOLVED_INVOCATION && candidate->callee_qn &&
                 strstr(candidate->callee_qn, "Alpha.render") &&
                 candidate->site_end_byte > candidate->site_start_byte) {
                 exact = candidate;
@@ -1387,7 +1387,7 @@ static void inject_long_caller_exact_and_legacy(CBMFileResult **result_cache, in
             }
         }
         for (int i = 0; i < result->defs.count; i++) {
-            const CBMDefinition *definition = &result->defs.items[i];
+            const ANIDefinition *definition = &result->defs.items[i];
             if (definition->qualified_name && strstr(definition->qualified_name, "Beta.render")) {
                 beta_qn = definition->qualified_name;
                 break;
@@ -1396,13 +1396,13 @@ static void inject_long_caller_exact_and_legacy(CBMFileResult **result_cache, in
         if (!carrier || !exact || !beta_qn)
             continue;
 
-        CBMResolvedCall legacy = *exact;
+        ANIResolvedCall legacy = *exact;
         legacy.callee_qn = beta_qn;
         legacy.strategy = "test_long_key_legacy";
         legacy.confidence = 0.99f;
         legacy.site_start_byte = 0;
         legacy.site_end_byte = 0;
-        cbm_resolvedcall_push(&result->resolved_calls, &result->arena, legacy);
+        ani_resolvedcall_push(&result->resolved_calls, &result->arena, legacy);
 
         size_t leaf_len = strlen("render");
         size_t legacy_len = strlen(carrier->enclosing_func_qn) + 1U + leaf_len;
@@ -1412,8 +1412,8 @@ static void inject_long_caller_exact_and_legacy(CBMFileResult **result_cache, in
         size_t exact_len = legacy_len + (suffix_len > 0 ? (size_t)suffix_len : 0U);
         probe->legacy_key_fits = legacy_len < 1024U;
         probe->exact_key_overflows = exact_len >= 1024U;
-        const CBMResolvedCall *authoritative =
-            cbm_pipeline_find_lsp_resolution(&result->resolved_calls, carrier, false);
+        const ANIResolvedCall *authoritative =
+            ani_pipeline_find_lsp_resolution(&result->resolved_calls, carrier, false);
         probe->authoritative_exact_wins = authoritative && authoritative->callee_qn &&
                                           strstr(authoritative->callee_qn, "Alpha.render") != NULL;
         probe->injected = true;
@@ -1423,12 +1423,12 @@ static void inject_long_caller_exact_and_legacy(CBMFileResult **result_cache, in
 
 TEST(parallel_lsp_long_exact_key_never_yields_legacy_target) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_lsp_long_key_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_lsp_long_key_XXXXXX");
+    if (!ani_mkdtemp(tmpdir))
         FAIL("mkdtemp failed");
     char path[512];
     snprintf(path, sizeof(path), "%s/app.py", tmpdir);
-    FILE *file = cbm_fopen(path, "w");
+    FILE *file = ani_fopen(path, "w");
     if (!file) {
         rmdir(tmpdir);
         FAIL("fopen app.py failed");
@@ -1448,13 +1448,13 @@ TEST(parallel_lsp_long_exact_key_never_yields_legacy_target) {
     fprintf(file, "def %s(value: Alpha):\n    return value.render()\n", function_name);
     fclose(file);
 
-    cbm_file_info_t files[1] = {0};
+    ani_file_info_t files[1] = {0};
     files[0].path = path;
     files[0].rel_path = (char *)"app.py";
-    files[0].language = CBM_LANG_PYTHON;
+    files[0].language = ANI_LANG_PYTHON;
     lsp_long_key_probe_t probe = {0};
-    cbm_gbuf_t *gbuf = run_parallel_with_extract_opts_and_mutator(
-        "cbm_long_key", tmpdir, files, 1, 1, NULL, inject_long_caller_exact_and_legacy, &probe,
+    ani_gbuf_t *gbuf = run_parallel_with_extract_opts_and_mutator(
+        "ani_long_key", tmpdir, files, 1, 1, NULL, inject_long_caller_exact_and_legacy, &probe,
         false);
     ASSERT_NOT_NULL(gbuf);
     int alpha_edges = count_calls_edges_to_tail(gbuf, "Alpha.render");
@@ -1466,7 +1466,7 @@ TEST(parallel_lsp_long_exact_key_never_yields_legacy_target) {
                probe.injected, probe.authoritative_exact_wins, probe.legacy_key_fits,
                probe.exact_key_overflows, alpha_edges, beta_edges);
     }
-    cbm_gbuf_free(gbuf);
+    ani_gbuf_free(gbuf);
     unlink(path);
     rmdir(tmpdir);
     ASSERT_TRUE(probe.injected);
@@ -1483,29 +1483,29 @@ typedef struct {
     int exact_match_count;
 } lsp_synthetic_index_probe_t;
 
-static void inspect_synthetic_add_occurrences(CBMFileResult **result_cache, int file_count,
+static void inspect_synthetic_add_occurrences(ANIFileResult **result_cache, int file_count,
                                               void *ud) {
     lsp_synthetic_index_probe_t *probe = (lsp_synthetic_index_probe_t *)ud;
     if (!probe) {
         return;
     }
     for (int file = 0; file < file_count; file++) {
-        CBMFileResult *result = result_cache[file];
+        ANIFileResult *result = result_cache[file];
         if (!result) {
             continue;
         }
         for (int i = 0; i < result->calls.count; i++) {
-            const CBMCall *call = &result->calls.items[i];
+            const ANICall *call = &result->calls.items[i];
             if (!call->requires_lsp_resolution || !call->callee_name ||
                 strcmp(call->callee_name, "__add__") != 0 ||
-                !cbm_pipeline_source_site_present(call->site_start_byte, call->site_end_byte)) {
+                !ani_pipeline_source_site_present(call->site_start_byte, call->site_end_byte)) {
                 continue;
             }
             probe->carrier_count++;
-            const CBMResolvedCall *resolved =
-                cbm_pipeline_find_lsp_resolution(&result->resolved_calls, call, false);
+            const ANIResolvedCall *resolved =
+                ani_pipeline_find_lsp_resolution(&result->resolved_calls, call, false);
             if (resolved &&
-                cbm_pipeline_source_site_eq(call->site_start_byte, call->site_end_byte,
+                ani_pipeline_source_site_eq(call->site_start_byte, call->site_end_byte,
                                             resolved->site_start_byte, resolved->site_end_byte)) {
                 probe->exact_match_count++;
             }
@@ -1516,13 +1516,13 @@ static void inspect_synthetic_add_occurrences(CBMFileResult **result_cache, int 
 TEST(parallel_lsp_exact_index_handles_repeated_synthetic_occurrences_without_linear_scan) {
     enum { OCCURRENCES = 128 };
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_lsp_perf_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_lsp_perf_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
     char path[512];
     snprintf(path, sizeof(path), "%s/app.py", tmpdir);
-    FILE *file = cbm_fopen(path, "w");
+    FILE *file = ani_fopen(path, "w");
     if (!file) {
         rmdir(tmpdir);
         FAIL("fopen app.py failed");
@@ -1538,33 +1538,33 @@ TEST(parallel_lsp_exact_index_handles_repeated_synthetic_occurrences_without_lin
     fprintf(file, "    return value\n");
     fclose(file);
 
-    cbm_file_info_t files[1] = {0};
+    ani_file_info_t files[1] = {0};
     files[0].path = path;
     files[0].rel_path = (char *)"app.py";
-    files[0].language = CBM_LANG_PYTHON;
+    files[0].language = ANI_LANG_PYTHON;
     lsp_synthetic_index_probe_t probe = {0};
-    cbm_pp_lsp_linear_fallback_rows_reset();
-    cbm_gbuf_t *gbuf = run_parallel_with_extract_opts_and_mutator(
-        "cbm_par_lsp_perf", tmpdir, files, 1, 1, NULL, inspect_synthetic_add_occurrences, &probe,
+    ani_pp_lsp_linear_fallback_rows_reset();
+    ani_gbuf_t *gbuf = run_parallel_with_extract_opts_and_mutator(
+        "ani_par_lsp_perf", tmpdir, files, 1, 1, NULL, inspect_synthetic_add_occurrences, &probe,
         false);
     ASSERT_NOT_NULL(gbuf);
     ASSERT_EQ(probe.carrier_count, OCCURRENCES);
     ASSERT_EQ(probe.exact_match_count, OCCURRENCES);
     ASSERT_NOT_NULL(find_calls_edge_by_tails(gbuf, "app.combine", "Number.__add__"));
-    uint64_t fallback_rows = cbm_pp_lsp_linear_fallback_rows();
+    uint64_t fallback_rows = ani_pp_lsp_linear_fallback_rows();
     if (fallback_rows != 0) {
         printf("  synthetic exact-index diagnostic: occurrences=%d linear_rows=%llu\n", OCCURRENCES,
                (unsigned long long)fallback_rows);
     }
     ASSERT_EQ(fallback_rows, 0);
 
-    cbm_gbuf_free(gbuf);
+    ani_gbuf_free(gbuf);
     unlink(path);
     rmdir(tmpdir);
     PASS();
 }
 
-#if defined(CBM_CALL_REFERENCE_LOOKUP_TEST_API) && CBM_CALL_REFERENCE_LOOKUP_TEST_API
+#if defined(ANI_CALL_REFERENCE_LOOKUP_TEST_API) && ANI_CALL_REFERENCE_LOOKUP_TEST_API
 enum { CALL_REFERENCE_SCALE_OCCURRENCES = 128 };
 
 typedef struct {
@@ -1576,20 +1576,20 @@ typedef struct {
  * exact callable references. Every target is a real extracted Function node,
  * so the fused resolver must traverse its ordinary usage-materialization path
  * and emit 128 distinct CALL_REFERENCE edges. */
-static void inject_call_reference_scale_rows(CBMFileResult **result_cache, int file_count,
+static void inject_call_reference_scale_rows(ANIFileResult **result_cache, int file_count,
                                              void *ud) {
     call_reference_scale_probe_t *probe = (call_reference_scale_probe_t *)ud;
     if (!probe || !result_cache) {
         return;
     }
     for (int file = 0; file < file_count; file++) {
-        CBMFileResult *result = result_cache[file];
+        ANIFileResult *result = result_cache[file];
         if (!result) {
             continue;
         }
         const char *caller_qn = NULL;
         for (int i = 0; i < result->defs.count; i++) {
-            const CBMDefinition *definition = &result->defs.items[i];
+            const ANIDefinition *definition = &result->defs.items[i];
             if (definition->name && strcmp(definition->name, "scale_caller") == 0) {
                 caller_qn = definition->qualified_name;
                 break;
@@ -1603,16 +1603,16 @@ static void inject_call_reference_scale_rows(CBMFileResult **result_cache, int f
         result->resolved_calls.count = 0;
         int inserted = 0;
         for (int i = 0; i < result->defs.count; i++) {
-            const CBMDefinition *target = &result->defs.items[i];
+            const ANIDefinition *target = &result->defs.items[i];
             if (!target->name || !target->qualified_name ||
                 strncmp(target->name, "scale_target_", strlen("scale_target_")) != 0) {
                 continue;
             }
             uint32_t start = 10000U + (uint32_t)inserted * 16U;
-            CBMUsage usage = {0};
+            ANIUsage usage = {0};
             usage.ref_name = target->name;
             usage.enclosing_func_qn = caller_qn;
-            usage.kind = CBM_USAGE_CALL_REFERENCE;
+            usage.kind = ANI_USAGE_CALL_REFERENCE;
             usage.may_be_call_reference = true;
             /* Exact occurrence proof must win even when lexical evidence
              * forbids the later raw-name fallback. */
@@ -1620,17 +1620,17 @@ static void inject_call_reference_scale_rows(CBMFileResult **result_cache, int f
             usage.semantic_reference_local_shadow = true;
             usage.site_start_byte = start;
             usage.site_end_byte = start + (uint32_t)strlen(target->name);
-            cbm_usages_push(&result->usages, &result->arena, usage);
+            ani_usages_push(&result->usages, &result->arena, usage);
 
-            CBMResolvedCall resolved = {0};
+            ANIResolvedCall resolved = {0};
             resolved.caller_qn = caller_qn;
             resolved.callee_qn = target->qualified_name;
             resolved.strategy = "test_exact_reference_scale";
             resolved.confidence = 0.95f;
-            resolved.kind = CBM_RESOLVED_CALL_REFERENCE;
+            resolved.kind = ANI_RESOLVED_CALL_REFERENCE;
             resolved.site_start_byte = usage.site_start_byte;
             resolved.site_end_byte = usage.site_end_byte;
-            cbm_resolvedcall_push(&result->resolved_calls, &result->arena, resolved);
+            ani_resolvedcall_push(&result->resolved_calls, &result->arena, resolved);
             inserted++;
         }
         probe->reference_count = inserted;
@@ -1641,13 +1641,13 @@ static void inject_call_reference_scale_rows(CBMFileResult **result_cache, int f
 
 TEST(parallel_call_reference_lookup_rows_grow_linearly) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_ref_scale_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_ref_scale_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
     char path[512];
     snprintf(path, sizeof(path), "%s/app.py", tmpdir);
-    FILE *file = cbm_fopen(path, "w");
+    FILE *file = ani_fopen(path, "w");
     if (!file) {
         rmdir(tmpdir);
         FAIL("fopen app.py failed");
@@ -1658,29 +1658,29 @@ TEST(parallel_call_reference_lookup_rows_grow_linearly) {
     fputs("def scale_caller():\n    return None\n", file);
     fclose(file);
 
-    cbm_file_info_t file_info = {0};
+    ani_file_info_t file_info = {0};
     file_info.path = path;
     file_info.rel_path = (char *)"app.py";
-    file_info.language = CBM_LANG_PYTHON;
+    file_info.language = ANI_LANG_PYTHON;
     call_reference_scale_probe_t probe = {0};
 
-    cbm_pipeline_lsp_reference_lookup_test_reset();
-    cbm_gbuf_t *gbuf = run_parallel_with_extract_opts_and_mutator(
-        "cbm_par_ref_scale", tmpdir, &file_info, 1, 1, NULL, inject_call_reference_scale_rows,
+    ani_pipeline_lsp_reference_lookup_test_reset();
+    ani_gbuf_t *gbuf = run_parallel_with_extract_opts_and_mutator(
+        "ani_par_ref_scale", tmpdir, &file_info, 1, 1, NULL, inject_call_reference_scale_rows,
         &probe, false);
-    uint64_t rows_examined = cbm_pipeline_lsp_reference_lookup_test_rows_examined();
+    uint64_t rows_examined = ani_pipeline_lsp_reference_lookup_test_rows_examined();
 
-    const cbm_gbuf_node_t *caller =
+    const ani_gbuf_node_t *caller =
         gbuf ? find_unique_callable_node_by_tail(gbuf, "app.scale_caller") : NULL;
-    const cbm_gbuf_edge_t **edges = NULL;
+    const ani_gbuf_edge_t **edges = NULL;
     int edge_count = 0;
-    int lookup_rc = caller ? cbm_gbuf_find_edges_by_source_type(gbuf, caller->id, "CALL_REFERENCE",
+    int lookup_rc = caller ? ani_gbuf_find_edges_by_source_type(gbuf, caller->id, "CALL_REFERENCE",
                                                                 &edges, &edge_count)
                            : -1;
     int exact_target_edges = 0;
     for (int i = 0; lookup_rc == 0 && i < edge_count; i++) {
-        const cbm_gbuf_node_t *target =
-            edges[i] ? cbm_gbuf_find_by_id(gbuf, edges[i]->target_id) : NULL;
+        const ani_gbuf_node_t *target =
+            edges[i] ? ani_gbuf_find_by_id(gbuf, edges[i]->target_id) : NULL;
         if (target && target->name &&
             strncmp(target->name, "scale_target_", strlen("scale_target_")) == 0) {
             exact_target_edges++;
@@ -1696,7 +1696,7 @@ TEST(parallel_call_reference_lookup_rows_grow_linearly) {
                (unsigned long long)rows_examined, (unsigned long long)linear_budget);
     }
 
-    cbm_gbuf_free(gbuf);
+    ani_gbuf_free(gbuf);
     unlink(path);
     rmdir(tmpdir);
     ASSERT_TRUE(probe.injected);
@@ -1717,13 +1717,13 @@ TEST(parallel_call_reference_lookup_rows_grow_linearly) {
  * builders to reject textual fallback for the shadowed tag. */
 TEST(parallel_tsx_local_component_shadow_has_no_false_call) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_tsx_shadow_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_tsx_shadow_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
     char path[512];
     snprintf(path, sizeof(path), "%s/main.tsx", tmpdir);
-    FILE *file = cbm_fopen(path, "w");
+    FILE *file = ani_fopen(path, "w");
     if (!file) {
         rmdir(tmpdir);
         FAIL("fopen main.tsx failed");
@@ -1734,12 +1734,12 @@ TEST(parallel_tsx_local_component_shadow_has_no_false_call) {
           file);
     fclose(file);
 
-    cbm_file_info_t files[1] = {0};
+    ani_file_info_t files[1] = {0};
     files[0].path = path;
     files[0].rel_path = (char *)"main.tsx";
-    files[0].language = CBM_LANG_TSX;
-    cbm_gbuf_t *sequential = run_sequential("cbm_tsx_shadow", tmpdir, files, 1);
-    cbm_gbuf_t *parallel = run_parallel("cbm_tsx_shadow", tmpdir, files, 1, 1);
+    files[0].language = ANI_LANG_TSX;
+    ani_gbuf_t *sequential = run_sequential("ani_tsx_shadow", tmpdir, files, 1);
+    ani_gbuf_t *parallel = run_parallel("ani_tsx_shadow", tmpdir, files, 1, 1);
     ASSERT_NOT_NULL(sequential);
     ASSERT_NOT_NULL(parallel);
 
@@ -1764,8 +1764,8 @@ TEST(parallel_tsx_local_component_shadow_has_no_false_call) {
                parallel_wrong);
     }
 
-    cbm_gbuf_free(sequential);
-    cbm_gbuf_free(parallel);
+    ani_gbuf_free(sequential);
+    ani_gbuf_free(parallel);
     unlink(path);
     rmdir(tmpdir);
     ASSERT_TRUE(sequential_nodes);
@@ -1781,21 +1781,21 @@ typedef struct {
     bool injected;
 } exact_noncallable_reference_probe_t;
 
-static void inject_exact_noncallable_reference(CBMFileResult **result_cache, int file_count,
+static void inject_exact_noncallable_reference(ANIFileResult **result_cache, int file_count,
                                                void *ud) {
     exact_noncallable_reference_probe_t *probe = (exact_noncallable_reference_probe_t *)ud;
     if (!probe || !result_cache) {
         return;
     }
     for (int file = 0; file < file_count; file++) {
-        CBMFileResult *result = result_cache[file];
+        ANIFileResult *result = result_cache[file];
         if (!result) {
             continue;
         }
         const char *caller_qn = NULL;
         const char *target_qn = NULL;
         for (int i = 0; i < result->defs.count; i++) {
-            const CBMDefinition *definition = &result->defs.items[i];
+            const ANIDefinition *definition = &result->defs.items[i];
             if (definition->name && definition->qualified_name &&
                 strcmp(definition->name, "carrier") == 0) {
                 caller_qn = definition->qualified_name;
@@ -1812,10 +1812,10 @@ static void inject_exact_noncallable_reference(CBMFileResult **result_cache, int
 
         result->usages.count = 0;
         result->resolved_calls.count = 0;
-        CBMUsage usage = {0};
+        ANIUsage usage = {0};
         usage.ref_name = "semanticAlias";
         usage.enclosing_func_qn = caller_qn;
-        usage.kind = CBM_USAGE_VALUE;
+        usage.kind = ANI_USAGE_VALUE;
         usage.may_be_call_reference = true;
         /* The raw-name path is deliberately unavailable. A resulting USAGE
          * therefore proves that the exact semantic row was joined and then
@@ -1823,18 +1823,18 @@ static void inject_exact_noncallable_reference(CBMFileResult **result_cache, int
         usage.semantic_reference_blocked = true;
         usage.site_start_byte = 40000U;
         usage.site_end_byte = 40000U + (uint32_t)strlen(usage.ref_name);
-        cbm_usages_push(&result->usages, &result->arena, usage);
+        ani_usages_push(&result->usages, &result->arena, usage);
 
-        CBMResolvedCall resolved = {0};
+        ANIResolvedCall resolved = {0};
         resolved.caller_qn = caller_qn;
         resolved.callee_qn = target_qn;
         resolved.strategy = "lsp_callable_value_reference";
         resolved.reason = usage.ref_name;
         resolved.confidence = 0.99f;
-        resolved.kind = CBM_RESOLVED_CALL_REFERENCE;
+        resolved.kind = ANI_RESOLVED_CALL_REFERENCE;
         resolved.site_start_byte = usage.site_start_byte;
         resolved.site_end_byte = usage.site_end_byte;
-        cbm_resolvedcall_push(&result->resolved_calls, &result->arena, resolved);
+        ani_resolvedcall_push(&result->resolved_calls, &result->arena, resolved);
         probe->injected = true;
         return;
     }
@@ -1845,8 +1845,8 @@ TEST(parallel_exact_semantic_noncallable_target_stays_usage) {
                                  "function consume(value: unknown): void {}\n"
                                  "export function carrier(): void { consume(semanticValue); }\n";
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_exact_noncallable_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_exact_noncallable_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
     char path[512];
@@ -1855,24 +1855,24 @@ TEST(parallel_exact_semantic_noncallable_target_stays_usage) {
         th_rmtree(tmpdir);
         FAIL("failed to write exact non-callable fixture");
     }
-    cbm_file_info_t file = {0};
+    ani_file_info_t file = {0};
     file.path = path;
     file.rel_path = (char *)"app.ts";
-    file.language = CBM_LANG_TYPESCRIPT;
+    file.language = ANI_LANG_TYPESCRIPT;
     exact_noncallable_reference_probe_t sequential_probe = {0};
     exact_noncallable_reference_probe_t parallel_probe = {0};
-    cbm_gbuf_t *sequential = run_sequential_with_lsp_cross_and_mutator(
-        "cbm_exact_noncallable", tmpdir, &file, 1, inject_exact_noncallable_reference,
+    ani_gbuf_t *sequential = run_sequential_with_lsp_cross_and_mutator(
+        "ani_exact_noncallable", tmpdir, &file, 1, inject_exact_noncallable_reference,
         &sequential_probe, false);
-    cbm_gbuf_t *parallel = run_parallel_with_extract_opts_and_mutator(
-        "cbm_exact_noncallable", tmpdir, &file, 1, 1, NULL, inject_exact_noncallable_reference,
+    ani_gbuf_t *parallel = run_parallel_with_extract_opts_and_mutator(
+        "ani_exact_noncallable", tmpdir, &file, 1, 1, NULL, inject_exact_noncallable_reference,
         &parallel_probe, false);
     ASSERT_NOT_NULL(sequential);
     ASSERT_NOT_NULL(parallel);
 
-    const cbm_gbuf_node_t *sequential_target = find_unique_node_by_name_label_qn_suffix(
+    const ani_gbuf_node_t *sequential_target = find_unique_node_by_name_label_qn_suffix(
         sequential, "semanticValue", "Variable", "app.semanticValue");
-    const cbm_gbuf_node_t *parallel_target = find_unique_node_by_name_label_qn_suffix(
+    const ani_gbuf_node_t *parallel_target = find_unique_node_by_name_label_qn_suffix(
         parallel, "semanticValue", "Variable", "app.semanticValue");
     const bool sequential_usage =
         has_edge_from_callable_to_node(sequential, "app.carrier", sequential_target, "USAGE");
@@ -1887,8 +1887,8 @@ TEST(parallel_exact_semantic_noncallable_target_stays_usage) {
                                        "CALL_REFERENCE") ||
         has_edge_from_callable_to_node(parallel, "app.carrier", parallel_target, "CALLS");
 
-    cbm_gbuf_free(sequential);
-    cbm_gbuf_free(parallel);
+    ani_gbuf_free(sequential);
+    ani_gbuf_free(parallel);
     th_rmtree(tmpdir);
     ASSERT_TRUE(sequential_probe.injected);
     ASSERT_TRUE(parallel_probe.injected);
@@ -1923,8 +1923,8 @@ TEST(parallel_typescript_module_value_usage_respects_lexical_shadows) {
         "}\n";
 
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_ts_usage_scope_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_ts_usage_scope_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
     char settings_path[512];
@@ -1937,21 +1937,21 @@ TEST(parallel_typescript_module_value_usage_respects_lexical_shadows) {
         FAIL("failed to write TypeScript usage-scope fixture");
     }
 
-    cbm_file_info_t files[2] = {0};
+    ani_file_info_t files[2] = {0};
     files[0].path = settings_path;
     files[0].rel_path = (char *)"settings.ts";
-    files[0].language = CBM_LANG_TYPESCRIPT;
+    files[0].language = ANI_LANG_TYPESCRIPT;
     files[1].path = shadows_path;
     files[1].rel_path = (char *)"shadows.ts";
-    files[1].language = CBM_LANG_TYPESCRIPT;
-    cbm_gbuf_t *sequential = run_sequential("cbm_ts_usage_scope", tmpdir, files, 2);
-    cbm_gbuf_t *parallel = run_parallel("cbm_ts_usage_scope", tmpdir, files, 2, 2);
+    files[1].language = ANI_LANG_TYPESCRIPT;
+    ani_gbuf_t *sequential = run_sequential("ani_ts_usage_scope", tmpdir, files, 2);
+    ani_gbuf_t *parallel = run_parallel("ani_ts_usage_scope", tmpdir, files, 2, 2);
     ASSERT_NOT_NULL(sequential);
     ASSERT_NOT_NULL(parallel);
 
-    const cbm_gbuf_node_t *sequential_config = find_unique_node_by_name_label_qn_suffix(
+    const ani_gbuf_node_t *sequential_config = find_unique_node_by_name_label_qn_suffix(
         sequential, "config", "Variable", "settings.config");
-    const cbm_gbuf_node_t *parallel_config =
+    const ani_gbuf_node_t *parallel_config =
         find_unique_node_by_name_label_qn_suffix(parallel, "config", "Variable", "settings.config");
     const bool sequential_target = sequential_config != NULL;
     const bool parallel_target = parallel_config != NULL;
@@ -2017,8 +2017,8 @@ TEST(parallel_typescript_module_value_usage_respects_lexical_shadows) {
                sequential_local_leak, parallel_local_leak);
     }
 
-    cbm_gbuf_free(sequential);
-    cbm_gbuf_free(parallel);
+    ani_gbuf_free(sequential);
+    ani_gbuf_free(parallel);
     th_rmtree(tmpdir);
     ASSERT_TRUE(sequential_target);
     ASSERT_TRUE(parallel_target);
@@ -2048,7 +2048,7 @@ typedef struct {
     int edge_counts[2][TS_EXACT_EDGE_COUNT]; /* sequential, parallel */
 } ts_exact_parity_observation_t;
 
-static ts_exact_parity_observation_t run_ts_exact_parity_fixture(CBMLanguage main_language,
+static ts_exact_parity_observation_t run_ts_exact_parity_fixture(ANILanguage main_language,
                                                                  const char *extension,
                                                                  const char *project) {
     ts_exact_parity_observation_t observation;
@@ -2059,8 +2059,8 @@ static ts_exact_parity_observation_t run_ts_exact_parity_fixture(CBMLanguage mai
     }
 
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_ts_exact_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_ts_exact_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         return observation;
     }
 
@@ -2092,37 +2092,37 @@ static ts_exact_parity_observation_t run_ts_exact_parity_fixture(CBMLanguage mai
         return observation;
     }
 
-    cbm_file_info_t files[3] = {0};
+    ani_file_info_t files[3] = {0};
     files[0].path = selected_path;
     files[0].rel_path = (char *)"a/types.ts";
-    files[0].language = CBM_LANG_TYPESCRIPT;
+    files[0].language = ANI_LANG_TYPESCRIPT;
     files[1].path = decoy_path;
     files[1].rel_path = (char *)"b/types.ts";
-    files[1].language = CBM_LANG_TYPESCRIPT;
+    files[1].language = ANI_LANG_TYPESCRIPT;
     files[2].path = main_path;
     files[2].rel_path = main_rel;
     files[2].language = main_language;
 
-    cbm_gbuf_t *graphs[2] = {
+    ani_gbuf_t *graphs[2] = {
         run_sequential_with_lsp_cross_and_mutator(project, tmpdir, files, 3, NULL, NULL, true),
         run_parallel_with_extract_opts_and_mutator(project, tmpdir, files, 3, 2, NULL, NULL, NULL,
                                                    true),
     };
     for (int route = 0; route < 2; route++) {
-        cbm_gbuf_t *graph = graphs[route];
-        const cbm_gbuf_node_t *choose =
+        ani_gbuf_t *graph = graphs[route];
+        const ani_gbuf_node_t *choose =
             find_unique_node_by_name_label_qn_suffix(graph, "choose", "Function", "main.choose");
-        const cbm_gbuf_node_t *selected = find_unique_node_by_name_label_qn_suffix(
+        const ani_gbuf_node_t *selected = find_unique_node_by_name_label_qn_suffix(
             graph, "Config", "Interface", "a.types.Config");
-        const cbm_gbuf_node_t *decoy = find_unique_node_by_name_label_qn_suffix(
+        const ani_gbuf_node_t *decoy = find_unique_node_by_name_label_qn_suffix(
             graph, "Config", "Interface", "b.types.Config");
-        const cbm_gbuf_node_t *local_class =
+        const ani_gbuf_node_t *local_class =
             find_unique_node_by_name_label_qn_suffix(graph, "Config", "Class", "main.App.Config");
-        const cbm_gbuf_node_t *normalise = find_unique_node_by_name_label_qn_suffix(
+        const ani_gbuf_node_t *normalise = find_unique_node_by_name_label_qn_suffix(
             graph, "normalise", "Function", "main.App.Utils.normalise");
-        const cbm_gbuf_node_t *clamp = find_unique_node_by_name_label_qn_suffix(
+        const ani_gbuf_node_t *clamp = find_unique_node_by_name_label_qn_suffix(
             graph, "clamp", "Function", "main.App.Utils.clamp");
-        const cbm_gbuf_node_t *constructor = find_unique_node_by_name_label_qn_suffix(
+        const ani_gbuf_node_t *constructor = find_unique_node_by_name_label_qn_suffix(
             graph, "constructor", "Method", "main.App.Config.constructor");
 
         observation.edge_counts[route][TS_EXACT_SELECTED_IMPORT] =
@@ -2137,8 +2137,8 @@ static ts_exact_parity_observation_t run_ts_exact_parity_fixture(CBMLanguage mai
             count_edges_between_nodes(graph, constructor, normalise, "CALLS");
     }
 
-    cbm_gbuf_free(graphs[0]);
-    cbm_gbuf_free(graphs[1]);
+    ani_gbuf_free(graphs[0]);
+    ani_gbuf_free(graphs[1]);
     th_rmtree(tmpdir);
     return observation;
 }
@@ -2160,7 +2160,7 @@ static void print_ts_exact_parity_diagnostic(const char *language,
 
 TEST(parallel_typescript_import_namespace_exact_parity) {
     ts_exact_parity_observation_t observation =
-        run_ts_exact_parity_fixture(CBM_LANG_TYPESCRIPT, "ts", "cbm_ts_exact_parity");
+        run_ts_exact_parity_fixture(ANI_LANG_TYPESCRIPT, "ts", "ani_ts_exact_parity");
     print_ts_exact_parity_diagnostic("TypeScript", &observation);
     for (int route = 0; route < 2; route++) {
         ASSERT_EQ(observation.edge_counts[route][TS_EXACT_SELECTED_IMPORT], 1);
@@ -2174,7 +2174,7 @@ TEST(parallel_typescript_import_namespace_exact_parity) {
 
 TEST(parallel_tsx_import_namespace_exact_parity) {
     ts_exact_parity_observation_t observation =
-        run_ts_exact_parity_fixture(CBM_LANG_TSX, "tsx", "cbm_tsx_exact_parity");
+        run_ts_exact_parity_fixture(ANI_LANG_TSX, "tsx", "ani_tsx_exact_parity");
     print_ts_exact_parity_diagnostic("TSX", &observation);
     for (int route = 0; route < 2; route++) {
         ASSERT_EQ(observation.edge_counts[route][TS_EXACT_SELECTED_IMPORT], 1);
@@ -2192,7 +2192,7 @@ typedef struct {
     bool exact_join;
 } kotlin_implicit_probe_t;
 
-static kotlin_implicit_probe_t probe_kotlin_implicit_site(const CBMFileResult *result,
+static kotlin_implicit_probe_t probe_kotlin_implicit_site(const ANIFileResult *result,
                                                           const char *caller, const char *callee,
                                                           const char *target_qn,
                                                           const char *strategy) {
@@ -2201,23 +2201,23 @@ static kotlin_implicit_probe_t probe_kotlin_implicit_site(const CBMFileResult *r
         return probe;
     }
     for (int i = 0; i < result->calls.count; i++) {
-        const CBMCall *call = &result->calls.items[i];
+        const ANICall *call = &result->calls.items[i];
         const char *call_caller =
             call->enclosing_func_qn ? strrchr(call->enclosing_func_qn, '.') : NULL;
         call_caller = call_caller ? call_caller + 1 : call->enclosing_func_qn;
         if (!call->requires_lsp_resolution || !call->callee_name || !call_caller ||
             strcmp(call->callee_name, callee) != 0 || strcmp(call_caller, caller) != 0 ||
-            !cbm_pipeline_source_site_present(call->site_start_byte, call->site_end_byte)) {
+            !ani_pipeline_source_site_present(call->site_start_byte, call->site_end_byte)) {
             continue;
         }
         probe.carrier = true;
     }
     for (int j = 0; j < result->resolved_calls.count; j++) {
-        const CBMResolvedCall *resolved = &result->resolved_calls.items[j];
+        const ANIResolvedCall *resolved = &result->resolved_calls.items[j];
         const char *resolved_caller =
             resolved->caller_qn ? strrchr(resolved->caller_qn, '.') : NULL;
         resolved_caller = resolved_caller ? resolved_caller + 1 : resolved->caller_qn;
-        if (resolved->kind != CBM_RESOLVED_INVOCATION || !resolved_caller || !resolved->callee_qn ||
+        if (resolved->kind != ANI_RESOLVED_INVOCATION || !resolved_caller || !resolved->callee_qn ||
             !resolved->strategy || strcmp(resolved_caller, caller) != 0 ||
             strcmp(resolved->callee_qn, target_qn) != 0 ||
             strcmp(resolved->strategy, strategy) != 0) {
@@ -2225,7 +2225,7 @@ static kotlin_implicit_probe_t probe_kotlin_implicit_site(const CBMFileResult *r
         }
         probe.semantic = true;
         for (int i = 0; i < result->calls.count; i++) {
-            const CBMCall *call = &result->calls.items[i];
+            const ANICall *call = &result->calls.items[i];
             const char *call_caller =
                 call->enclosing_func_qn ? strrchr(call->enclosing_func_qn, '.') : NULL;
             call_caller = call_caller ? call_caller + 1 : call->enclosing_func_qn;
@@ -2233,7 +2233,7 @@ static kotlin_implicit_probe_t probe_kotlin_implicit_site(const CBMFileResult *r
                 strcmp(call->callee_name, callee) != 0 || strcmp(call_caller, caller) != 0) {
                 continue;
             }
-            if (cbm_pipeline_source_site_eq(call->site_start_byte, call->site_end_byte,
+            if (ani_pipeline_source_site_eq(call->site_start_byte, call->site_end_byte,
                                             resolved->site_start_byte, resolved->site_end_byte)) {
                 probe.exact_join = true;
             }
@@ -2270,9 +2270,9 @@ TEST(parallel_kotlin_external_protocol_does_not_use_project_class_method_tail) {
         "}\n"
         "class Box { operator fun plus(other: Box): Box = this }\n"
         "fun operatorCaller(left: Box, right: Box): Box = left + right\n";
-    const char *project = "cbm_kt_target_policy";
+    const char *project = "ani_kt_target_policy";
 
-    CBMFileResult *raw = cbm_extract_file(main_source, (int)strlen(main_source), CBM_LANG_KOTLIN,
+    ANIFileResult *raw = ani_extract_file(main_source, (int)strlen(main_source), ANI_LANG_KOTLIN,
                                           project, "app/Main.kt", 0, NULL, NULL);
     ASSERT_NOT_NULL(raw);
     ASSERT_FALSE(raw->has_error || raw->parse_incomplete);
@@ -2280,11 +2280,11 @@ TEST(parallel_kotlin_external_protocol_does_not_use_project_class_method_tail) {
         raw, "loopBuiltIn", "iterator", "kotlin.IntArray.iterator", "lsp_kt_iterator");
     kotlin_implicit_probe_t component = probe_kotlin_implicit_site(
         raw, "destructureBuiltIn", "component1", "kotlin.Pair.component1", "lsp_kt_destructure");
-    cbm_free_result(raw);
+    ani_free_result(raw);
 
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_kt_target_policy_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_kt_target_policy_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
     char collision_path[512];
@@ -2297,25 +2297,25 @@ TEST(parallel_kotlin_external_protocol_does_not_use_project_class_method_tail) {
         FAIL("failed to write Kotlin target-policy fixture");
     }
 
-    cbm_file_info_t files[2] = {0};
+    ani_file_info_t files[2] = {0};
     files[0].path = collision_path;
     files[0].rel_path = (char *)"collision/Collisions.kt";
-    files[0].language = CBM_LANG_KOTLIN;
+    files[0].language = ANI_LANG_KOTLIN;
     files[1].path = main_path;
     files[1].rel_path = (char *)"app/Main.kt";
-    files[1].language = CBM_LANG_KOTLIN;
-    cbm_gbuf_t *sequential = run_sequential_with_lsp_cross(project, tmpdir, files, 2);
-    cbm_gbuf_t *parallel = run_parallel(project, tmpdir, files, 2, 2);
+    files[1].language = ANI_LANG_KOTLIN;
+    ani_gbuf_t *sequential = run_sequential_with_lsp_cross(project, tmpdir, files, 2);
+    ani_gbuf_t *parallel = run_parallel(project, tmpdir, files, 2, 2);
     ASSERT_NOT_NULL(sequential);
     ASSERT_NOT_NULL(parallel);
 
-    const cbm_gbuf_node_t *sequential_iterator = find_unique_node_by_name_label_qn_suffix(
+    const ani_gbuf_node_t *sequential_iterator = find_unique_node_by_name_label_qn_suffix(
         sequential, "iterator", "Method", "Collisions.IntArray.iterator");
-    const cbm_gbuf_node_t *parallel_iterator = find_unique_node_by_name_label_qn_suffix(
+    const ani_gbuf_node_t *parallel_iterator = find_unique_node_by_name_label_qn_suffix(
         parallel, "iterator", "Method", "Collisions.IntArray.iterator");
-    const cbm_gbuf_node_t *sequential_component = find_unique_node_by_name_label_qn_suffix(
+    const ani_gbuf_node_t *sequential_component = find_unique_node_by_name_label_qn_suffix(
         sequential, "component1", "Method", "Collisions.Pair.component1");
-    const cbm_gbuf_node_t *parallel_component = find_unique_node_by_name_label_qn_suffix(
+    const ani_gbuf_node_t *parallel_component = find_unique_node_by_name_label_qn_suffix(
         parallel, "component1", "Method", "Collisions.Pair.component1");
     const bool sequential_nodes =
         sequential_iterator && sequential_component &&
@@ -2357,8 +2357,8 @@ TEST(parallel_kotlin_external_protocol_does_not_use_project_class_method_tail) {
                parallel_wrong_component);
     }
 
-    cbm_gbuf_free(sequential);
-    cbm_gbuf_free(parallel);
+    ani_gbuf_free(sequential);
+    ani_gbuf_free(parallel);
     th_rmtree(tmpdir);
     ASSERT_TRUE(iterator.carrier);
     ASSERT_TRUE(iterator.semantic);
@@ -2382,7 +2382,7 @@ TEST(parallel_kotlin_external_protocol_does_not_use_project_class_method_tail) {
 /* Kotlin's unary, membership, and index conventions are real invocations just
  * like binary `plus`: the LSP already proves the exact operator method at the
  * exact expression span. The syntax extractor must provide a matching guarded
- * CBMCall carrier so both graph paths can materialize CALLS without a textual
+ * ANICall carrier so both graph paths can materialize CALLS without a textual
  * guess. This test separately proves carrier, semantic row, exact join, and
  * graph edge for each syntax family. */
 TEST(parallel_kotlin_nonbinary_operator_carriers_reach_graph) {
@@ -2424,9 +2424,9 @@ TEST(parallel_kotlin_nonbinary_operator_carriers_reach_graph) {
                                  "current--; return current }\n"
                                  "fun isBag(value: Any): Boolean = value is Bag\n"
                                  "fun assign(slots: Slots) { slots[0] = 1 }\n";
-    const char *project = "cbm_kt_nonbinary_operators";
+    const char *project = "ani_kt_nonbinary_operators";
 
-    CBMFileResult *raw = cbm_extract_file(source, (int)strlen(source), CBM_LANG_KOTLIN, project,
+    ANIFileResult *raw = ani_extract_file(source, (int)strlen(source), ANI_LANG_KOTLIN, project,
                                           "app/Main.kt", 0, NULL, NULL);
     ASSERT_NOT_NULL(raw);
     ASSERT_FALSE(raw->has_error || raw->parse_incomplete);
@@ -2446,11 +2446,11 @@ TEST(parallel_kotlin_nonbinary_operator_carriers_reach_graph) {
         probe_kotlin_implicit_site(raw, "isBag", "contains", "app.Bag.contains", "lsp_kt_operator");
     kotlin_implicit_probe_t assignment_negative =
         probe_kotlin_implicit_site(raw, "assign", "get", "app.Slots.get", "lsp_kt_operator");
-    cbm_free_result(raw);
+    ani_free_result(raw);
 
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_kt_nonbinary_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_kt_nonbinary_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
     char definitions_path[512];
@@ -2462,15 +2462,15 @@ TEST(parallel_kotlin_nonbinary_operator_carriers_reach_graph) {
         th_rmtree(tmpdir);
         FAIL("failed to write Kotlin nonbinary-operator fixture");
     }
-    cbm_file_info_t files[2] = {0};
+    ani_file_info_t files[2] = {0};
     files[0].path = definitions_path;
     files[0].rel_path = (char *)"app/Operators.kt";
-    files[0].language = CBM_LANG_KOTLIN;
+    files[0].language = ANI_LANG_KOTLIN;
     files[1].path = callers_path;
     files[1].rel_path = (char *)"app/Main.kt";
-    files[1].language = CBM_LANG_KOTLIN;
-    cbm_gbuf_t *sequential = run_sequential_with_lsp_cross(project, tmpdir, files, 2);
-    cbm_gbuf_t *parallel = run_parallel(project, tmpdir, files, 2, 2);
+    files[1].language = ANI_LANG_KOTLIN;
+    ani_gbuf_t *sequential = run_sequential_with_lsp_cross(project, tmpdir, files, 2);
+    ani_gbuf_t *parallel = run_parallel(project, tmpdir, files, 2, 2);
     ASSERT_NOT_NULL(sequential);
     ASSERT_NOT_NULL(parallel);
 
@@ -2533,8 +2533,8 @@ TEST(parallel_kotlin_nonbinary_operator_carriers_reach_graph) {
                sequential_false_get || parallel_false_get);
     }
 
-    cbm_gbuf_free(sequential);
-    cbm_gbuf_free(parallel);
+    ani_gbuf_free(sequential);
+    ani_gbuf_free(parallel);
     th_rmtree(tmpdir);
     ASSERT_TRUE(unary.carrier);
     ASSERT_TRUE(unary.semantic);
@@ -2582,7 +2582,7 @@ TEST(parallel_kotlin_nonbinary_operator_carriers_reach_graph) {
  * without manifest-aware routing, a bare-name match cannot accidentally make
  * the test green.  The optional crate_b-local helper pins the second failure
  * mode where a confident in-file resolution used to suppress cross-LSP. */
-static cbm_gbuf_t *run_issue56_parallel_workspace(bool local_decoy) {
+static ani_gbuf_t *run_issue56_parallel_workspace(bool local_decoy) {
     static const char workspace_toml[] =
         "[workspace]\n"
         "members = [\"crate_a\", \"crate_b\"]\n"
@@ -2603,8 +2603,8 @@ static cbm_gbuf_t *run_issue56_parallel_workspace(bool local_decoy) {
         "fn main() { run(); }\n";
 
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_issue56_parallel_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_issue56_parallel_XXXXXX");
+    if (!ani_mkdtemp(tmpdir))
         return NULL;
 
     char crate_a[512];
@@ -2619,8 +2619,8 @@ static cbm_gbuf_t *run_issue56_parallel_workspace(bool local_decoy) {
     snprintf(crate_b_src, sizeof(crate_b_src), "%s/src", crate_b);
     snprintf(unlisted, sizeof(unlisted), "%s/unlisted", tmpdir);
     snprintf(unlisted_src, sizeof(unlisted_src), "%s/src", unlisted);
-    if (cbm_mkdir(crate_a) != 0 || cbm_mkdir(crate_a_src) != 0 || cbm_mkdir(crate_b) != 0 ||
-        cbm_mkdir(crate_b_src) != 0 || cbm_mkdir(unlisted) != 0 || cbm_mkdir(unlisted_src) != 0) {
+    if (ani_mkdir(crate_a) != 0 || ani_mkdir(crate_a_src) != 0 || ani_mkdir(crate_b) != 0 ||
+        ani_mkdir(crate_b_src) != 0 || ani_mkdir(unlisted) != 0 || ani_mkdir(unlisted_src) != 0) {
         th_rmtree(tmpdir);
         return NULL;
     }
@@ -2647,26 +2647,26 @@ static cbm_gbuf_t *run_issue56_parallel_workspace(bool local_decoy) {
         return NULL;
     }
 
-    cbm_discover_opts_t opts = {.mode = CBM_MODE_FULL};
-    cbm_file_info_t *files = NULL;
+    ani_discover_opts_t opts = {.mode = ANI_MODE_FULL};
+    ani_file_info_t *files = NULL;
     int file_count = 0;
-    if (cbm_discover(tmpdir, &opts, &files, &file_count) != 0 || file_count < 3) {
-        cbm_discover_free(files, file_count);
+    if (ani_discover(tmpdir, &opts, &files, &file_count) != 0 || file_count < 3) {
+        ani_discover_free(files, file_count);
         th_rmtree(tmpdir);
         return NULL;
     }
-    cbm_gbuf_t *gbuf =
-        run_parallel("cbm_issue56_parallel", tmpdir, files, file_count, 2 /* real workers */);
-    cbm_discover_free(files, file_count);
+    ani_gbuf_t *gbuf =
+        run_parallel("ani_issue56_parallel", tmpdir, files, file_count, 2 /* real workers */);
+    ani_discover_free(files, file_count);
     th_rmtree(tmpdir);
     return gbuf;
 }
 
 TEST(parallel_rust_cross_crate_worker_receives_workspace_manifest) {
-    cbm_gbuf_t *gbuf = run_issue56_parallel_workspace(false);
+    ani_gbuf_t *gbuf = run_issue56_parallel_workspace(false);
     ASSERT_NOT_NULL(gbuf);
 
-    const cbm_gbuf_edge_t *correct =
+    const ani_gbuf_edge_t *correct =
         find_call_edge_to_target_fragment(gbuf, "main.run", ".crate_a.");
     const bool correct_found = correct != NULL;
     const bool unlisted =
@@ -2677,7 +2677,7 @@ TEST(parallel_rust_cross_crate_worker_receives_workspace_manifest) {
         printf("  issue56 manifest diagnostic: correct=%d unlisted=%d strategy=%d\n",
                correct_found, unlisted, manifest_strategy);
     }
-    cbm_gbuf_free(gbuf);
+    ani_gbuf_free(gbuf);
 
     ASSERT_TRUE(correct_found);
     ASSERT_FALSE(unlisted);
@@ -2686,10 +2686,10 @@ TEST(parallel_rust_cross_crate_worker_receives_workspace_manifest) {
 }
 
 TEST(parallel_rust_cross_crate_manifest_beats_confident_local_resolution) {
-    cbm_gbuf_t *gbuf = run_issue56_parallel_workspace(true);
+    ani_gbuf_t *gbuf = run_issue56_parallel_workspace(true);
     ASSERT_NOT_NULL(gbuf);
 
-    const cbm_gbuf_edge_t *correct =
+    const ani_gbuf_edge_t *correct =
         find_call_edge_to_target_fragment(gbuf, "main.run", ".crate_a.");
     const bool correct_found = correct != NULL;
     const bool wrong_local =
@@ -2700,7 +2700,7 @@ TEST(parallel_rust_cross_crate_manifest_beats_confident_local_resolution) {
         printf("  issue56 local-shadow diagnostic: correct=%d wrong_local=%d strategy=%d\n",
                correct_found, wrong_local, manifest_strategy);
     }
-    cbm_gbuf_free(gbuf);
+    ani_gbuf_free(gbuf);
 
     ASSERT_TRUE(correct_found);
     ASSERT_FALSE(wrong_local);
@@ -2714,13 +2714,13 @@ TEST(parallel_rust_cross_crate_manifest_beats_confident_local_resolution) {
 TEST(parallel_rust_known_macro_does_not_fallback_to_local_function) {
     static const char source[] = "fn println() {}\nfn run() { println!(\"macro\"); }\n";
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_rust_macro_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_rust_macro_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
     char path[512];
     snprintf(path, sizeof(path), "%s/main.rs", tmpdir);
-    FILE *file = cbm_fopen(path, "w");
+    FILE *file = ani_fopen(path, "w");
     if (!file) {
         rmdir(tmpdir);
         FAIL("fopen main.rs failed");
@@ -2728,8 +2728,8 @@ TEST(parallel_rust_known_macro_does_not_fallback_to_local_function) {
     fputs(source, file);
     fclose(file);
 
-    CBMFileResult *extracted = cbm_extract_file(source, (int)strlen(source), CBM_LANG_RUST,
-                                                "cbm_rust_macro", "main.rs", 0, NULL, NULL);
+    ANIFileResult *extracted = ani_extract_file(source, (int)strlen(source), ANI_LANG_RUST,
+                                                "ani_rust_macro", "main.rs", 0, NULL, NULL);
     ASSERT_NOT_NULL(extracted);
     const char *site = strstr(source, "println!(\"macro\")");
     const uint32_t start = site ? (uint32_t)(site - source) : 0;
@@ -2737,7 +2737,7 @@ TEST(parallel_rust_known_macro_does_not_fallback_to_local_function) {
     bool semantic_owner = false;
     bool exact_gated_carrier = false;
     for (int i = 0; i < extracted->resolved_calls.count; i++) {
-        const CBMResolvedCall *resolved = &extracted->resolved_calls.items[i];
+        const ANIResolvedCall *resolved = &extracted->resolved_calls.items[i];
         if (resolved->caller_qn && strstr(resolved->caller_qn, "run") && resolved->callee_qn &&
             strcmp(resolved->callee_qn, "std.macros.println") == 0 && resolved->strategy &&
             strcmp(resolved->strategy, "lsp_macro") == 0) {
@@ -2745,7 +2745,7 @@ TEST(parallel_rust_known_macro_does_not_fallback_to_local_function) {
         }
     }
     for (int i = 0; i < extracted->calls.count; i++) {
-        const CBMCall *call = &extracted->calls.items[i];
+        const ANICall *call = &extracted->calls.items[i];
         if (call->enclosing_func_qn && strstr(call->enclosing_func_qn, "run") &&
             call->callee_name && strcmp(call->callee_name, "println") == 0 &&
             call->site_start_byte == start && call->site_end_byte == end &&
@@ -2753,14 +2753,14 @@ TEST(parallel_rust_known_macro_does_not_fallback_to_local_function) {
             exact_gated_carrier = true;
         }
     }
-    cbm_free_result(extracted);
+    ani_free_result(extracted);
 
-    cbm_file_info_t files[1] = {0};
+    ani_file_info_t files[1] = {0};
     files[0].path = path;
     files[0].rel_path = (char *)"main.rs";
-    files[0].language = CBM_LANG_RUST;
-    cbm_gbuf_t *sequential = run_sequential("cbm_rust_macro", tmpdir, files, 1);
-    cbm_gbuf_t *parallel = run_parallel("cbm_rust_macro", tmpdir, files, 1, 1);
+    files[0].language = ANI_LANG_RUST;
+    ani_gbuf_t *sequential = run_sequential("ani_rust_macro", tmpdir, files, 1);
+    ani_gbuf_t *parallel = run_parallel("ani_rust_macro", tmpdir, files, 1, 1);
     ASSERT_NOT_NULL(sequential);
     ASSERT_NOT_NULL(parallel);
 
@@ -2780,8 +2780,8 @@ TEST(parallel_rust_known_macro_does_not_fallback_to_local_function) {
                sequential_wrong, parallel_wrong);
     }
 
-    cbm_gbuf_free(sequential);
-    cbm_gbuf_free(parallel);
+    ani_gbuf_free(sequential);
+    ani_gbuf_free(parallel);
     unlink(path);
     rmdir(tmpdir);
     ASSERT_TRUE(semantic_owner);
@@ -2800,13 +2800,13 @@ TEST(parallel_rust_proc_macros_are_decorates_and_usage_only) {
     static const char source[] = "#[tokio::main]\nasync fn main() {}\n"
                                  "#[tracing::instrument]\nfn work() {}\n";
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_rust_proc_macro_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_rust_proc_macro_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
     char path[512];
     snprintf(path, sizeof(path), "%s/main.rs", tmpdir);
-    FILE *file = cbm_fopen(path, "w");
+    FILE *file = ani_fopen(path, "w");
     if (!file) {
         rmdir(tmpdir);
         FAIL("fopen main.rs failed");
@@ -2814,12 +2814,12 @@ TEST(parallel_rust_proc_macros_are_decorates_and_usage_only) {
     fputs(source, file);
     fclose(file);
 
-    cbm_file_info_t files[1] = {0};
+    ani_file_info_t files[1] = {0};
     files[0].path = path;
     files[0].rel_path = (char *)"main.rs";
-    files[0].language = CBM_LANG_RUST;
-    cbm_gbuf_t *sequential = run_sequential("cbm_rust_proc_macro", tmpdir, files, 1);
-    cbm_gbuf_t *parallel = run_parallel("cbm_rust_proc_macro", tmpdir, files, 1, 1);
+    files[0].language = ANI_LANG_RUST;
+    ani_gbuf_t *sequential = run_sequential("ani_rust_proc_macro", tmpdir, files, 1);
+    ani_gbuf_t *parallel = run_parallel("ani_rust_proc_macro", tmpdir, files, 1, 1);
     ASSERT_NOT_NULL(sequential);
     ASSERT_NOT_NULL(parallel);
 
@@ -2854,8 +2854,8 @@ TEST(parallel_rust_proc_macros_are_decorates_and_usage_only) {
                seq_fake, par_fake);
     }
 
-    cbm_gbuf_free(sequential);
-    cbm_gbuf_free(parallel);
+    ani_gbuf_free(sequential);
+    ani_gbuf_free(parallel);
     unlink(path);
     rmdir(tmpdir);
     ASSERT_TRUE(seq_tokio_decorates);
@@ -2871,19 +2871,19 @@ TEST(parallel_rust_proc_macros_are_decorates_and_usage_only) {
     PASS();
 }
 
-static int assert_c_family_preprocessed_collision_graph(CBMLanguage language, const char *extension,
+static int assert_c_family_preprocessed_collision_graph(ANILanguage language, const char *extension,
                                                         const char *project, const char *source,
                                                         const char *target_tail) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_c_origin_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_c_origin_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
     char rel_path[64];
     snprintf(rel_path, sizeof(rel_path), "main.%s", extension);
     char path[512];
     snprintf(path, sizeof(path), "%s/%s", tmpdir, rel_path);
-    FILE *file = cbm_fopen(path, "w");
+    FILE *file = ani_fopen(path, "w");
     if (!file) {
         rmdir(tmpdir);
         FAIL("fopen C-family fixture failed");
@@ -2891,18 +2891,18 @@ static int assert_c_family_preprocessed_collision_graph(CBMLanguage language, co
     fputs(source, file);
     fclose(file);
 
-    cbm_file_info_t files[1] = {0};
+    ani_file_info_t files[1] = {0};
     files[0].path = path;
     files[0].rel_path = rel_path;
     files[0].language = language;
-    cbm_gbuf_t *sequential = run_sequential(project, tmpdir, files, 1);
-    cbm_gbuf_t *parallel = run_parallel(project, tmpdir, files, 1, 1);
+    ani_gbuf_t *sequential = run_sequential(project, tmpdir, files, 1);
+    ani_gbuf_t *parallel = run_parallel(project, tmpdir, files, 1, 1);
     ASSERT_NOT_NULL(sequential);
     ASSERT_NOT_NULL(parallel);
 
-    const cbm_gbuf_edge_t *sequential_edge =
+    const ani_gbuf_edge_t *sequential_edge =
         find_calls_edge_by_tails(sequential, "main.occurrence_probe", target_tail);
-    const cbm_gbuf_edge_t *parallel_edge =
+    const ani_gbuf_edge_t *parallel_edge =
         find_calls_edge_by_tails(parallel, "main.occurrence_probe", target_tail);
     if (!sequential_edge || !parallel_edge) {
         printf("  C-family origin diagnostic (%s): sequential=%s parallel=%s\n", extension,
@@ -2911,8 +2911,8 @@ static int assert_c_family_preprocessed_collision_graph(CBMLanguage language, co
     ASSERT_NOT_NULL(sequential_edge);
     ASSERT_NOT_NULL(parallel_edge);
 
-    cbm_gbuf_free(sequential);
-    cbm_gbuf_free(parallel);
+    ani_gbuf_free(sequential);
+    ani_gbuf_free(parallel);
     unlink(path);
     rmdir(tmpdir);
     return 0;
@@ -2928,11 +2928,11 @@ TEST(parallel_c_preprocessed_coordinate_collision_preserves_hidden_target) {
         "#define HIDDEN_FP_CALL() (fp = bravo_target, fp())\n"
         " return HIDDEN_FP_CALL();\n"
         "}\n";
-    return assert_c_family_preprocessed_collision_graph(CBM_LANG_C, "c", "cbm_c_origin", source,
+    return assert_c_family_preprocessed_collision_graph(ANI_LANG_C, "c", "ani_c_origin", source,
                                                         "main.bravo_target");
 }
 
-static int assert_cpp_like_preprocessed_collision_graph(CBMLanguage language, const char *extension,
+static int assert_cpp_like_preprocessed_collision_graph(ANILanguage language, const char *extension,
                                                         const char *project) {
     static const char source[] =
         "struct Alpha { int render(){return 1;} };\n"
@@ -2948,17 +2948,17 @@ static int assert_cpp_like_preprocessed_collision_graph(CBMLanguage language, co
 }
 
 TEST(parallel_cpp_preprocessed_coordinate_collision_preserves_hidden_target) {
-    return assert_cpp_like_preprocessed_collision_graph(CBM_LANG_CPP, "cpp", "cbm_cpp_origin");
+    return assert_cpp_like_preprocessed_collision_graph(ANI_LANG_CPP, "cpp", "ani_cpp_origin");
 }
 
 TEST(parallel_cuda_preprocessed_coordinate_collision_preserves_hidden_target) {
-    return assert_cpp_like_preprocessed_collision_graph(CBM_LANG_CUDA, "cu", "cbm_cuda_origin");
+    return assert_cpp_like_preprocessed_collision_graph(ANI_LANG_CUDA, "cu", "ani_cuda_origin");
 }
 
 TEST(parallel_java_kotlin_lsp_override_cross_file_emits_lsp_strategy_edges) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_jvm_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_jvm_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
 
@@ -2966,8 +2966,8 @@ TEST(parallel_java_kotlin_lsp_override_cross_file_emits_lsp_strategy_edges) {
     snprintf(jpath, sizeof(jpath), "%s/src/main/java/com/example/Example.java", tmpdir);
     char jdir[512];
     snprintf(jdir, sizeof(jdir), "%s/src/main/java/com/example", tmpdir);
-    cbm_mkdir_p(jdir, 0755);
-    FILE *jf = cbm_fopen(jpath, "w");
+    ani_mkdir_p(jdir, 0755);
+    FILE *jf = ani_fopen(jpath, "w");
     if (!jf) {
         FAIL("fopen example.java failed");
     }
@@ -2990,8 +2990,8 @@ TEST(parallel_java_kotlin_lsp_override_cross_file_emits_lsp_strategy_edges) {
     snprintf(kpath, sizeof(kpath), "%s/src/main/kotlin/com/example/KotlinService.kt", tmpdir);
     char kdir[512];
     snprintf(kdir, sizeof(kdir), "%s/src/main/kotlin/com/example", tmpdir);
-    cbm_mkdir_p(kdir, 0755);
-    FILE *kf = cbm_fopen(kpath, "w");
+    ani_mkdir_p(kdir, 0755);
+    FILE *kf = ani_fopen(kpath, "w");
     if (!kf) {
         unlink(jpath);
         rmdir(tmpdir);
@@ -3006,20 +3006,20 @@ TEST(parallel_java_kotlin_lsp_override_cross_file_emits_lsp_strategy_edges) {
                 "}\n");
     fclose(kf);
 
-    cbm_file_info_t files[2] = {0};
+    ani_file_info_t files[2] = {0};
     files[0].path = jpath;
     files[0].rel_path = (char *)"src/main/java/com/example/Example.java";
-    files[0].language = CBM_LANG_JAVA;
+    files[0].language = ANI_LANG_JAVA;
     files[1].path = kpath;
     files[1].rel_path = (char *)"src/main/kotlin/com/example/KotlinService.kt";
-    files[1].language = CBM_LANG_KOTLIN;
+    files[1].language = ANI_LANG_KOTLIN;
 
-    cbm_gbuf_t *gbuf = run_parallel("com", tmpdir, files, 2, 2);
+    ani_gbuf_t *gbuf = run_parallel("com", tmpdir, files, 2, 2);
     ASSERT_NOT_NULL(gbuf);
 
-    const cbm_gbuf_edge_t *java_to_kotlin =
+    const ani_gbuf_edge_t *java_to_kotlin =
         find_calls_edge_by_tails(gbuf, "JavaCaller.call", "KotlinService.ping");
-    const cbm_gbuf_edge_t *kotlin_to_java =
+    const ani_gbuf_edge_t *kotlin_to_java =
         find_calls_edge_by_tails(gbuf, "KotlinService.ping", "JavaService.pong");
 
     ASSERT_NOT_NULL(java_to_kotlin);
@@ -3031,7 +3031,7 @@ TEST(parallel_java_kotlin_lsp_override_cross_file_emits_lsp_strategy_edges) {
     ASSERT_TRUE(strstr(java_to_kotlin->properties_json, "\"strategy\":\"callee_suffix\"") == NULL);
     ASSERT_TRUE(strstr(kotlin_to_java->properties_json, "\"strategy\":\"callee_suffix\"") == NULL);
 
-    cbm_gbuf_free(gbuf);
+    ani_gbuf_free(gbuf);
     unlink(kpath);
     unlink(jpath);
     rmdir(tmpdir);
@@ -3044,7 +3044,7 @@ TEST(parallel_java_kotlin_lsp_override_cross_file_emits_lsp_strategy_edges) {
  * "Class.method" leaf. That is only sound where class-per-file package
  * semantics hold (Java/Kotlin); in any other language a single
  * wrong-module coincidence would fabricate a CALLS edge, so
- * cbm_pipeline_lsp_allow_tail_match must keep the fallbacks OFF there.
+ * ani_pipeline_lsp_allow_tail_match must keep the fallbacks OFF there.
  *
  * NOTE: a natural end-to-end non-JVM coincidence fixture is impractical:
  * reaching the fallbacks requires the LSP and the textual extraction to
@@ -3057,33 +3057,33 @@ TEST(parallel_java_kotlin_lsp_override_cross_file_emits_lsp_strategy_edges) {
  * unconditional again — the gate-closed assertions below would fail. */
 TEST(parallel_lsp_tail_match_fallbacks_gated_to_jvm) {
     /* Policy: exactly the JVM languages. */
-    ASSERT_TRUE(cbm_pipeline_lsp_allow_tail_match(CBM_LANG_JAVA));
-    ASSERT_TRUE(cbm_pipeline_lsp_allow_tail_match(CBM_LANG_KOTLIN));
-    ASSERT_TRUE(!cbm_pipeline_lsp_allow_tail_match(CBM_LANG_PYTHON));
-    ASSERT_TRUE(!cbm_pipeline_lsp_allow_tail_match(CBM_LANG_GO));
-    ASSERT_TRUE(!cbm_pipeline_lsp_allow_tail_match(CBM_LANG_TYPESCRIPT));
-    ASSERT_TRUE(!cbm_pipeline_lsp_allow_tail_match(CBM_LANG_CPP));
+    ASSERT_TRUE(ani_pipeline_lsp_allow_tail_match(ANI_LANG_JAVA));
+    ASSERT_TRUE(ani_pipeline_lsp_allow_tail_match(ANI_LANG_KOTLIN));
+    ASSERT_TRUE(!ani_pipeline_lsp_allow_tail_match(ANI_LANG_PYTHON));
+    ASSERT_TRUE(!ani_pipeline_lsp_allow_tail_match(ANI_LANG_GO));
+    ASSERT_TRUE(!ani_pipeline_lsp_allow_tail_match(ANI_LANG_TYPESCRIPT));
+    ASSERT_TRUE(!ani_pipeline_lsp_allow_tail_match(ANI_LANG_CPP));
 
     /* Wrong-module coincidence: the resolved entry's caller shares only
      * the "Service.handle" tail with the textual call's enclosing
      * function, so the exact caller_qn pass misses and only the tail
      * fallback could join them. */
-    CBMResolvedCall rc_item = {0};
+    ANIResolvedCall rc_item = {0};
     rc_item.caller_qn = "com.example.pkg.Service.handle";
     rc_item.callee_qn = "com.example.pkg.Helper.run";
     rc_item.strategy = "lsp";
     rc_item.confidence = 0.9f;
-    CBMResolvedCallArray arr = {0};
+    ANIResolvedCallArray arr = {0};
     arr.items = &rc_item;
     arr.count = 1;
     arr.cap = 1;
 
-    CBMCall call = {0};
+    ANICall call = {0};
     call.enclosing_func_qn = "proj.other_mod.Service.handle";
     call.callee_name = "helper.run";
 
-    ASSERT_TRUE(cbm_pipeline_find_lsp_resolution(&arr, &call, false) == NULL);
-    ASSERT_TRUE(cbm_pipeline_find_lsp_resolution(&arr, &call, true) == &rc_item);
+    ASSERT_TRUE(ani_pipeline_find_lsp_resolution(&arr, &call, false) == NULL);
+    ASSERT_TRUE(ani_pipeline_find_lsp_resolution(&arr, &call, true) == &rc_item);
 
     /* Kotlin top-level functions have one more legitimate QN drift: the graph
      * owner is file-shaped (`...Main.operatorCaller`) while the semantic owner
@@ -3091,64 +3091,64 @@ TEST(parallel_lsp_tail_match_fallbacks_gated_to_jvm) {
      * equal caller leaf may reconcile that JVM-only drift; the non-JVM policy
      * remains closed, a different caller leaf remains closed, and distinct
      * semantic targets at the same occurrence remain ambiguous. */
-    CBMResolvedCall top_level_rows[2] = {0};
+    ANIResolvedCall top_level_rows[2] = {0};
     top_level_rows[0].caller_qn = "app.operatorCaller";
     top_level_rows[0].callee_qn = "app.Box.plus";
     top_level_rows[0].strategy = "lsp_kt_operator";
     top_level_rows[0].confidence = 0.9f;
     top_level_rows[0].site_start_byte = 80;
     top_level_rows[0].site_end_byte = 92;
-    top_level_rows[0].source_origin = CBM_SOURCE_ORIGIN_RAW;
-    CBMResolvedCallArray top_level_arr = {0};
+    top_level_rows[0].source_origin = ANI_SOURCE_ORIGIN_RAW;
+    ANIResolvedCallArray top_level_arr = {0};
     top_level_arr.items = top_level_rows;
     top_level_arr.count = 1;
     top_level_arr.cap = 2;
 
-    CBMCall top_level_call = {0};
+    ANICall top_level_call = {0};
     top_level_call.enclosing_func_qn = "proj.app.Main.operatorCaller";
     top_level_call.callee_name = "plus";
     top_level_call.site_start_byte = 80;
     top_level_call.site_end_byte = 92;
-    top_level_call.source_origin = CBM_SOURCE_ORIGIN_RAW;
+    top_level_call.source_origin = ANI_SOURCE_ORIGIN_RAW;
     top_level_call.requires_lsp_resolution = true;
-    ASSERT_TRUE(cbm_pipeline_find_lsp_resolution(&top_level_arr, &top_level_call, false) == NULL);
-    ASSERT_TRUE(cbm_pipeline_find_lsp_resolution(&top_level_arr, &top_level_call, true) ==
+    ASSERT_TRUE(ani_pipeline_find_lsp_resolution(&top_level_arr, &top_level_call, false) == NULL);
+    ASSERT_TRUE(ani_pipeline_find_lsp_resolution(&top_level_arr, &top_level_call, true) ==
                 &top_level_rows[0]);
 
     top_level_call.enclosing_func_qn = "proj.app.Main.differentCaller";
-    ASSERT_TRUE(cbm_pipeline_find_lsp_resolution(&top_level_arr, &top_level_call, true) == NULL);
+    ASSERT_TRUE(ani_pipeline_find_lsp_resolution(&top_level_arr, &top_level_call, true) == NULL);
     top_level_call.enclosing_func_qn = "proj.app.Main.operatorCaller";
     top_level_rows[1] = top_level_rows[0];
     top_level_rows[1].callee_qn = "app.Other.plus";
     top_level_arr.count = 2;
-    ASSERT_TRUE(cbm_pipeline_find_lsp_resolution(&top_level_arr, &top_level_call, true) == NULL);
+    ASSERT_TRUE(ani_pipeline_find_lsp_resolution(&top_level_arr, &top_level_call, true) == NULL);
 
     /* Target-node fallback: callee_qn misses both as-is and
      * project-prefixed; exactly one node coincidentally shares the
      * "Helper.run" tail in an unrelated module. */
-    cbm_gbuf_t *tgbuf = cbm_gbuf_new("proj", "/tmp");
+    ani_gbuf_t *tgbuf = ani_gbuf_new("proj", "/tmp");
     ASSERT_NOT_NULL(tgbuf);
-    int64_t nid = cbm_gbuf_upsert_node(tgbuf, "Method", "run", "proj.zeta.Helper.run",
+    int64_t nid = ani_gbuf_upsert_node(tgbuf, "Method", "run", "proj.zeta.Helper.run",
                                        "zeta/helper.py", 1, 3, NULL);
     ASSERT_TRUE(nid != 0);
-    ASSERT_TRUE(cbm_pipeline_lsp_target_node(tgbuf, "proj", "com.other.Helper.run", false) == NULL);
-    const cbm_gbuf_node_t *jvm_hit =
-        cbm_pipeline_lsp_target_node(tgbuf, "proj", "com.other.Helper.run", true);
+    ASSERT_TRUE(ani_pipeline_lsp_target_node(tgbuf, "proj", "com.other.Helper.run", false) == NULL);
+    const ani_gbuf_node_t *jvm_hit =
+        ani_pipeline_lsp_target_node(tgbuf, "proj", "com.other.Helper.run", true);
     ASSERT_NOT_NULL(jvm_hit);
     ASSERT_TRUE(strcmp(jvm_hit->qualified_name, "proj.zeta.Helper.run") == 0);
     /* A synthetic external protocol target has no source-level evidence for
      * that Class.method-tail equivalence.  Its strict lookup must therefore
      * remain exact and fail closed on the same coincidence. */
-    ASSERT_TRUE(cbm_pipeline_lsp_target_node_strict(tgbuf, "proj", "com.other.Helper.run", true) ==
+    ASSERT_TRUE(ani_pipeline_lsp_target_node_strict(tgbuf, "proj", "com.other.Helper.run", true) ==
                 NULL);
-    cbm_gbuf_free(tgbuf);
+    ani_gbuf_free(tgbuf);
     PASS();
 }
 
 TEST(parallel_python_lsp_override_emits_lsp_strategy_edges) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_pylsp_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_pylsp_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
 
@@ -3159,7 +3159,7 @@ TEST(parallel_python_lsp_override_emits_lsp_strategy_edges) {
      * cross-file equivalent is covered by
      * parallel_python_lsp_override_cross_file_emits_lsp_strategy_edges,
      * which exercises the project-prefix fallback in
-     * cbm_pipeline_lsp_target_node. */
+     * ani_pipeline_lsp_target_node. */
     char fpath0[512];
     snprintf(fpath0, sizeof(fpath0), "%s/app.py", tmpdir);
     FILE *f = fopen(fpath0, "w");
@@ -3175,28 +3175,28 @@ TEST(parallel_python_lsp_override_emits_lsp_strategy_edges) {
                "    g.hello()\n");
     fclose(f);
 
-    cbm_file_info_t files[1] = {0};
+    ani_file_info_t files[1] = {0};
     files[0].path = fpath0;
     files[0].rel_path = (char *)"app.py";
-    files[0].language = CBM_LANG_PYTHON;
+    files[0].language = ANI_LANG_PYTHON;
 
-    cbm_gbuf_t *gbuf = run_parallel("cbm_par_pylsp", tmpdir, files, 1, 1);
+    ani_gbuf_t *gbuf = run_parallel("ani_par_pylsp", tmpdir, files, 1, 1);
     ASSERT_NOT_NULL(gbuf);
 
     lsp_edge_count_ctx_t c = {0};
-    cbm_gbuf_foreach_edge(gbuf, count_lsp_call_edges, &c);
+    ani_gbuf_foreach_edge(gbuf, count_lsp_call_edges, &c);
 
     /* Sanity: extraction produced at least one call edge. */
     ASSERT_GT(c.total_calls, 0);
     /* The parallel pipeline must surface at least one LSP-attributed
-     * CALLS edge. This proves the unified cbm_pipeline_find_lsp_resolution
+     * CALLS edge. This proves the unified ani_pipeline_find_lsp_resolution
      * (shared with pass_calls.c at floor 0.6) is actually consulted in
      * the parallel pipeline, and that the resulting edge is emitted with
      * the LSP strategy intact rather than overwritten by the registry
      * fallback. */
     ASSERT_GT(c.lsp_strategy_count, 0);
 
-    cbm_gbuf_free(gbuf);
+    ani_gbuf_free(gbuf);
 
     unlink(fpath0);
     rmdir(tmpdir);
@@ -3209,20 +3209,20 @@ TEST(parallel_python_lsp_override_emits_lsp_strategy_edges) {
  * compact harness (run_sequential_with_lsp_cross_*) does not. Go imports
  * resolve to Folder nodes, so a Go import-map fixture must seed File and
  * Folder nodes itself — replicating the production shape. */
-static cbm_gbuf_t *run_go_field_chain_sequential(const char *project, const char *repo_path,
-                                                 cbm_file_info_t *files, int file_count) {
-    cbm_gbuf_t *gbuf = cbm_gbuf_new(project, repo_path);
-    cbm_registry_t *reg = cbm_registry_new();
-    CBMFileResult **cache = (CBMFileResult **)calloc((size_t)file_count, sizeof(CBMFileResult *));
+static ani_gbuf_t *run_go_field_chain_sequential(const char *project, const char *repo_path,
+                                                 ani_file_info_t *files, int file_count) {
+    ani_gbuf_t *gbuf = ani_gbuf_new(project, repo_path);
+    ani_registry_t *reg = ani_registry_new();
+    ANIFileResult **cache = (ANIFileResult **)calloc((size_t)file_count, sizeof(ANIFileResult *));
     if (!gbuf || !reg || !cache) {
-        cbm_gbuf_free(gbuf);
-        cbm_registry_free(reg);
+        ani_gbuf_free(gbuf);
+        ani_registry_free(reg);
         free(cache);
         return NULL;
     }
     atomic_int cancelled;
     atomic_init(&cancelled, 0);
-    cbm_pipeline_ctx_t ctx = {
+    ani_pipeline_ctx_t ctx = {
         .project_name = project,
         .repo_path = repo_path,
         .gbuf = gbuf,
@@ -3232,46 +3232,46 @@ static cbm_gbuf_t *run_go_field_chain_sequential(const char *project, const char
     };
 
     seed_test_file_nodes(gbuf, project, files, file_count);
-    char *svc_dir_qn = cbm_pipeline_fqn_folder(project, "svc");
+    char *svc_dir_qn = ani_pipeline_fqn_folder(project, "svc");
     if (svc_dir_qn) {
-        cbm_gbuf_upsert_node(gbuf, "Folder", "svc", svc_dir_qn, "svc", 0, 0, "{}");
+        ani_gbuf_upsert_node(gbuf, "Folder", "svc", svc_dir_qn, "svc", 0, 0, "{}");
         free(svc_dir_qn);
     }
 
-    cbm_init();
-    cbm_pipeline_pass_definitions(&ctx, files, file_count);
-    cbm_pipeline_pass_lsp_cross(&ctx, files, file_count, cache);
-    cbm_pipeline_pass_calls(&ctx, files, file_count);
-    cbm_pipeline_pass_usages(&ctx, files, file_count);
-    cbm_pipeline_pass_semantic(&ctx, files, file_count);
+    ani_init();
+    ani_pipeline_pass_definitions(&ctx, files, file_count);
+    ani_pipeline_pass_lsp_cross(&ctx, files, file_count, cache);
+    ani_pipeline_pass_calls(&ctx, files, file_count);
+    ani_pipeline_pass_usages(&ctx, files, file_count);
+    ani_pipeline_pass_semantic(&ctx, files, file_count);
 
-    /* CBM_GO_FIELD_DIAG dump. NOTE: resolved-call records may borrow QN
+    /* ANI_GO_FIELD_DIAG dump. NOTE: resolved-call records may borrow QN
      * strings across file results (cross-file resolution in pass_lsp_cross),
      * so every result must stay alive while ANY is inspected. Print all
      * first, free all second. */
-    if (getenv("CBM_GO_FIELD_DIAG")) {
+    if (getenv("ANI_GO_FIELD_DIAG")) {
         for (int i = 0; i < file_count; i++) {
             if (!cache[i]) {
                 continue;
             }
-            const CBMFileResult *r = cache[i];
+            const ANIFileResult *r = cache[i];
             printf("  [diag] file %s defs=%d imports=%d calls=%d resolved=%d\n", files[i].rel_path,
                    r->defs.count, r->imports.count, r->calls.count, r->resolved_calls.count);
             for (int j = 0; j < r->resolved_calls.count; j++) {
-                const CBMResolvedCall *rc = &r->resolved_calls.items[j];
+                const ANIResolvedCall *rc = &r->resolved_calls.items[j];
                 printf("  [diag]   rc caller=%s callee=%s strategy=%s conf=%.2f kind=%d span=[%u,%u)\n",
                        rc->caller_qn ? rc->caller_qn : "?", rc->callee_qn ? rc->callee_qn : "?",
                        rc->strategy ? rc->strategy : "?", rc->confidence, (int)rc->kind,
                        (unsigned)rc->site_start_byte, (unsigned)rc->site_end_byte);
             }
             for (int j = 0; j < r->calls.count; j++) {
-                const CBMCall *c = &r->calls.items[j];
+                const ANICall *c = &r->calls.items[j];
                 printf("  [diag]   call callee=%s enclosing=%s span=[%u,%u) req=%d\n",
                        c->callee_name ? c->callee_name : "?", c->enclosing_func_qn ? c->enclosing_func_qn : "?",
                        (unsigned)c->site_start_byte, (unsigned)c->site_end_byte, (int)c->requires_lsp_resolution);
             }
             for (int j = 0; j < r->defs.count; j++) {
-                const CBMDefinition *d = &r->defs.items[j];
+                const ANIDefinition *d = &r->defs.items[j];
                 printf("  [diag]   def label=%s qn=%s parent=%s ret=%s\n", d->label ? d->label : "?",
                        d->qualified_name ? d->qualified_name : "?", d->parent_class ? d->parent_class : "?",
                        d->return_type ? d->return_type : "?");
@@ -3279,13 +3279,13 @@ static cbm_gbuf_t *run_go_field_chain_sequential(const char *project, const char
         }
     }
     for (int i = 0; i < file_count; i++) {
-        cbm_free_result(cache[i]);
+        ani_free_result(cache[i]);
     }
     free(cache);
     harness_ctx_free_tables(&ctx);
-    cbm_registry_free(reg);
+    ani_registry_free(reg);
     if (ctx.seq_cross_arena_live) {
-        cbm_arena_destroy(&ctx.seq_cross_arena);
+        ani_arena_destroy(&ctx.seq_cross_arena);
         ctx.seq_cross_arena_live = false;
     }
     if (ctx.seq_cross_def_modules) {
@@ -3306,8 +3306,8 @@ static cbm_gbuf_t *run_go_field_chain_sequential(const char *project, const char
  * cross-package field ("S *s.Svc") and app.Call calls through it. */
 TEST(parallel_go_cross_package_field_chain_resolves) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_gofold_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_gofold_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
 
@@ -3368,18 +3368,18 @@ TEST(parallel_go_cross_package_field_chain_resolves) {
         FAIL("write fixture failed");
     }
 
-    cbm_file_info_t files[2] = {0};
+    ani_file_info_t files[2] = {0};
     files[0].path = svc_path;
     files[0].rel_path = (char *)"acme-order/internal/service/order_service.go";
-    files[0].language = CBM_LANG_GO;
+    files[0].language = ANI_LANG_GO;
     files[1].path = app_path;
     files[1].rel_path = (char *)"acme-order/internal/handler/order_handler.go";
-    files[1].language = CBM_LANG_GO;
+    files[1].language = ANI_LANG_GO;
 
-    cbm_gbuf_t *gbuf = run_go_field_chain_sequential("go_field_fold", tmpdir, files, 2);
+    ani_gbuf_t *gbuf = run_go_field_chain_sequential("go_field_fold", tmpdir, files, 2);
     ASSERT_NOT_NULL(gbuf);
 
-    const cbm_gbuf_edge_t *edge = find_call_edge_to_target_fragment(gbuf, "handler.PlaceOrder", ".service.PlaceOrder");
+    const ani_gbuf_edge_t *edge = find_call_edge_to_target_fragment(gbuf, "handler.PlaceOrder", ".service.PlaceOrder");
     const bool found = edge != NULL;
     const bool dispatch =
         edge && edge->properties_json &&
@@ -3391,29 +3391,29 @@ TEST(parallel_go_cross_package_field_chain_resolves) {
         }
         /* Dump all callable nodes and CALLS edges for cross-referencing */
         {
-            const cbm_gbuf_node_t **nodes = NULL;
+            const ani_gbuf_node_t **nodes = NULL;
             int ncount = 0;
-            if (cbm_gbuf_find_by_label(gbuf, "Function", &nodes, &ncount) == 0) {
+            if (ani_gbuf_find_by_label(gbuf, "Function", &nodes, &ncount) == 0) {
                 for (int i = 0; i < ncount; i++) {
                     printf("  node Function: %s\n", nodes[i]->qualified_name);
                 }
             }
-            if (cbm_gbuf_find_by_label(gbuf, "Method", &nodes, &ncount) == 0) {
+            if (ani_gbuf_find_by_label(gbuf, "Method", &nodes, &ncount) == 0) {
                 for (int i = 0; i < ncount; i++) {
                     printf("  node Method: %s\n", nodes[i]->qualified_name);
                 }
             }
-            cbm_gbuf_edge_visitor_fn edge_dump = NULL;
+            ani_gbuf_edge_visitor_fn edge_dump = NULL;
             (void)edge_dump;
             /* print every CALLS edge with endpoints */
-            const cbm_gbuf_edge_t **all = NULL;
+            const ani_gbuf_edge_t **all = NULL;
             int ecount = 0;
-            if (cbm_gbuf_find_edges_by_type(gbuf, "CALLS", &all, &ecount) == 0) {
+            if (ani_gbuf_find_edges_by_type(gbuf, "CALLS", &all, &ecount) == 0) {
                 for (int i = 0; i < ecount; i++) {
-                    const cbm_gbuf_node_t *src =
-                        all[i] ? cbm_gbuf_find_by_id(gbuf, all[i]->source_id) : NULL;
-                    const cbm_gbuf_node_t *dst =
-                        all[i] ? cbm_gbuf_find_by_id(gbuf, all[i]->target_id) : NULL;
+                    const ani_gbuf_node_t *src =
+                        all[i] ? ani_gbuf_find_by_id(gbuf, all[i]->source_id) : NULL;
+                    const ani_gbuf_node_t *dst =
+                        all[i] ? ani_gbuf_find_by_id(gbuf, all[i]->target_id) : NULL;
                     printf("  CALLS edge: %s -> %s  props=%s\n",
                            src ? src->qualified_name : "?",
                            dst ? dst->qualified_name : "?",
@@ -3422,7 +3422,7 @@ TEST(parallel_go_cross_package_field_chain_resolves) {
             }
         }
     }
-    cbm_gbuf_free(gbuf);
+    ani_gbuf_free(gbuf);
     th_rmtree(tmpdir);
 
     ASSERT_TRUE(found);
@@ -3434,9 +3434,9 @@ TEST(parallel_go_cross_package_field_chain_resolves) {
  * emits resolved_calls.callee_qn as the raw import-module path (e.g.
  * `greeter.Greeter` from `from greeter import Greeter`) rather than the
  * project-qualified QN the gbuf stores (`<project>.greeter.Greeter`).
- * Before cbm_pipeline_lsp_target_node added the project-prefix fallback,
+ * Before ani_pipeline_lsp_target_node added the project-prefix fallback,
  * the LSP match succeeded (lsp_overrides counter incremented) but the
- * downstream cbm_gbuf_find_by_qn lookup missed silently, dropping the
+ * downstream ani_gbuf_find_by_qn lookup missed silently, dropping the
  * edge. With the fallback in place, the cross-file `g.hello()` call is
  * attributed to <project>.greeter.Greeter.hello with an lsp_* strategy.
  *
@@ -3444,8 +3444,8 @@ TEST(parallel_go_cross_package_field_chain_resolves) {
  * calls hello() — same shape as the original failing reproduction. */
 TEST(parallel_python_lsp_override_cross_file_emits_lsp_strategy_edges) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_pylsp_xf_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_pylsp_xf_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
 
@@ -3475,29 +3475,29 @@ TEST(parallel_python_lsp_override_cross_file_emits_lsp_strategy_edges) {
                 "    g.hello()\n");
     fclose(af);
 
-    cbm_file_info_t files[2] = {0};
+    ani_file_info_t files[2] = {0};
     files[0].path = gpath;
     files[0].rel_path = (char *)"greeter.py";
-    files[0].language = CBM_LANG_PYTHON;
+    files[0].language = ANI_LANG_PYTHON;
     files[1].path = apath;
     files[1].rel_path = (char *)"app.py";
-    files[1].language = CBM_LANG_PYTHON;
+    files[1].language = ANI_LANG_PYTHON;
 
-    cbm_gbuf_t *gbuf = run_parallel("cbm_par_pylsp_xf", tmpdir, files, 2, 2);
+    ani_gbuf_t *gbuf = run_parallel("ani_par_pylsp_xf", tmpdir, files, 2, 2);
     ASSERT_NOT_NULL(gbuf);
 
     lsp_edge_count_ctx_t c = {0};
-    cbm_gbuf_foreach_edge(gbuf, count_lsp_call_edges, &c);
+    ani_gbuf_foreach_edge(gbuf, count_lsp_call_edges, &c);
 
     ASSERT_GT(c.total_calls, 0);
     /* The cross-file LSP override must produce at least one lsp_*
      * CALLS edge. Without the project-prefix fallback in
-     * cbm_pipeline_lsp_target_node this assertion would fail because the
+     * ani_pipeline_lsp_target_node this assertion would fail because the
      * raw module-path callee_qn doesn't match the project-qualified
      * gbuf node QN. */
     ASSERT_GT(c.lsp_strategy_count, 0);
 
-    cbm_gbuf_free(gbuf);
+    ani_gbuf_free(gbuf);
 
     unlink(apath);
     unlink(gpath);
@@ -3530,8 +3530,8 @@ TEST(parallel_python_lsp_override_cross_file_emits_lsp_strategy_edges) {
  * stays present = the non-vacuity control. */
 TEST(parallel_cross_file_reread_preserves_unretained_edges) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_par_xf_reread_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ani_par_xf_reread_XXXXXX");
+    if (!ani_mkdtemp(tmpdir)) {
         FAIL("mkdtemp failed");
     }
 
@@ -3539,7 +3539,7 @@ TEST(parallel_cross_file_reread_preserves_unretained_edges) {
     snprintf(jpath, sizeof(jpath), "%s/src/main/java/com/example/Example.java", tmpdir);
     char jdir[512];
     snprintf(jdir, sizeof(jdir), "%s/src/main/java/com/example", tmpdir);
-    cbm_mkdir_p(jdir, 0755);
+    ani_mkdir_p(jdir, 0755);
     FILE *jf = fopen(jpath, "w");
     if (!jf) {
         FAIL("fopen Example.java failed");
@@ -3563,7 +3563,7 @@ TEST(parallel_cross_file_reread_preserves_unretained_edges) {
     snprintf(kpath, sizeof(kpath), "%s/src/main/kotlin/com/example/KotlinService.kt", tmpdir);
     char kdir[512];
     snprintf(kdir, sizeof(kdir), "%s/src/main/kotlin/com/example", tmpdir);
-    cbm_mkdir_p(kdir, 0755);
+    ani_mkdir_p(kdir, 0755);
     FILE *kf = fopen(kpath, "w");
     if (!kf) {
         FAIL("fopen KotlinService.kt failed");
@@ -3577,35 +3577,35 @@ TEST(parallel_cross_file_reread_preserves_unretained_edges) {
                 "}\n");
     fclose(kf);
 
-    cbm_file_info_t files[2] = {0};
+    ani_file_info_t files[2] = {0};
     files[0].path = jpath;
     files[0].rel_path = (char *)"src/main/java/com/example/Example.java";
-    files[0].language = CBM_LANG_JAVA;
+    files[0].language = ANI_LANG_JAVA;
     files[1].path = kpath;
     files[1].rel_path = (char *)"src/main/kotlin/com/example/KotlinService.kt";
-    files[1].language = CBM_LANG_KOTLIN;
+    files[1].language = ANI_LANG_KOTLIN;
 
     /* CONTROL (retained) + two drop scenarios that reach the cross-file edge
      * only via the on-demand re-read: NO-RETAIN disables retention entirely;
      * OVER-CAP sets a 1-byte per-file cap so every file is dropped by size. */
-    const cbm_parallel_extract_opts_t no_retain = {
+    const ani_parallel_extract_opts_t no_retain = {
         .retain_sources = false,
         .retain_sources_set = true,
     };
-    const cbm_parallel_extract_opts_t over_cap = {
+    const ani_parallel_extract_opts_t over_cap = {
         .retain_sources = true,
         .retain_sources_set = true,
         .retain_per_file_max_bytes = 1, /* 1 byte → every file dropped by the size cap */
     };
-    const cbm_parallel_extract_opts_t *scenarios[3] = {NULL, &no_retain, &over_cap};
+    const ani_parallel_extract_opts_t *scenarios[3] = {NULL, &no_retain, &over_cap};
 
     for (int s = 0; s < 3; s++) {
-        cbm_gbuf_t *gbuf = run_parallel_with_extract_opts("com", tmpdir, files, 2, 2, scenarios[s]);
+        ani_gbuf_t *gbuf = run_parallel_with_extract_opts("com", tmpdir, files, 2, 2, scenarios[s]);
         ASSERT_NOT_NULL(gbuf);
 
-        const cbm_gbuf_edge_t *java_to_kotlin =
+        const ani_gbuf_edge_t *java_to_kotlin =
             find_calls_edge_by_tails(gbuf, "JavaCaller.call", "KotlinService.ping");
-        const cbm_gbuf_edge_t *kotlin_to_java =
+        const ani_gbuf_edge_t *kotlin_to_java =
             find_calls_edge_by_tails(gbuf, "KotlinService.ping", "JavaService.pong");
 
         /* Both cross-file (Java↔Kotlin) CALLS edges must be present in EVERY
@@ -3621,7 +3621,7 @@ TEST(parallel_cross_file_reread_preserves_unretained_edges) {
         ASSERT_NOT_NULL(kotlin_to_java->properties_json);
         ASSERT_NOT_NULL(strstr(kotlin_to_java->properties_json, "\"strategy\":\"lsp"));
 
-        cbm_gbuf_free(gbuf);
+        ani_gbuf_free(gbuf);
     }
 
     th_rmtree(tmpdir);
@@ -3668,17 +3668,17 @@ TEST(grpc_no_phantom_route_from_plain_var_issue294) {
     PASS();
 }
 
-/* ── Shared "::" normalization in cbm_pipeline_find_lsp_resolution (QA F3) ─
+/* ── Shared "::" normalization in ani_pipeline_find_lsp_resolution (QA F3) ─
  *
  * The last-"::"-segment normalization in lsp_resolve.h widens matching for
  * qualified static callees (Perl `Pkg::sub`, C++ `Ns::fn`, etc.) across ALL
  * languages, not just Perl. These tests lock the intended behavior directly
- * against cbm_pipeline_find_lsp_resolution: (1) a qualified static call still
+ * against ani_pipeline_find_lsp_resolution: (1) a qualified static call still
  * resolves to the right resolved entry, and (2) the theoretical
  * mis-attribution edge case (two same-named subs from different namespaces) is
  * bounded by caller-QN equality + the confidence floor. */
-static CBMResolvedCall make_rc(const char *caller, const char *callee, float conf) {
-    CBMResolvedCall rc = {0};
+static ANIResolvedCall make_rc(const char *caller, const char *callee, float conf) {
+    ANIResolvedCall rc = {0};
     memset(&rc, 0, sizeof(rc));
     rc.caller_qn = caller;
     rc.callee_qn = callee;
@@ -3687,8 +3687,8 @@ static CBMResolvedCall make_rc(const char *caller, const char *callee, float con
     return rc;
 }
 
-static CBMCall make_call(const char *enclosing, const char *callee_name) {
-    CBMCall c;
+static ANICall make_call(const char *enclosing, const char *callee_name) {
+    ANICall c;
     memset(&c, 0, sizeof(c));
     c.enclosing_func_qn = enclosing;
     c.callee_name = callee_name;
@@ -3699,8 +3699,8 @@ TEST(lsp_bare_segment_skips_preprocessor_spacing) {
     /* simplecpp serializes macro-expanded member access with spaces around the
      * separator (for example `bravo . render`).  The shared semantic join must
      * still compare the identifier leaf, not the whitespace-prefixed suffix. */
-    ASSERT_STR_EQ(cbm_lsp_bare_segment("bravo . render"), "render");
-    ASSERT_STR_EQ(cbm_lsp_bare_segment("ptr -> run"), "run");
+    ASSERT_STR_EQ(ani_lsp_bare_segment("bravo . render"), "render");
+    ASSERT_STR_EQ(ani_lsp_bare_segment("ptr -> run"), "run");
     PASS();
 }
 
@@ -3708,19 +3708,19 @@ TEST(lsp_resolve_qualified_static_call_normalizes_colons) {
     /* A qualified static call `Pkg::sub` (callee_name keeps the package
      * prefix) must still match a resolved entry whose callee_qn short-name is
      * the bare `sub`. This is the cross-language "::"-normalization contract. */
-    CBMResolvedCall items[] = {
+    ANIResolvedCall items[] = {
         make_rc("proj.mod.caller", "proj.Pkg.sub", 0.9f),
     };
-    CBMResolvedCallArray arr = {items, 1, 1};
-    CBMCall call = make_call("proj.mod.caller", "Pkg::sub");
-    const CBMResolvedCall *hit = cbm_pipeline_find_lsp_resolution(&arr, &call, false);
+    ANIResolvedCallArray arr = {items, 1, 1};
+    ANICall call = make_call("proj.mod.caller", "Pkg::sub");
+    const ANIResolvedCall *hit = ani_pipeline_find_lsp_resolution(&arr, &call, false);
     ASSERT(hit != NULL);
     ASSERT(strcmp(hit->callee_qn, "proj.Pkg.sub") == 0);
 
     /* A bare call (no "::") to the same short name resolves identically —
      * normalization must not regress the common case. */
-    CBMCall bare = make_call("proj.mod.caller", "sub");
-    const CBMResolvedCall *bare_hit = cbm_pipeline_find_lsp_resolution(&arr, &bare, false);
+    ANICall bare = make_call("proj.mod.caller", "sub");
+    const ANIResolvedCall *bare_hit = ani_pipeline_find_lsp_resolution(&arr, &bare, false);
     ASSERT(bare_hit != NULL);
     ASSERT(strcmp(bare_hit->callee_qn, "proj.Pkg.sub") == 0);
     PASS();
@@ -3730,7 +3730,7 @@ TEST(lsp_resolve_distinct_exact_caller_targets_fail_closed) {
     /* Two same-named targets from different namespaces at the same caller and
      * legacy occurrence are semantic ambiguity, not a confidence contest.
      * Choosing the higher score would fabricate one exact CALLS target. */
-    CBMResolvedCall items[] = {
+    ANIResolvedCall items[] = {
         make_rc("proj.mod.caller", "proj.A.foo", 0.7f),
         make_rc("proj.mod.caller", "proj.B.foo", 0.9f),
         /* Below the confidence floor: must be ignored entirely. */
@@ -3738,55 +3738,55 @@ TEST(lsp_resolve_distinct_exact_caller_targets_fail_closed) {
         /* Different caller: must never match regardless of short-name. */
         make_rc("proj.mod.other", "proj.D.foo", 0.95f),
     };
-    CBMResolvedCallArray arr = {items, 4, 4};
-    CBMCall call = make_call("proj.mod.caller", "B::foo");
-    const CBMResolvedCall *hit = cbm_pipeline_find_lsp_resolution(&arr, &call, false);
+    ANIResolvedCallArray arr = {items, 4, 4};
+    ANICall call = make_call("proj.mod.caller", "B::foo");
+    const ANIResolvedCall *hit = ani_pipeline_find_lsp_resolution(&arr, &call, false);
     ASSERT_NULL(hit);
 
     /* The cross-caller high-confidence entry only matches its own caller. */
-    CBMCall other = make_call("proj.mod.other", "D::foo");
-    const CBMResolvedCall *other_hit = cbm_pipeline_find_lsp_resolution(&arr, &other, false);
+    ANICall other = make_call("proj.mod.other", "D::foo");
+    const ANIResolvedCall *other_hit = ani_pipeline_find_lsp_resolution(&arr, &other, false);
     ASSERT(other_hit != NULL);
     ASSERT(strcmp(other_hit->callee_qn, "proj.D.foo") == 0);
 
     /* A caller with no qualifying entry resolves to nothing (no widening can
      * manufacture an edge across callers). */
-    CBMCall absent = make_call("proj.mod.absent", "foo");
-    ASSERT(cbm_pipeline_find_lsp_resolution(&arr, &absent, false) == NULL);
+    ANICall absent = make_call("proj.mod.absent", "foo");
+    ASSERT(ani_pipeline_find_lsp_resolution(&arr, &absent, false) == NULL);
     PASS();
 }
 
 TEST(lsp_resolve_duplicate_exact_caller_rows_same_target_are_not_ambiguous) {
-    CBMCall call = make_call("proj.mod.caller", "receiver.render");
+    ANICall call = make_call("proj.mod.caller", "receiver.render");
     call.site_start_byte = 75;
     call.site_end_byte = 91;
-    CBMResolvedCall low = make_rc("proj.mod.caller", "proj.Alpha.render", 0.75f);
+    ANIResolvedCall low = make_rc("proj.mod.caller", "proj.Alpha.render", 0.75f);
     low.site_start_byte = call.site_start_byte;
     low.site_end_byte = call.site_end_byte;
-    CBMResolvedCall high = low;
+    ANIResolvedCall high = low;
     high.confidence = 0.95f;
-    CBMResolvedCall items[] = {low, high};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANIResolvedCall items[] = {low, high};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    ASSERT(cbm_pipeline_find_lsp_resolution(&arr, &call, false) == &items[1]);
+    ASSERT(ani_pipeline_find_lsp_resolution(&arr, &call, false) == &items[1]);
     PASS();
 }
 
 TEST(lsp_resolve_distinct_exact_caller_site_targets_are_ambiguous) {
-    CBMCall call = make_call("proj.mod.caller", "receiver.render");
+    ANICall call = make_call("proj.mod.caller", "receiver.render");
     call.site_start_byte = 92;
     call.site_end_byte = 108;
     call.requires_lsp_resolution = true;
-    CBMResolvedCall alpha = make_rc("proj.mod.caller", "proj.Alpha.render", 0.75f);
+    ANIResolvedCall alpha = make_rc("proj.mod.caller", "proj.Alpha.render", 0.75f);
     alpha.site_start_byte = call.site_start_byte;
     alpha.site_end_byte = call.site_end_byte;
-    CBMResolvedCall beta = make_rc("proj.mod.caller", "proj.Beta.render", 0.99f);
+    ANIResolvedCall beta = make_rc("proj.mod.caller", "proj.Beta.render", 0.99f);
     beta.site_start_byte = call.site_start_byte;
     beta.site_end_byte = call.site_end_byte;
-    CBMResolvedCall items[] = {alpha, beta};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANIResolvedCall items[] = {alpha, beta};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    ASSERT_NULL(cbm_pipeline_find_lsp_resolution(&arr, &call, false));
+    ASSERT_NULL(ani_pipeline_find_lsp_resolution(&arr, &call, false));
     PASS();
 }
 
@@ -3795,299 +3795,299 @@ TEST(lsp_resolve_distinct_exact_caller_site_targets_are_ambiguous) {
  * identity, decides whether those occurrence-identical rows conflict. */
 TEST(lsp_resolve_project_prefixed_duplicate_is_not_ambiguous) {
     const char *project = "proj";
-    cbm_gbuf_t *gbuf = cbm_gbuf_new(project, "/tmp");
+    ani_gbuf_t *gbuf = ani_gbuf_new(project, "/tmp");
     ASSERT_NOT_NULL(gbuf);
-    int64_t target_id = cbm_gbuf_upsert_node(gbuf, "Function", "handler",
+    int64_t target_id = ani_gbuf_upsert_node(gbuf, "Function", "handler",
                                              "proj.mod.Target.handler", "target.py", 1, 1, "{}");
     ASSERT_GT(target_id, 0);
 
-    CBMCall call = make_call("proj.mod.Caller.run", "handler");
+    ANICall call = make_call("proj.mod.Caller.run", "handler");
     call.site_start_byte = 110;
     call.site_end_byte = 119;
-    CBMResolvedCall raw = make_rc("proj.mod.Caller.run", "mod.Target.handler", 0.75f);
+    ANIResolvedCall raw = make_rc("proj.mod.Caller.run", "mod.Target.handler", 0.75f);
     raw.site_start_byte = call.site_start_byte;
     raw.site_end_byte = call.site_end_byte;
-    CBMResolvedCall prefixed =
+    ANIResolvedCall prefixed =
         make_rc("proj.mod.Caller.run", "proj.mod.Target.handler", 0.90f);
     prefixed.site_start_byte = call.site_start_byte;
     prefixed.site_end_byte = call.site_end_byte;
-    CBMResolvedCall items[] = {raw, prefixed};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANIResolvedCall items[] = {raw, prefixed};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    const CBMResolvedCall *hit =
-        cbm_pipeline_find_lsp_resolution_in_graph(&arr, &call, false, gbuf, project);
-    cbm_gbuf_free(gbuf);
+    const ANIResolvedCall *hit =
+        ani_pipeline_find_lsp_resolution_in_graph(&arr, &call, false, gbuf, project);
+    ani_gbuf_free(gbuf);
     ASSERT(hit == &items[1]);
     PASS();
 }
 
 TEST(lsp_resolve_project_prefix_spellings_stay_ambiguous_when_both_nodes_exist) {
     const char *project = "proj";
-    cbm_gbuf_t *gbuf = cbm_gbuf_new(project, "/tmp");
+    ani_gbuf_t *gbuf = ani_gbuf_new(project, "/tmp");
     ASSERT_NOT_NULL(gbuf);
-    int64_t raw_id = cbm_gbuf_upsert_node(gbuf, "Function", "handler", "mod.Target.handler",
+    int64_t raw_id = ani_gbuf_upsert_node(gbuf, "Function", "handler", "mod.Target.handler",
                                           "raw.py", 1, 1, "{}");
-    int64_t prefixed_id = cbm_gbuf_upsert_node(gbuf, "Function", "handler",
+    int64_t prefixed_id = ani_gbuf_upsert_node(gbuf, "Function", "handler",
                                                "proj.mod.Target.handler", "prefixed.py", 1, 1,
                                                "{}");
     ASSERT_GT(raw_id, 0);
     ASSERT_GT(prefixed_id, 0);
     ASSERT(raw_id != prefixed_id);
 
-    CBMCall call = make_call("proj.mod.Caller.run", "handler");
+    ANICall call = make_call("proj.mod.Caller.run", "handler");
     call.site_start_byte = 120;
     call.site_end_byte = 129;
-    CBMResolvedCall raw = make_rc("proj.mod.Caller.run", "mod.Target.handler", 0.75f);
+    ANIResolvedCall raw = make_rc("proj.mod.Caller.run", "mod.Target.handler", 0.75f);
     raw.site_start_byte = call.site_start_byte;
     raw.site_end_byte = call.site_end_byte;
-    CBMResolvedCall prefixed =
+    ANIResolvedCall prefixed =
         make_rc("proj.mod.Caller.run", "proj.mod.Target.handler", 0.90f);
     prefixed.site_start_byte = call.site_start_byte;
     prefixed.site_end_byte = call.site_end_byte;
-    CBMResolvedCall items[] = {raw, prefixed};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANIResolvedCall items[] = {raw, prefixed};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    const CBMResolvedCall *hit =
-        cbm_pipeline_find_lsp_resolution_in_graph(&arr, &call, false, gbuf, project);
-    cbm_gbuf_free(gbuf);
+    const ANIResolvedCall *hit =
+        ani_pipeline_find_lsp_resolution_in_graph(&arr, &call, false, gbuf, project);
+    ani_gbuf_free(gbuf);
     ASSERT_NULL(hit);
     PASS();
 }
 
 TEST(lsp_resolve_jvm_package_alias_of_materialized_target_is_not_ambiguous) {
     const char *project = "proj";
-    cbm_gbuf_t *gbuf = cbm_gbuf_new(project, "/tmp");
+    ani_gbuf_t *gbuf = ani_gbuf_new(project, "/tmp");
     ASSERT_NOT_NULL(gbuf);
     int64_t target_id =
-        cbm_gbuf_upsert_node(gbuf, "Method", "twice", "proj.Util.twice", "Util.java", 1, 1, "{}");
+        ani_gbuf_upsert_node(gbuf, "Method", "twice", "proj.Util.twice", "Util.java", 1, 1, "{}");
     ASSERT_GT(target_id, 0);
 
-    CBMCall call = make_call("proj.Client.run", "twice");
+    ANICall call = make_call("proj.Client.run", "twice");
     call.site_start_byte = 120;
     call.site_end_byte = 128;
-    CBMResolvedCall local = make_rc("proj.Client.run", "proj.Util.twice", 0.92f);
+    ANIResolvedCall local = make_rc("proj.Client.run", "proj.Util.twice", 0.92f);
     local.site_start_byte = call.site_start_byte;
     local.site_end_byte = call.site_end_byte;
-    CBMResolvedCall package = make_rc("proj.Client.run", "demo.Util.twice", 0.92f);
+    ANIResolvedCall package = make_rc("proj.Client.run", "demo.Util.twice", 0.92f);
     package.site_start_byte = call.site_start_byte;
     package.site_end_byte = call.site_end_byte;
-    CBMResolvedCall items[] = {local, package};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANIResolvedCall items[] = {local, package};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    const CBMResolvedCall *hit =
-        cbm_pipeline_find_lsp_resolution_in_graph(&arr, &call, true, gbuf, project);
-    cbm_gbuf_free(gbuf);
+    const ANIResolvedCall *hit =
+        ani_pipeline_find_lsp_resolution_in_graph(&arr, &call, true, gbuf, project);
+    ani_gbuf_free(gbuf);
     ASSERT_NOT_NULL(hit);
     PASS();
 }
 
 TEST(lsp_resolve_jvm_two_tail_only_packages_stay_ambiguous) {
     const char *project = "proj";
-    cbm_gbuf_t *gbuf = cbm_gbuf_new(project, "/tmp");
+    ani_gbuf_t *gbuf = ani_gbuf_new(project, "/tmp");
     ASSERT_NOT_NULL(gbuf);
-    int64_t target_id = cbm_gbuf_upsert_node(gbuf, "Method", "run", "proj.generated.Service.run",
+    int64_t target_id = ani_gbuf_upsert_node(gbuf, "Method", "run", "proj.generated.Service.run",
                                              "Service.java", 1, 1, "{}");
     ASSERT_GT(target_id, 0);
 
-    CBMCall call = make_call("proj.Client.call", "run");
+    ANICall call = make_call("proj.Client.call", "run");
     call.site_start_byte = 130;
     call.site_end_byte = 138;
-    CBMResolvedCall first = make_rc("proj.Client.call", "pkg1.Service.run", 0.80f);
+    ANIResolvedCall first = make_rc("proj.Client.call", "pkg1.Service.run", 0.80f);
     first.site_start_byte = call.site_start_byte;
     first.site_end_byte = call.site_end_byte;
-    CBMResolvedCall second = make_rc("proj.Client.call", "pkg2.Service.run", 0.90f);
+    ANIResolvedCall second = make_rc("proj.Client.call", "pkg2.Service.run", 0.90f);
     second.site_start_byte = call.site_start_byte;
     second.site_end_byte = call.site_end_byte;
-    CBMResolvedCall items[] = {first, second};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANIResolvedCall items[] = {first, second};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    const CBMResolvedCall *hit =
-        cbm_pipeline_find_lsp_resolution_in_graph(&arr, &call, true, gbuf, project);
-    cbm_gbuf_free(gbuf);
+    const ANIResolvedCall *hit =
+        ani_pipeline_find_lsp_resolution_in_graph(&arr, &call, true, gbuf, project);
+    ani_gbuf_free(gbuf);
     ASSERT_NULL(hit);
     PASS();
 }
 
 TEST(lsp_resolve_exact_site_beats_higher_confidence_legacy_record) {
-    CBMCall call = make_call("proj.mod.caller", "receiver.render");
+    ANICall call = make_call("proj.mod.caller", "receiver.render");
     call.site_start_byte = 100;
     call.site_end_byte = 117;
 
-    CBMResolvedCall exact = make_rc("proj.mod.caller", "proj.Alpha.render", 0.80f);
+    ANIResolvedCall exact = make_rc("proj.mod.caller", "proj.Alpha.render", 0.80f);
     exact.site_start_byte = call.site_start_byte;
     exact.site_end_byte = call.site_end_byte;
 
     /* A legacy resolver record has no occurrence span. Even with greater
      * confidence it must not override the semantic record for this exact
      * carrier occurrence. */
-    CBMResolvedCall legacy = make_rc("proj.mod.caller", "proj.Beta.render", 0.95f);
-    CBMResolvedCall items[] = {exact, legacy};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANIResolvedCall legacy = make_rc("proj.mod.caller", "proj.Beta.render", 0.95f);
+    ANIResolvedCall items[] = {exact, legacy};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    const CBMResolvedCall *hit = cbm_pipeline_find_lsp_resolution(&arr, &call, false);
+    const ANIResolvedCall *hit = ani_pipeline_find_lsp_resolution(&arr, &call, false);
     ASSERT(hit == &items[0]);
     ASSERT(strcmp(hit->callee_qn, "proj.Alpha.render") == 0);
     PASS();
 }
 
 TEST(lsp_resolve_exact_site_beats_equal_confidence_legacy_record) {
-    CBMCall call = make_call("proj.mod.caller", "receiver.render");
+    ANICall call = make_call("proj.mod.caller", "receiver.render");
     call.site_start_byte = 200;
     call.site_end_byte = 217;
 
     /* Put the legacy record first to prove equal-confidence selection is not
      * an array-order accident: occurrence exactness is the primary key. */
-    CBMResolvedCall legacy = make_rc("proj.mod.caller", "proj.Beta.render", 0.90f);
-    CBMResolvedCall exact = make_rc("proj.mod.caller", "proj.Alpha.render", 0.90f);
+    ANIResolvedCall legacy = make_rc("proj.mod.caller", "proj.Beta.render", 0.90f);
+    ANIResolvedCall exact = make_rc("proj.mod.caller", "proj.Alpha.render", 0.90f);
     exact.site_start_byte = call.site_start_byte;
     exact.site_end_byte = call.site_end_byte;
-    CBMResolvedCall items[] = {legacy, exact};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANIResolvedCall items[] = {legacy, exact};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    const CBMResolvedCall *hit = cbm_pipeline_find_lsp_resolution(&arr, &call, false);
+    const ANIResolvedCall *hit = ani_pipeline_find_lsp_resolution(&arr, &call, false);
     ASSERT(hit == &items[1]);
     ASSERT(strcmp(hit->callee_qn, "proj.Alpha.render") == 0);
     PASS();
 }
 
 TEST(lsp_resolve_malformed_span_is_not_legacy_compatible) {
-    CBMCall call = make_call("proj.mod.caller", "receiver.render");
+    ANICall call = make_call("proj.mod.caller", "receiver.render");
     call.site_start_byte = 300;
     call.site_end_byte = 317;
 
     /* A reversed/partial span is corrupt occurrence metadata, not a legacy
      * 0:0 record. It must be rejected even when it has greater confidence. */
-    CBMResolvedCall malformed = make_rc("proj.mod.caller", "proj.Wrong.render", 0.99f);
+    ANIResolvedCall malformed = make_rc("proj.mod.caller", "proj.Wrong.render", 0.99f);
     malformed.site_start_byte = 317;
     malformed.site_end_byte = 300;
-    CBMResolvedCall legacy = make_rc("proj.mod.caller", "proj.Legacy.render", 0.75f);
-    CBMResolvedCall items[] = {malformed, legacy};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANIResolvedCall legacy = make_rc("proj.mod.caller", "proj.Legacy.render", 0.75f);
+    ANIResolvedCall items[] = {malformed, legacy};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    const CBMResolvedCall *hit = cbm_pipeline_find_lsp_resolution(&arr, &call, false);
+    const ANIResolvedCall *hit = ani_pipeline_find_lsp_resolution(&arr, &call, false);
     ASSERT(hit == &items[1]);
     PASS();
 }
 
 TEST(lsp_resolve_below_floor_exact_does_not_block_legacy) {
-    CBMCall call = make_call("proj.mod.caller", "receiver.render");
+    ANICall call = make_call("proj.mod.caller", "receiver.render");
     call.site_start_byte = 400;
     call.site_end_byte = 417;
 
-    CBMResolvedCall below_floor = make_rc("proj.mod.caller", "proj.Exact.render", 0.55f);
+    ANIResolvedCall below_floor = make_rc("proj.mod.caller", "proj.Exact.render", 0.55f);
     below_floor.site_start_byte = call.site_start_byte;
     below_floor.site_end_byte = call.site_end_byte;
-    CBMResolvedCall legacy = make_rc("proj.mod.caller", "proj.Legacy.render", 0.70f);
-    CBMResolvedCall items[] = {below_floor, legacy};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANIResolvedCall legacy = make_rc("proj.mod.caller", "proj.Legacy.render", 0.70f);
+    ANIResolvedCall items[] = {below_floor, legacy};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    ASSERT(cbm_pipeline_find_lsp_resolution(&arr, &call, false) == &items[1]);
+    ASSERT(ani_pipeline_find_lsp_resolution(&arr, &call, false) == &items[1]);
     PASS();
 }
 
-static CBMCall make_tail_call(uint32_t start, uint32_t end) {
-    CBMCall call = make_call("proj.raw.Service.handle", "helper.run");
+static ANICall make_tail_call(uint32_t start, uint32_t end) {
+    ANICall call = make_call("proj.raw.Service.handle", "helper.run");
     call.site_start_byte = start;
     call.site_end_byte = end;
     return call;
 }
 
-static CBMResolvedCall make_tail_rc(const char *callee, float confidence, uint32_t start,
+static ANIResolvedCall make_tail_rc(const char *callee, float confidence, uint32_t start,
                                     uint32_t end) {
-    CBMResolvedCall resolved = make_rc("com.example.generated.Service.handle", callee, confidence);
+    ANIResolvedCall resolved = make_rc("com.example.generated.Service.handle", callee, confidence);
     resolved.site_start_byte = start;
     resolved.site_end_byte = end;
     return resolved;
 }
 
 TEST(lsp_tail_exact_site_beats_legacy_regardless_of_order) {
-    CBMCall call = make_tail_call(500, 512);
-    CBMResolvedCall exact = make_tail_rc("com.example.Alpha.run", 0.80f, 500, 512);
-    CBMResolvedCall legacy = make_tail_rc("com.example.Beta.run", 0.99f, 0, 0);
-    CBMResolvedCall exact_first[] = {exact, legacy};
-    CBMResolvedCall legacy_first[] = {legacy, exact};
-    CBMResolvedCallArray first = {exact_first, 2, 2};
-    CBMResolvedCallArray second = {legacy_first, 2, 2};
+    ANICall call = make_tail_call(500, 512);
+    ANIResolvedCall exact = make_tail_rc("com.example.Alpha.run", 0.80f, 500, 512);
+    ANIResolvedCall legacy = make_tail_rc("com.example.Beta.run", 0.99f, 0, 0);
+    ANIResolvedCall exact_first[] = {exact, legacy};
+    ANIResolvedCall legacy_first[] = {legacy, exact};
+    ANIResolvedCallArray first = {exact_first, 2, 2};
+    ANIResolvedCallArray second = {legacy_first, 2, 2};
 
-    ASSERT(cbm_pipeline_find_lsp_resolution(&first, &call, true) == &exact_first[0]);
-    ASSERT(cbm_pipeline_find_lsp_resolution(&second, &call, true) == &legacy_first[1]);
+    ASSERT(ani_pipeline_find_lsp_resolution(&first, &call, true) == &exact_first[0]);
+    ASSERT(ani_pipeline_find_lsp_resolution(&second, &call, true) == &legacy_first[1]);
     PASS();
 }
 
 TEST(lsp_tail_duplicate_exact_rows_same_target_are_not_ambiguous) {
-    CBMCall call = make_tail_call(600, 612);
-    CBMResolvedCall low = make_tail_rc("com.example.Helper.run", 0.75f, 600, 612);
-    CBMResolvedCall high = make_tail_rc("com.example.Helper.run", 0.90f, 600, 612);
-    CBMResolvedCall items[] = {low, high};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANICall call = make_tail_call(600, 612);
+    ANIResolvedCall low = make_tail_rc("com.example.Helper.run", 0.75f, 600, 612);
+    ANIResolvedCall high = make_tail_rc("com.example.Helper.run", 0.90f, 600, 612);
+    ANIResolvedCall items[] = {low, high};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    ASSERT(cbm_pipeline_find_lsp_resolution(&arr, &call, true) == &items[1]);
+    ASSERT(ani_pipeline_find_lsp_resolution(&arr, &call, true) == &items[1]);
     PASS();
 }
 
 TEST(lsp_tail_distinct_exact_targets_are_ambiguous) {
-    CBMCall call = make_tail_call(700, 712);
-    CBMResolvedCall alpha = make_tail_rc("com.example.Alpha.run", 0.75f, 700, 712);
-    CBMResolvedCall beta = make_tail_rc("com.example.Beta.run", 0.99f, 700, 712);
-    CBMResolvedCall items[] = {alpha, beta};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANICall call = make_tail_call(700, 712);
+    ANIResolvedCall alpha = make_tail_rc("com.example.Alpha.run", 0.75f, 700, 712);
+    ANIResolvedCall beta = make_tail_rc("com.example.Beta.run", 0.99f, 700, 712);
+    ANIResolvedCall items[] = {alpha, beta};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    ASSERT_NULL(cbm_pipeline_find_lsp_resolution(&arr, &call, true));
+    ASSERT_NULL(ani_pipeline_find_lsp_resolution(&arr, &call, true));
     PASS();
 }
 
 TEST(lsp_tail_duplicate_legacy_rows_same_target_are_not_ambiguous) {
-    CBMCall call = make_tail_call(800, 812);
-    CBMResolvedCall low = make_tail_rc("com.example.Helper.run", 0.75f, 0, 0);
-    CBMResolvedCall high = make_tail_rc("com.example.Helper.run", 0.90f, 0, 0);
-    CBMResolvedCall items[] = {low, high};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANICall call = make_tail_call(800, 812);
+    ANIResolvedCall low = make_tail_rc("com.example.Helper.run", 0.75f, 0, 0);
+    ANIResolvedCall high = make_tail_rc("com.example.Helper.run", 0.90f, 0, 0);
+    ANIResolvedCall items[] = {low, high};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    ASSERT(cbm_pipeline_find_lsp_resolution(&arr, &call, true) == &items[1]);
+    ASSERT(ani_pipeline_find_lsp_resolution(&arr, &call, true) == &items[1]);
     PASS();
 }
 
 TEST(lsp_tail_distinct_legacy_targets_are_ambiguous) {
-    CBMCall call = make_tail_call(900, 912);
-    CBMResolvedCall alpha = make_tail_rc("com.example.Alpha.run", 0.75f, 0, 0);
-    CBMResolvedCall beta = make_tail_rc("com.example.Beta.run", 0.99f, 0, 0);
-    CBMResolvedCall items[] = {alpha, beta};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANICall call = make_tail_call(900, 912);
+    ANIResolvedCall alpha = make_tail_rc("com.example.Alpha.run", 0.75f, 0, 0);
+    ANIResolvedCall beta = make_tail_rc("com.example.Beta.run", 0.99f, 0, 0);
+    ANIResolvedCall items[] = {alpha, beta};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    ASSERT_NULL(cbm_pipeline_find_lsp_resolution(&arr, &call, true));
+    ASSERT_NULL(ani_pipeline_find_lsp_resolution(&arr, &call, true));
     PASS();
 }
 
-static CBMUsage make_reference_usage(const char *caller, const char *name, uint32_t start,
+static ANIUsage make_reference_usage(const char *caller, const char *name, uint32_t start,
                                      uint32_t end) {
-    CBMUsage usage = {0};
+    ANIUsage usage = {0};
     usage.enclosing_func_qn = caller;
     usage.ref_name = name;
-    usage.kind = CBM_USAGE_CALL_REFERENCE;
+    usage.kind = ANI_USAGE_CALL_REFERENCE;
     usage.site_start_byte = start;
     usage.site_end_byte = end;
     return usage;
 }
 
-static CBMResolvedCall make_reference_rc(const char *caller, const char *callee, float confidence,
+static ANIResolvedCall make_reference_rc(const char *caller, const char *callee, float confidence,
                                          uint32_t start, uint32_t end) {
-    CBMResolvedCall resolved = make_rc(caller, callee, confidence);
-    resolved.kind = CBM_RESOLVED_CALL_REFERENCE;
+    ANIResolvedCall resolved = make_rc(caller, callee, confidence);
+    resolved.kind = ANI_RESOLVED_CALL_REFERENCE;
     resolved.site_start_byte = start;
     resolved.site_end_byte = end;
     return resolved;
 }
 
 TEST(lsp_reference_duplicate_exact_rows_same_target_are_not_ambiguous) {
-    CBMUsage usage = make_reference_usage("proj.mod.Caller.run", "handler", 1000, 1007);
-    CBMResolvedCall low =
+    ANIUsage usage = make_reference_usage("proj.mod.Caller.run", "handler", 1000, 1007);
+    ANIResolvedCall low =
         make_reference_rc("proj.mod.Caller.run", "proj.Target.handler", 0.75f, 1000, 1007);
-    CBMResolvedCall high =
+    ANIResolvedCall high =
         make_reference_rc("proj.mod.Caller.run", "proj.Target.handler", 0.90f, 1000, 1007);
-    CBMResolvedCall items[] = {low, high};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANIResolvedCall items[] = {low, high};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    ASSERT(cbm_pipeline_find_lsp_reference(&arr, &usage, false) == &items[1]);
+    ASSERT(ani_pipeline_find_lsp_reference(&arr, &usage, false) == &items[1]);
     PASS();
 }
 
@@ -4097,57 +4097,57 @@ TEST(lsp_reference_duplicate_exact_rows_same_target_are_not_ambiguous) {
  * ambiguity guard. */
 TEST(lsp_reference_project_prefixed_duplicate_is_not_ambiguous) {
     const char *project = "proj";
-    cbm_gbuf_t *gbuf = cbm_gbuf_new(project, "/tmp");
+    ani_gbuf_t *gbuf = ani_gbuf_new(project, "/tmp");
     ASSERT_NOT_NULL(gbuf);
-    int64_t target_id = cbm_gbuf_upsert_node(gbuf, "Function", "handler", "proj.mod.Target.handler",
+    int64_t target_id = ani_gbuf_upsert_node(gbuf, "Function", "handler", "proj.mod.Target.handler",
                                              "target.go", 1, 1, "{}");
     ASSERT_GT(target_id, 0);
-    const cbm_gbuf_node_t *raw_target =
-        cbm_pipeline_lsp_target_node(gbuf, project, "mod.Target.handler", false);
-    const cbm_gbuf_node_t *prefixed_target =
-        cbm_pipeline_lsp_target_node(gbuf, project, "proj.mod.Target.handler", false);
+    const ani_gbuf_node_t *raw_target =
+        ani_pipeline_lsp_target_node(gbuf, project, "mod.Target.handler", false);
+    const ani_gbuf_node_t *prefixed_target =
+        ani_pipeline_lsp_target_node(gbuf, project, "proj.mod.Target.handler", false);
     ASSERT_NOT_NULL(raw_target);
     ASSERT_NOT_NULL(prefixed_target);
     ASSERT_EQ(raw_target->id, prefixed_target->id);
 
-    CBMUsage usage = make_reference_usage("proj.mod.Caller.run", "handler", 1050, 1057);
-    CBMResolvedCall raw =
+    ANIUsage usage = make_reference_usage("proj.mod.Caller.run", "handler", 1050, 1057);
+    ANIResolvedCall raw =
         make_reference_rc("proj.mod.Caller.run", "mod.Target.handler", 0.75f, 1050, 1057);
-    CBMResolvedCall prefixed =
+    ANIResolvedCall prefixed =
         make_reference_rc("proj.mod.Caller.run", "proj.mod.Target.handler", 0.90f, 1050, 1057);
-    CBMResolvedCall items[] = {raw, prefixed};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANIResolvedCall items[] = {raw, prefixed};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    const CBMResolvedCall *hit =
-        cbm_pipeline_find_lsp_reference_in_graph(&arr, &usage, false, gbuf, project);
-    cbm_gbuf_free(gbuf);
+    const ANIResolvedCall *hit =
+        ani_pipeline_find_lsp_reference_in_graph(&arr, &usage, false, gbuf, project);
+    ani_gbuf_free(gbuf);
     ASSERT(hit == &items[1]);
     PASS();
 }
 
 TEST(lsp_reference_project_prefix_spellings_stay_ambiguous_when_both_nodes_exist) {
     const char *project = "proj";
-    cbm_gbuf_t *gbuf = cbm_gbuf_new(project, "/tmp");
+    ani_gbuf_t *gbuf = ani_gbuf_new(project, "/tmp");
     ASSERT_NOT_NULL(gbuf);
-    int64_t raw_id = cbm_gbuf_upsert_node(gbuf, "Function", "handler", "mod.Target.handler",
+    int64_t raw_id = ani_gbuf_upsert_node(gbuf, "Function", "handler", "mod.Target.handler",
                                           "raw.go", 1, 1, "{}");
-    int64_t prefixed_id = cbm_gbuf_upsert_node(
+    int64_t prefixed_id = ani_gbuf_upsert_node(
         gbuf, "Function", "handler", "proj.mod.Target.handler", "prefixed.go", 1, 1, "{}");
     ASSERT_GT(raw_id, 0);
     ASSERT_GT(prefixed_id, 0);
     ASSERT(raw_id != prefixed_id);
 
-    CBMUsage usage = make_reference_usage("proj.mod.Caller.run", "handler", 1070, 1077);
-    CBMResolvedCall raw =
+    ANIUsage usage = make_reference_usage("proj.mod.Caller.run", "handler", 1070, 1077);
+    ANIResolvedCall raw =
         make_reference_rc("proj.mod.Caller.run", "mod.Target.handler", 0.75f, 1070, 1077);
-    CBMResolvedCall prefixed =
+    ANIResolvedCall prefixed =
         make_reference_rc("proj.mod.Caller.run", "proj.mod.Target.handler", 0.90f, 1070, 1077);
-    CBMResolvedCall items[] = {raw, prefixed};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANIResolvedCall items[] = {raw, prefixed};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    const CBMResolvedCall *hit =
-        cbm_pipeline_find_lsp_reference_in_graph(&arr, &usage, false, gbuf, project);
-    cbm_gbuf_free(gbuf);
+    const ANIResolvedCall *hit =
+        ani_pipeline_find_lsp_reference_in_graph(&arr, &usage, false, gbuf, project);
+    ani_gbuf_free(gbuf);
     ASSERT_NULL(hit);
     PASS();
 }
@@ -4160,33 +4160,33 @@ TEST(lsp_reference_project_prefix_spellings_stay_ambiguous_when_both_nodes_exist
  * confidence fabricate an exact CALL_REFERENCE instead of failing closed. */
 TEST(lsp_reference_jvm_distinct_packages_do_not_collapse_via_tail_node) {
     const char *project = "proj";
-    cbm_gbuf_t *gbuf = cbm_gbuf_new(project, "/tmp");
+    ani_gbuf_t *gbuf = ani_gbuf_new(project, "/tmp");
     ASSERT_NOT_NULL(gbuf);
-    int64_t materialized_id = cbm_gbuf_upsert_node(
+    int64_t materialized_id = ani_gbuf_upsert_node(
         gbuf, "Method", "handler", "proj.generated.Service.handler", "Service.kt", 1, 1, "{}");
     ASSERT_GT(materialized_id, 0);
 
-    CBMUsage usage = make_reference_usage("proj.consumer.Caller.run", "handler", 1080, 1087);
-    CBMResolvedCall pkg1 =
+    ANIUsage usage = make_reference_usage("proj.consumer.Caller.run", "handler", 1080, 1087);
+    ANIResolvedCall pkg1 =
         make_reference_rc("proj.consumer.Caller.run", "pkg1.Service.handler", 0.75f, 1080, 1087);
-    CBMResolvedCall pkg2 =
+    ANIResolvedCall pkg2 =
         make_reference_rc("proj.consumer.Caller.run", "pkg2.Service.handler", 0.90f, 1080, 1087);
-    CBMResolvedCall pkg1_first[] = {pkg1, pkg2};
-    CBMResolvedCall pkg2_first[] = {pkg2, pkg1};
-    CBMResolvedCallArray first = {pkg1_first, 2, 2};
-    CBMResolvedCallArray second = {pkg2_first, 2, 2};
+    ANIResolvedCall pkg1_first[] = {pkg1, pkg2};
+    ANIResolvedCall pkg2_first[] = {pkg2, pkg1};
+    ANIResolvedCallArray first = {pkg1_first, 2, 2};
+    ANIResolvedCallArray second = {pkg2_first, 2, 2};
 
-    const cbm_gbuf_node_t *pkg1_tail =
-        cbm_pipeline_lsp_target_node(gbuf, project, pkg1.callee_qn, true);
-    const cbm_gbuf_node_t *pkg2_tail =
-        cbm_pipeline_lsp_target_node(gbuf, project, pkg2.callee_qn, true);
+    const ani_gbuf_node_t *pkg1_tail =
+        ani_pipeline_lsp_target_node(gbuf, project, pkg1.callee_qn, true);
+    const ani_gbuf_node_t *pkg2_tail =
+        ani_pipeline_lsp_target_node(gbuf, project, pkg2.callee_qn, true);
     bool same_tail_node = pkg1_tail && pkg2_tail && pkg1_tail->id == materialized_id &&
                           pkg2_tail->id == materialized_id;
-    const CBMResolvedCall *first_hit =
-        cbm_pipeline_find_lsp_reference_in_graph(&first, &usage, true, gbuf, project);
-    const CBMResolvedCall *second_hit =
-        cbm_pipeline_find_lsp_reference_in_graph(&second, &usage, true, gbuf, project);
-    cbm_gbuf_free(gbuf);
+    const ANIResolvedCall *first_hit =
+        ani_pipeline_find_lsp_reference_in_graph(&first, &usage, true, gbuf, project);
+    const ANIResolvedCall *second_hit =
+        ani_pipeline_find_lsp_reference_in_graph(&second, &usage, true, gbuf, project);
+    ani_gbuf_free(gbuf);
 
     ASSERT_TRUE(same_tail_node);
     ASSERT_NULL(first_hit);
@@ -4195,18 +4195,18 @@ TEST(lsp_reference_jvm_distinct_packages_do_not_collapse_via_tail_node) {
 }
 
 TEST(lsp_reference_distinct_exact_targets_are_order_invariant) {
-    CBMUsage usage = make_reference_usage("proj.mod.Caller.run", "handler", 1100, 1107);
-    CBMResolvedCall alpha =
+    ANIUsage usage = make_reference_usage("proj.mod.Caller.run", "handler", 1100, 1107);
+    ANIResolvedCall alpha =
         make_reference_rc("proj.mod.Caller.run", "proj.Alpha.handler", 0.90f, 1100, 1107);
-    CBMResolvedCall beta =
+    ANIResolvedCall beta =
         make_reference_rc("proj.mod.Caller.run", "proj.Beta.handler", 0.90f, 1100, 1107);
-    CBMResolvedCall alpha_first[] = {alpha, beta};
-    CBMResolvedCall beta_first[] = {beta, alpha};
-    CBMResolvedCallArray first = {alpha_first, 2, 2};
-    CBMResolvedCallArray second = {beta_first, 2, 2};
+    ANIResolvedCall alpha_first[] = {alpha, beta};
+    ANIResolvedCall beta_first[] = {beta, alpha};
+    ANIResolvedCallArray first = {alpha_first, 2, 2};
+    ANIResolvedCallArray second = {beta_first, 2, 2};
 
-    const CBMResolvedCall *first_hit = cbm_pipeline_find_lsp_reference(&first, &usage, false);
-    const CBMResolvedCall *second_hit = cbm_pipeline_find_lsp_reference(&second, &usage, false);
+    const ANIResolvedCall *first_hit = ani_pipeline_find_lsp_reference(&first, &usage, false);
+    const ANIResolvedCall *second_hit = ani_pipeline_find_lsp_reference(&second, &usage, false);
     bool invariant = (!first_hit && !second_hit) ||
                      (first_hit && second_hit && first_hit->callee_qn && second_hit->callee_qn &&
                       strcmp(first_hit->callee_qn, second_hit->callee_qn) == 0);
@@ -4215,28 +4215,28 @@ TEST(lsp_reference_distinct_exact_targets_are_order_invariant) {
 }
 
 TEST(lsp_reference_duplicate_tail_rows_same_target_are_not_ambiguous) {
-    CBMUsage usage = make_reference_usage("proj.raw.Service.handle", "handler", 1200, 1207);
-    CBMResolvedCall low =
+    ANIUsage usage = make_reference_usage("proj.raw.Service.handle", "handler", 1200, 1207);
+    ANIResolvedCall low =
         make_reference_rc("com.generated.Service.handle", "com.Target.handler", 0.75f, 1200, 1207);
-    CBMResolvedCall high =
+    ANIResolvedCall high =
         make_reference_rc("com.generated.Service.handle", "com.Target.handler", 0.90f, 1200, 1207);
-    CBMResolvedCall items[] = {low, high};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANIResolvedCall items[] = {low, high};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    ASSERT(cbm_pipeline_find_lsp_reference(&arr, &usage, true) == &items[1]);
+    ASSERT(ani_pipeline_find_lsp_reference(&arr, &usage, true) == &items[1]);
     PASS();
 }
 
 TEST(lsp_reference_distinct_tail_targets_are_ambiguous) {
-    CBMUsage usage = make_reference_usage("proj.raw.Service.handle", "handler", 1300, 1307);
-    CBMResolvedCall alpha =
+    ANIUsage usage = make_reference_usage("proj.raw.Service.handle", "handler", 1300, 1307);
+    ANIResolvedCall alpha =
         make_reference_rc("com.generated.Service.handle", "com.Alpha.handler", 0.75f, 1300, 1307);
-    CBMResolvedCall beta =
+    ANIResolvedCall beta =
         make_reference_rc("com.generated.Service.handle", "com.Beta.handler", 0.99f, 1300, 1307);
-    CBMResolvedCall items[] = {alpha, beta};
-    CBMResolvedCallArray arr = {items, 2, 2};
+    ANIResolvedCall items[] = {alpha, beta};
+    ANIResolvedCallArray arr = {items, 2, 2};
 
-    ASSERT_NULL(cbm_pipeline_find_lsp_reference(&arr, &usage, true));
+    ASSERT_NULL(ani_pipeline_find_lsp_reference(&arr, &usage, true));
     PASS();
 }
 
@@ -4251,18 +4251,18 @@ TEST(lsp_target_node_supports_long_prefixed_qualified_name) {
     callee[CALLEE_LEN] = '\0';
     snprintf(qualified, strlen(project) + 1U + CALLEE_LEN + 1U, "%s.%s", project, callee);
 
-    cbm_gbuf_t *gbuf = cbm_gbuf_new(project, "/tmp");
+    ani_gbuf_t *gbuf = ani_gbuf_new(project, "/tmp");
     ASSERT_NOT_NULL(gbuf);
     int64_t id =
-        cbm_gbuf_upsert_node(gbuf, "Function", "target", qualified, "target.c", 1, 1, "{}");
+        ani_gbuf_upsert_node(gbuf, "Function", "target", qualified, "target.c", 1, 1, "{}");
     ASSERT_GT(id, 0);
-    const cbm_gbuf_node_t *found = cbm_pipeline_lsp_target_node(gbuf, project, callee, false);
+    const ani_gbuf_node_t *found = ani_pipeline_lsp_target_node(gbuf, project, callee, false);
     if (!found) {
         printf("  long target-QN diagnostic: project=%zu callee=%zu combined=%zu\n",
                strlen(project), strlen(callee), strlen(qualified));
     }
     bool same_node = found && found->id == id;
-    cbm_gbuf_free(gbuf);
+    ani_gbuf_free(gbuf);
     free(qualified);
     free(callee);
     ASSERT_TRUE(same_node);
@@ -4317,7 +4317,7 @@ SUITE(parallel) {
     RUN_TEST(parallel_lsp_index_exact_ambiguity_does_not_fall_through_to_legacy);
     RUN_TEST(parallel_lsp_long_exact_key_never_yields_legacy_target);
     RUN_TEST(parallel_lsp_exact_index_handles_repeated_synthetic_occurrences_without_linear_scan);
-#if defined(CBM_CALL_REFERENCE_LOOKUP_TEST_API) && CBM_CALL_REFERENCE_LOOKUP_TEST_API
+#if defined(ANI_CALL_REFERENCE_LOOKUP_TEST_API) && ANI_CALL_REFERENCE_LOOKUP_TEST_API
     RUN_TEST(parallel_call_reference_lookup_rows_grow_linearly);
 #endif
     RUN_TEST(parallel_tsx_local_component_shadow_has_no_false_call);
