@@ -1,0 +1,101 @@
+# Fork release pipeline — build all 8 targets and publish a GitHub release.
+#
+# Unlike the full release.yml (VirusTotal candidate scanning, npm, PyPI,
+# MCP registry), this workflow needs NO external secrets: it builds via the
+# reusable _build.yml with scan_candidates=false (stripped candidates are
+# selected as unscanned, exactly like a dry run) and publishes the release
+# assets with GITHUB_TOKEN only.
+#
+# If you later add VIRUS_TOTAL_SCANNER_API_KEY / NPM_TOKEN / PYPI_TOKEN as
+# repository secrets, prefer the full pipeline in release.yml instead.
+name: Release (fork)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. v0.10.9) — v-prefixed, immutable once published"
+        required: true
+        type: string
+      prerelease:
+        description: "Publish as a pre-release"
+        required: false
+        type: boolean
+        default: false
+      replace:
+        description: "Delete and re-publish the release + tag if it already exists"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Preflight: refuse malformed version input ───────────────────
+  # Installers fetch releases/download/v<version>/..., so the tag must be
+  # v-prefixed semver; a bare "0.10.9" would publish an unreachable release.
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Enforce v-prefixed semver version input
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          case "$VERSION" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::version must be v-prefixed semver (e.g. v0.10.9), got '$VERSION'"; exit 1 ;;
+          esac
+
+  # ── Build all 8 targets (reuses the reusable _build.yml) ─
+  # scan_candidates=false: no VirusTotal key needed; the stripped candidate
+  # is selected per target (the same unscanned path the dry run uses).
+  build:
+    needs: [preflight]
+    uses: ./.github/workflows/_build.yml
+    with:
+      version: ${{ inputs.version }}
+      scan_candidates: false
+      attest: false
+    secrets: inherit
+
+  # ── Publish GitHub release + assets ─────────────────────────────
+  publish:
+    needs: [build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download all packaged containers
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: binaries-*
+          path: dist
+          merge-multiple: true
+
+      - name: Build checksums.txt
+        run: |
+          cd dist
+          sha256sum *.tar.gz *.zip *.mcpb > checksums.txt
+          cat checksums.txt
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          REPLACE: ${{ inputs.replace }}
+        run: |
+          if [ "$REPLACE" = "true" ]; then
+            gh release delete "$VERSION" --yes || true
+            git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ":refs/tags/$VERSION" || true
+          fi
+          prerelease_flag=""
+          [ "$PRERELEASE" = "true" ] && prerelease_flag="--prerelease"
+          # gh release create also creates the annotated tag at the current
+          # main HEAD if it does not exist yet. --generate-notes writes the
+          # commit range since the previous release into the notes body.
+          gh release create "$VERSION" dist/* \
+            --title "ani $VERSION" \
+            --generate-notes \
+            $prerelease_flag

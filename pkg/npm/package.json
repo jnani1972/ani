@@ -1,0 +1,42 @@
+{
+  "name": "ani",
+  "version": "0.10.8",
+  "description": "Fast code intelligence for AI coding agents — installs a verified native runtime set",
+  "mcpName": "io.github.jnani1972/ani",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jnani1972/ani.git"
+  },
+  "homepage": "https://github.com/jnani1972/ani",
+  "bugs": {
+    "url": "https://github.com/jnani1972/ani/issues"
+  },
+  "keywords": [
+    "mcp",
+    "claude",
+    "code-intelligence",
+    "codebase",
+    "memory",
+    "ai",
+    "llm",
+    "tree-sitter"
+  ],
+  "bin": {
+    "ani": "./bin.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "postinstall": "node install.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": ["linux", "darwin", "win32"],
+  "cpu": ["x64", "arm64"],
+  "files": [
+    "bin.js",
+    "install.js",
+    "README.md"
+  ]
+}

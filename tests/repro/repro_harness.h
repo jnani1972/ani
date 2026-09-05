@@ -1,0 +1,195 @@
+/*
+ * repro_harness.h — Shared helpers for cross-file / store-level / crash bug
+ * reproductions (TIER A multi-file, TIER B crashes).
+ *
+ * Ported faithfully from the proven static harness in tests/test_lang_contract.c
+ * so cross-file repro files don't each re-derive it. Header-only (static inline)
+ * — each TU gets its own copy; no link conflicts. Include AFTER test_framework.h.
+ *
+ * Single-file extraction bugs do NOT need this — use ani_extract_file directly
+ * (see repro_extraction.c). Use this when the bug only appears once a fixture is
+ * indexed through the full production pipeline (CALLS/IMPORTS/HTTP_CALLS edges,
+ * cross-file/cross-package resolution, Route minting, dedup/upsert, etc.).
+ */
+#ifndef REPRO_HARNESS_H
+#define REPRO_HARNESS_H
+
+#include <foundation/compat.h>
+#include "test_helpers.h" /* th_rmtree */
+#include "ani.h"
+#include <mcp/mcp.h>
+#include <store/store.h>
+#include <pipeline/pipeline.h> /* ani_project_name_from_path */
+
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+#if !defined(_WIN32)
+#include <sys/wait.h> /* fork/waitpid crash isolation — POSIX only */
+#endif
+
+typedef struct {
+    char tmpdir[256];
+    char cachedir[256];
+    char dbpath[512];
+    char *project;
+    ani_mcp_server_t *srv;
+} RProj;
+
+typedef struct {
+    const char *name; /* relative filename, may include '/' for subdirs */
+    const char *content;
+} RFile;
+
+static inline void rh_to_fwd_slashes(char *p) {
+    for (; *p; p++) {
+        if (*p == '\\')
+            *p = '/';
+    }
+}
+
+/* Index lp->tmpdir (already populated) via the production index_repository flow
+ * and open the resulting graph DB (NULL on failure). */
+static inline ani_store_t *rh_open_indexed(RProj *lp) {
+    lp->project = ani_project_name_from_path(lp->tmpdir);
+    if (!lp->project)
+        return NULL;
+    if (!lp->cachedir[0]) {
+        snprintf(lp->cachedir, sizeof(lp->cachedir), "/tmp/ani_repro_cache_XXXXXX");
+        if (!ani_mkdtemp(lp->cachedir))
+            return NULL;
+        rh_to_fwd_slashes(lp->cachedir);
+    }
+    snprintf(lp->dbpath, sizeof(lp->dbpath), "%s/%s.db", lp->cachedir, lp->project);
+    unlink(lp->dbpath);
+
+    const char *prior_cache_dir = getenv("ANI_CACHE_DIR");
+    char *saved_cache_dir = prior_cache_dir ? ani_strdup(prior_cache_dir) : NULL;
+    ani_setenv("ANI_CACHE_DIR", lp->cachedir, 1);
+
+    ani_store_t *store = NULL;
+    lp->srv = ani_mcp_server_new(NULL);
+    if (lp->srv) {
+        char args[700];
+        snprintf(args, sizeof(args), "{\"repo_path\":\"%s\"}", lp->tmpdir);
+        char *resp = ani_mcp_handle_tool(lp->srv, "index_repository", args);
+        if (resp)
+            free(resp);
+        /* Repro consumers only inspect the graph. Keep this connection query-only
+         * so the harness does not mutate the publisher's sealed journal mode. */
+        store = ani_store_open_path_query(lp->dbpath);
+    }
+
+    if (saved_cache_dir) {
+        ani_setenv("ANI_CACHE_DIR", saved_cache_dir, 1);
+        free(saved_cache_dir);
+    } else {
+        ani_unsetenv("ANI_CACHE_DIR");
+    }
+    return store;
+}
+
+static inline void rh_cleanup(RProj *lp, ani_store_t *store);
+
+/* Write each fixture file into a fresh temp project, index it via the MCP
+ * production flow, and open the resulting graph DB. Returns store (NULL on fail). */
+static inline ani_store_t *rh_index_files(RProj *lp, const RFile *files, int nfiles) {
+    memset(lp, 0, sizeof(*lp));
+    snprintf(lp->tmpdir, sizeof(lp->tmpdir), "/tmp/ani_repro_XXXXXX");
+    if (!ani_mkdtemp(lp->tmpdir))
+        return NULL;
+    rh_to_fwd_slashes(lp->tmpdir);
+    for (int i = 0; i < nfiles; i++) {
+        char path[700];
+        snprintf(path, sizeof(path), "%s/%s", lp->tmpdir, files[i].name);
+        char *slash = strrchr(path, '/');
+        if (slash && slash > path + strlen(lp->tmpdir)) {
+            *slash = '\0';
+            ani_mkdir_p(path, 0755);
+            *slash = '/';
+        }
+        FILE *f = fopen(path, "wb"); /* binary: keep "\n" exact */
+        if (!f) {
+            rh_cleanup(lp, NULL);
+            return NULL;
+        }
+        fputs(files[i].content, f);
+        fclose(f);
+    }
+    ani_store_t *store = rh_open_indexed(lp);
+    if (!store) {
+        rh_cleanup(lp, NULL);
+    }
+    return store;
+}
+
+static inline ani_store_t *rh_index(RProj *lp, const char *filename, const char *content) {
+    RFile f = {filename, content};
+    return rh_index_files(lp, &f, 1);
+}
+
+static inline void rh_cleanup(RProj *lp, ani_store_t *store) {
+    if (store)
+        ani_store_close(store);
+    if (lp->srv) {
+        ani_mcp_server_free(lp->srv);
+        lp->srv = NULL;
+    }
+    free(lp->project);
+    lp->project = NULL;
+    th_rmtree(lp->tmpdir);
+    th_rmtree(lp->cachedir);
+    if (lp->dbpath[0]) {
+        unlink(lp->dbpath);
+        char wal[600], shm[600];
+        snprintf(wal, sizeof(wal), "%s-wal", lp->dbpath);
+        unlink(wal);
+        snprintf(shm, sizeof(shm), "%s-shm", lp->dbpath);
+        unlink(shm);
+    }
+}
+
+/* Count edges of a given type in the project graph. Returns -1 on query error. */
+static inline int rh_count_edges(ani_store_t *store, const char *project, const char *edge) {
+    return store ? ani_store_count_edges_by_type(store, project, edge) : -1;
+}
+
+/* Count nodes carrying `label`. Returns -1 on query error. */
+static inline int rh_count_label(ani_store_t *store, const char *project, const char *label) {
+    ani_node_t *nodes = NULL;
+    int count = 0;
+    if (ani_store_find_nodes_by_label(store, project, label, &nodes, &count) != ANI_STORE_OK)
+        return -1;
+    ani_store_free_nodes(nodes, count);
+    return count;
+}
+
+/* TIER B: returns true if ani_extract_file CRASHES (signal) on `content`.
+ * Runs in a forked child so the crash doesn't take down the repro runner. */
+static inline bool rh_extract_crashes(const char *content, ANILanguage lang, const char *relpath) {
+#if defined(_WIN32)
+    ANIFileResult *r =
+        ani_extract_file(content, (int)strlen(content), lang, "repro", relpath, 0, NULL, NULL);
+    if (r)
+        ani_free_result(r);
+    return false;
+#else
+    fflush(NULL);
+    pid_t pid = fork();
+    if (pid < 0)
+        return false;
+    if (pid == 0) {
+        ANIFileResult *r =
+            ani_extract_file(content, (int)strlen(content), lang, "repro", relpath, 0, NULL, NULL);
+        if (r)
+            ani_free_result(r);
+        _exit(0);
+    }
+    int status = 0;
+    (void)waitpid(pid, &status, 0);
+    return WIFSIGNALED(status);
+#endif
+}
+
+#endif /* REPRO_HARNESS_H */

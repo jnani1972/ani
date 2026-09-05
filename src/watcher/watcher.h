@@ -1,0 +1,105 @@
+/*
+ * watcher.h — File change watcher for auto-reindexing.
+ *
+ * Polls indexed projects for git changes (HEAD movement or dirty working tree)
+ * and triggers re-indexing via a callback. Uses adaptive polling intervals
+ * based on project size (5s base + 1s per 500 files, capped at 60s).
+ *
+ * Depends on: foundation, store (for project metadata)
+ */
+#ifndef ANI_WATCHER_H
+#define ANI_WATCHER_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+/* Forward declarations */
+typedef struct ani_store ani_store_t;
+
+/* ── Opaque handle ──────────────────────────────────────────────── */
+
+typedef struct ani_watcher ani_watcher_t;
+
+/* ── Index callback ─────────────────────────────────────────────── */
+
+/* Called when file changes are detected. Return 0 on success, a POSITIVE
+ * value when the reindex was skipped and should be retried on the next poll
+ * (e.g. another pipeline holds the lock), negative on error. Only a 0 return
+ * commits the watcher's change baselines — a skipped or failed reindex keeps
+ * the change pending so it is retried, never silently lost (#937).
+ * project_name: project identifier
+ * root_path: absolute path to the repository root */
+typedef int (*ani_index_fn)(const char *project_name, const char *root_path, void *user_data);
+
+/* Optional daemon coordination for destructive stale-root pruning. begin is
+ * non-blocking: a false result preserves the watch and retries on a later
+ * poll. A successful begin is paired with end. pruned is called after the
+ * physical watch and cached DB have been removed so the daemon can invalidate
+ * its logical subscriptions. All callbacks use the same borrowed context. */
+typedef bool (*ani_watcher_project_mutation_begin_fn)(void *context, const char *project);
+typedef void (*ani_watcher_project_mutation_end_fn)(void *context, const char *project);
+typedef void (*ani_watcher_project_pruned_fn)(void *context, const char *project);
+
+/* ── Lifecycle ──────────────────────────────────────────────────── */
+
+/* Create a new watcher. store is used for project metadata lookups.
+ * index_fn is called when file changes are detected.
+ * user_data is passed to index_fn. */
+ani_watcher_t *ani_watcher_new(ani_store_t *store, ani_index_fn index_fn, void *user_data);
+
+/* Free the watcher and all per-project state. NULL-safe.
+ * Precondition: ani_watcher_stop() + thread join must have completed. */
+void ani_watcher_free(ani_watcher_t *w);
+
+/* Install or clear daemon-owned stale-root coordination. Passing NULL for
+ * begin/end clears all callbacks. The setter waits for an in-flight prune
+ * callback to finish before returning. */
+void ani_watcher_set_project_mutation_guard(ani_watcher_t *w,
+                                            ani_watcher_project_mutation_begin_fn begin,
+                                            ani_watcher_project_mutation_end_fn end,
+                                            ani_watcher_project_pruned_fn pruned, void *context);
+
+/* ── Watch list management ──────────────────────────────────────── */
+
+/* Add a project to the watch list. root_path is copied. Returns true only when
+ * the physical registration exists (including an identical existing watch).
+ * A stopped watcher rejects new registrations. */
+bool ani_watcher_watch(ani_watcher_t *w, const char *project_name, const char *root_path);
+
+/* Remove a project from the watch list. Any not-yet-admitted callback in the
+ * current poll snapshot is invalidated before this function returns. */
+void ani_watcher_unwatch(ani_watcher_t *w, const char *project_name);
+
+/* Refresh a project's timestamp (resets adaptive backoff). */
+void ani_watcher_touch(ani_watcher_t *w, const char *project_name);
+
+/* ── Polling ────────────────────────────────────────────────────── */
+
+/* Run a single poll cycle — check each watched project for changes.
+ * Returns the number of projects that were reindexed. */
+int ani_watcher_poll_once(ani_watcher_t *w);
+
+/* Run the blocking poll loop. Polls every base_interval_ms until
+ * ani_watcher_stop() is called. Returns 0 on clean shutdown. */
+int ani_watcher_run(ani_watcher_t *w, int base_interval_ms);
+
+/* Request the run loop to stop (thread-safe). */
+void ani_watcher_stop(ani_watcher_t *w);
+
+/* ── Introspection (for testing) ────────────────────────────────── */
+
+/* Return the number of projects in the watch list. */
+int ani_watcher_watch_count(ani_watcher_t *w);
+
+/* Return the adaptive poll interval (ms) for a given file count. */
+int ani_watcher_poll_interval_ms(int file_count);
+
+/* Classify a stat() errno observed on a watched project root: returns true
+ * only for values that mean the root itself is gone (ENOENT, ENOTDIR) and
+ * may count toward stale-root pruning (#286). Any other failure (EACCES,
+ * EIO, transient mounts, macOS TCC revocation) must NOT count — the cached
+ * DB holds user-authored data and is unrecoverable once pruned. Exposed
+ * for direct unit testing with injected errno values. */
+bool ani_watcher_root_missing_errno(int err);
+
+#endif /* ANI_WATCHER_H */
